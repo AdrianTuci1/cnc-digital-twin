@@ -150,9 +150,10 @@ Verificat pe 2026-10-13, pe macOS arm64, în venv-ul proiectului (Python 3.14.6)
   ei de defect. Generatorul descrie deci rezultatul mașinării, nu piesa de intrare, iar piesa
   ajunge pe banda 2 la o rotație aleatoare, logată împreună cu cadrul de inspecție.
 - 2026-10-14: camera de inspecție nu poate sta la 0,25 m peste banda 2, cum spunea completarea de
-  mai sus. Măsurat în scenă, pe plaja articulațiilor, anvelopa brațelor urcă până la ~1,60 m
-  deasupra benzii: la 0,25 m capul optic ajungea la 0,012 m de brațul 1 și la −0,078 m de brațul 2,
-  adică se suprapunea. Acoperirea cerută rămâne aceeași (178 × 134 mm, ~3,6 px/mm la 640×480), dar
+  mai sus. Măsurat în scenă, pe plaja articulațiilor, geomele unui braț urcă peste axa benzii 2
+  până la ~1,63 m în lume, adică ~0,78 m peste suprafața benzii: la 0,25 m capul optic ajungea la
+  0,012 m de brațul 1 și la −0,078 m de brațul 2, iar chiar și la 1,60 m ar fi la −0,022 m, adică
+  se suprapunea. Acoperirea cerută rămâne aceeași (178 × 134 mm, ~3,6 px/mm la 640×480), dar
   se obține de la 0,85 m, cu un obiectiv de 9° în loc de 30°. Capul optic atârnă de o consolă
   prinsă de coloana sud-vest a mașinii și așezată pe capacul ei, iar punctul camerei din plan s-a
   mutat pe axa benzii 2, la mijlocul distanței dintre așezare și preluare. Detalii în

@@ -243,7 +243,7 @@ def reach_report(model: mujoco.MjModel, data: mujoco.MjData) -> list[dict[str, A
     """Distanța, în spațiu, de la baza reală a fiecărui braț la fiecare țintă a lui.
 
     Verificarea din plan măsoară doar în plan; aici se măsoară pe corpurile scenei compilate, ceea
-    ce prinde exact capcana semnalată în `docs/11-geaman-mujoco.md:120-122`: o țintă poate părea
+    ce prinde exact capcana semnalată în `docs/11-geaman-mujoco.md` §2: o țintă poate părea
     la îndemână în desen și să fie prea sus.
     """
     rows: list[dict[str, Any]] = []
@@ -318,7 +318,7 @@ def camera_clearance(model: mujoco.MjModel, data: mujoco.MjData, samples: int = 
                      seed: int = 20261014, distmax: float = 0.5) -> dict[str, Any]:
     """Cât de aproape ajunge camera de inspecție de fiecare braț, măsurat în scenă.
 
-    `docs/11-geaman-mujoco.md:120-122` lasă explicit verificarea asta pentru montaj: distanța mică
+    `docs/11-geaman-mujoco.md` §2 lasă explicit verificarea asta pentru montaj: distanța mică
     dintre axul brațului 2 și banda 2 nu se poate judeca din plan. Se eșantionează configurații în
     limitele articulațiilor fiecărui braț și se măsoară distanța minimă dintre geomele camerei și
     geomele brațului; se raportează și distanța la poziția nominală, singura pe care scena o

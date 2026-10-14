@@ -2,7 +2,7 @@
 
 Coordonatele ``(x, y)`` **nu** se transcriu aici. Se importă din ``docs/diagrams/cell_layout.py``,
 fiindcă acolo stă singura sursă de adevăr a desenului, iar `docs/diagrams/README.md` promite că
-planul și scena nu se pot contrazice. Înălțimile ``Z`` vin din `docs/11-geaman-mujoco.md:109-118`
+planul și scena nu se pot contrazice. Înălțimile ``Z`` vin din `docs/11-geaman-mujoco.md` §2, paragraful „Înălțimile propuse"
 și sunt trecute mai jos ca :data:`DOCUMENTED_HEIGHTS`, cu propoziția din documentație de care
 aparțin; testul din `tests/unit/test_mujoco_scene.py` verifică exact potrivirea.
 
@@ -44,27 +44,28 @@ ARM_REACH_M = float(ARMS[0]["reach"])
 
 # ------------------------------------------------------------------ înălțimile documentate
 
-#: Suprafața de lucru a benzilor: `docs/11-geaman-mujoco.md:109`.
+#: Suprafața de lucru a benzilor: `docs/11-geaman-mujoco.md` §2.
 BELT_SURFACE_Z = 0.85
-#: Masa mașinii CNC: `docs/11-geaman-mujoco.md:110`.
+#: Masa mașinii CNC: `docs/11-geaman-mujoco.md` §2.
 MACHINE_TABLE_Z = 0.75
-#: Capacul de protecție: `docs/11-geaman-mujoco.md:110`.
+#: Capacul de protecție: `docs/11-geaman-mujoco.md` §2.
 MACHINE_COVER_Z = 1.90
-#: Marginea de sus a cutiilor: `docs/11-geaman-mujoco.md:110`.
+#: Marginea de sus a cutiilor: `docs/11-geaman-mujoco.md` §2.
 BIN_RIM_Z = 0.35
-#: Baza brațelor, pe piedestal: `docs/11-geaman-mujoco.md:110-111`.
+#: Baza brațelor, pe piedestal: `docs/11-geaman-mujoco.md` §2.
 ARM_BASE_Z = 0.55
-#: Înălțimea documentată a camerelor, orientate în jos: `docs/11-geaman-mujoco.md:111`.
+#: Înălțimea documentată a camerelor, orientate în jos: `docs/11-geaman-mujoco.md` §2.
 #: Camera de inspecție a calității este singura excepție, deliberată: vezi mai jos
 #: :data:`INSPECTION_CAMERA_CLEARANCE_Z` și `README.md` pentru aritmetica din spate.
 CAMERA_Z = 2.20
 
 #: Cât stă camera de inspecție deasupra suprafeței benzii 2. La 2,20 m piesa de ~104 mm ar ocupa
 #: vreo 10 pixeli, iar cel mai mic defect din catalog are 2,5 mm, deci nicio clasă nu ar fi
-#: separabilă. Cota nu coboară însă sub anvelopa brațelor: măsurat în scenă, pe plaja
-#: articulațiilor, geomele unui braț ajung la ~1,60 m deasupra benzii 2, iar capul optic stă la
-#: 0,85 m (1,70 m în lume), cu 5 cm marjă până la brațul 2. Vezi `README.md`, „Camera de
-#: inspecție", și `view.py --check`.
+#: separabilă. Cota nu coboară însă sub anvelopa brațelor: măsurat în scenă pe plaja
+#: articulațiilor, geomele unui braț urcă acolo până la ~1,63 m în lume, adică ~0,78 m peste banda
+#: 2. Cu capul optic la 1,60 m, golul minim măsurat pe 2000 de configurații este −0,022 m (adică
+#: suprapunere); la cota de față, 1,70 m, cel mai mic gol este +0,034 m. Vezi `README.md`,
+#: „Camera de inspecție", și `view.py --check`.
 INSPECTION_CAMERA_CLEARANCE_Z = 0.85
 
 #: Câmpul vizual vertical al camerei de inspecție, în grade. De la 0,85 m, 9° acoperă tot
@@ -74,7 +75,7 @@ INSPECTION_CAMERA_CLEARANCE_Z = 0.85
 INSPECTION_CAMERA_FOVY = 9.0
 
 #: Rezoluția cadrelor de inspecție: cerută explicit de planul aprobat, în locul implicitului
-#: 160x120 din `docs/11-geaman-mujoco.md:53`.
+#: 160x120 din `docs/11-geaman-mujoco.md` §2.
 INSPECTION_CAMERA_FRAME = (640, 480)
 
 
@@ -186,7 +187,7 @@ def target_z(name: str) -> float:
     """Cota punctului de prindere, din înălțimile documentate.
 
     Planul dă doar desenul de sus, deci cota fiecărei ținte o fixează scena: benzile se prind de
-    pe suprafața lor de lucru, cutiile la marginea de sus (`docs/11-geaman-mujoco.md:110`), iar
+    pe suprafața lor de lucru, cutiile la marginea de sus (`docs/11-geaman-mujoco.md` §2), iar
     dispozitivul mașinii la înălțimea universalului, pe masa mașinii.
     """
     if name in ("belt1_pick", "belt2_drop", "belt2_pick"):
@@ -201,7 +202,7 @@ def target_z(name: str) -> float:
 def target_distance(name: str) -> float:
     """Distanța în spațiu, în metri, de la baza brațului la ținta lui.
 
-    Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md:120-122` spune explicit că o țintă
+    Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md` §2 spune explicit că o țintă
     poate părea la îndemână în desen și să fie prea sus. Verificarea de aici este cea în spațiu,
     făcută din cifrele planului; cea pe corpurile reale ale scenei compilate o face
     `view.py --check`.
@@ -359,7 +360,7 @@ def bin_geometry(key: str, item: Mapping[str, Any]) -> dict[str, float]:
 
 
 def inspection_camera_z(belt_surface_z: float = BELT_SURFACE_Z) -> float:
-    """Cota centrului optic al camerei de inspecție: 0,25 m deasupra suprafeței benzii 2."""
+    """Cota centrului optic al camerei de inspecție: 0,85 m deasupra suprafeței benzii 2."""
     return belt_surface_z + INSPECTION_CAMERA_CLEARANCE_Z
 
 
@@ -390,7 +391,7 @@ def camera_geometry(camera_z: float | None = None) -> dict[str, float]:
     Axul optic stă la punctul camerei din plan (`cell_layout.CAMERAS[0]`), iar consola se prinde
     de colțul sud-vest al mașinii și se așază pe capacul ei, care este și cota de montaj. Capul
     optic nu poate sta chiar la punctul din plan: o cameră care privește în jos trebuie să fie
-    deasupra subiectului ei, iar deasupra benzii 2 anvelopa brațelor urcă până la ~1,60 m.
+    deasupra subiectului ei, iar acolo, peste axa benzii 2, brațele urcă până la ~1,63 m în lume.
     Consola ocolește anvelopa pe la 1,90 m, iar tija coboară numai cât să iasă în câmp piesa.
     Cota capului optic este parametru, nu constantă.
     """
@@ -469,7 +470,7 @@ def cell_geometry() -> dict[str, float]:
 def scene_geometry(camera_z: float | None = None) -> dict[str, float]:
     """Toate cifrele pe care `scene/cell.xml` le primește ca valori de substituție.
 
-    ``camera_z`` este parametrul camerei de inspecție: implicit 0,25 m deasupra benzii, dar se
+    ``camera_z`` este parametrul camerei de inspecție: implicit 0,85 m deasupra benzii, dar se
     poate muta fără să atingă niciun alt element al scenei.
     """
     values: dict[str, float] = {}

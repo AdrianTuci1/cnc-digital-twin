@@ -18,6 +18,7 @@ Acest document descrie regulile de lucru în repository. Citiți-l înainte de a
 | `infra/terraform/stacks/<nume>` | Compoziție: cheamă module, fixează valorile de mediu. Aici se adaugă resurse noi, nu în module. `access` și `sim` au state local, `platform` are backend S3. |
 | `simulation/extensions/` | Extensia Isaac Sim (Python, Kit). Se validează doar rulând în Isaac Sim. |
 | `simulation/extensions/cncdt.cnc_cell/cncdt/cnc_cell/parts/` | Generatorul procedural de piese și manifestul de etichete. Modul pur (numpy + mapbox-earcut), testat fără Isaac Sim. |
+| `simulation/mujoco/` | Al doilea geamăn al celulei, pe MuJoCo (ADR 0012). Venv propriu, ignorat de git: `make mj-venv`; scena se validează cu `make mj-check`, testele care ating motorul cu `make mj-test`. `layout.py`, `part.py` și `checks.py` rămân pure, ca `make test` să ruleze fără `mujoco`. |
 | `lambdas/<nume>/handler.py` | Punctul de intrare Lambda. Logica pură (fără boto3) stă într-un modul `*_core.py` cu nume unic (`core.py` este deja folosit de feature engineering), ca să fie testabilă. |
 | `ml/src/cncdt_ml/` | Cod comun partajat de Lambda, feature engineering și antrenare. Contractul de date stă în `schema.py`. |
 | `ml/feature_engineering/` | Data Wrangler: rețeta generată din cod, fluxurile exportate, `run_flow.py`, `build_features.py`. |
@@ -61,6 +62,7 @@ make tf-fmt && make tf-validate
 make test
 # prima dată într-un cont: make access-up (cu identitatea de admin)
 # apoi, în fiecare sesiune de lucru: eval "$(./scripts/assume-operator.sh)"
+# pentru schimbări la geamănul MuJoCo: make mj-venv (o dată), apoi make mj-check și make mj-test
 # pentru schimbări de feature engineering: make features-verify
 # pentru schimbări de UI/streaming: make sim-up && verificare în browser
 # pentru interfața grafică a instanței: make sim-dcv OPEN=1 (https://localhost:8443/)

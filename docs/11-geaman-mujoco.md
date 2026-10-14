@@ -74,8 +74,10 @@ acoperă 178 × 134 mm la nivelul benzii — destul ca un dinte ciobit de 4 mm s
 și o gaură dezaxată cu 2,5 mm pe ~9. Sub ~0,3 mm nu se mai măsoară nimic, iar blurul din
 secțiunea 3 se adaugă peste.
 
-De ce nu mai jos: deasupra benzii 2 anvelopa brațelor urcă până la ~1,60 m, măsurat în scenă pe
-plaja articulațiilor, iar capul optic stă deasupra ei, la 1,70 m, pe o consolă prinsă de mașină.
+De ce nu mai jos: pe plaja articulațiilor, geomele unui braț urcă peste axa benzii 2 până la
+~1,63 m în lume, adică ~0,78 m peste suprafața benzii, iar capul optic stă deasupra lor, la
+1,70 m, pe o consolă prinsă de mașină. Cu capul la 1,60 m golul minim față de brațul 2 ar fi
+−0,022 m, adică suprapunere; la 1,70 m este +0,034 m, măsurat pe 2000 de configurații.
 Înălțimea camerelor este parametru, nu o constantă comună, iar intrinsics-urile camerei de
 inspecție — înălțime, câmp vizual, rezoluție — se scriu în `simulation/mujoco/README.md`,
 împreună cu ce poate și ce nu poate rezolva. Legătura cu uzura: degradarea camerei din secțiunea 3 aplică blur proporțional cu
@@ -330,7 +332,7 @@ simulation/mujoco/cncdt_mj/  # de scris, în fazele 1-5
   control.py                # REPL, endpoint local, punte către viewer
   run.py                    # punctul de intrare: sesiune, scenariu, sămânță, ieșire
 tests/unit/
-  test_mujoco_scene.py      # de scris: layout/part fără MuJoCo, înălțimile față de acest document
+  test_mujoco_scene.py      # există: layout/part/checks fără MuJoCo, înălțimile față de acest document, camera de inspecție; partea care atinge motorul se rulează cu `make mj-test`
   test_mj_wear.py           # non-liniaritate, monotonie, mărginire, reproductibilitate
   test_mj_telemetry.py      # conformitate cu contractul, ferestre, partiții
   test_mj_detector.py       # prag, alarmă susținută, preaviz pe episod sintetic
@@ -361,10 +363,10 @@ importă din `.venv`-ul proiectului, unde `mujoco` nu există.
 | 6 | (opțional) SageMaker RCF + card de model | antrenare din ferestrele exportate, card în `ml/models/`, cost justificat în PR |
 
 Starea de azi: din faza 2 există partea de scenă — `layout.py`, `part.py`, `checks.py`, `scene.py`,
-`scene/cell.xml` și `view.py`, verificate cu `view.py --check`, care este verde — dar **criteriul
-nu este atins**: `belt.py`, `cell.py` și `run.py` lipsesc, deci ciclul complet și „fără piese
-pierdute în geometrie" nu se pot dovedi. Testele geamănului (`tests/unit/test_mujoco_scene.py`) sunt
-și ele de scris.
+`scene/cell.xml` și `view.py`, verificate cu `view.py --check`, care este verde, plus testele
+geamănului, `tests/unit/test_mujoco_scene.py` — dar **criteriul nu este atins**: `belt.py`,
+`cell.py` și `run.py` lipsesc, deci ciclul complet și „fără piese pierdute în geometrie" nu se pot
+dovedi.
 
 Fiecare fază se poate opri fără să lase ceva rupt: faza 1 nu are dependențe de MuJoCo, faza 2 nu
 atinge contractele publicate.

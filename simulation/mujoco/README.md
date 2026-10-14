@@ -23,6 +23,18 @@ Verificat pe macOS arm64, Python 3.14.6, `mujoco==3.15.0`, `mujoco-menagerie==20
 
 ## Comenzi
 
+Din rădăcina repo-ului, țintele Makefile acoperă tot ce se rulează des:
+
+```bash
+make mj-venv     # o singură dată: creează venv-ul geamănului și instalează requirements.txt
+make mj-check    # poarta: compilează scena, măsoară, raportează; iese cu 1 dacă ceva cade
+make mj-test     # testele geamănului care ating motorul, din venv-ul lui
+make mj-render   # scrie renders/cell.png și renders/inspection.png
+make mj-check MJ_SAMPLES=2000   # degajarea camerei, pe mai multe configurații de braț
+```
+
+Fără Makefile, aceleași lucruri se scriu direct:
+
 ```bash
 MUJOCO=simulation/mujoco/.venv/bin/python
 
@@ -45,13 +57,17 @@ opțiunilor: `--steps`, `--samples` (configurații de braț eșantionate la dega
 `--seed`, `--defect`, `--blank-shape`, `--blank-x`/`--blank-y`, `--blank-yaw-deg`,
 `--part-yaw-deg`, `--camera-z`, `--width`, `--height`.
 
+Suita proiectului (`make test`) rulează fără `mujoco` și include partea pură a testelor
+geamănului, `tests/unit/test_mujoco_scene.py`; testul care atinge scena se sare acolo și se
+rulează cu `make mj-test`, din venv-ul care are motorul.
+
 ## Structură
 
 | Fișier | Ce conține |
 | --- | --- |
 | `cncdt_mj/layout.py` | Așezarea în plan și înălțimile. Coordonatele `(x, y)` **nu** se transcriu: se importă din `docs/diagrams/cell_layout.py`, ca planul și scena să nu se poată contrazice. Înălțimile `Z` se scriu aici, cu fragmentul din documentație de care aparțin. **Fără MuJoCo.** |
 | `cncdt_mj/part.py` | Cele două stări ale materialului: blocul brut (disc cu adaos de prelucrare) și roata dințată din generator. Geometria iese în milimetri, în planul `XY`, cu grosimea pe `Z`; se scalează în metri. **Fără MuJoCo.** |
-| `cncdt_mj/checks.py` | Regulile verificării care lucrează pe nume de corpuri și pe cifre, nu pe starea motorului (de pildă care contacte ale unui braț sunt normale). **Fără MuJoCo.** |
+| `cncdt_mj/checks.py` | Regulile verificării care lucrează pe nume de corpuri și pe cifre, nu pe starea motorului (de pildă care contacte ale unui braț sunt normale), plus pragurile verificării, împărțite cu `view.py`. **Fără MuJoCo.** |
 | `cncdt_mj/scene.py` | Compunerea scenei: `scene/cell.xml` plus cele două brațe atașate programatic. Singurul modul care importă `mujoco`. |
 | `scene/cell.xml` | Șablonul celulei. Cifrele nu stau în el: se pun prin substituție, din `layout.scene_geometry()`. |
 | `view.py` | Cele trei moduri: `--check`, `--render`, `--view`. |
@@ -101,18 +117,22 @@ cel mai mic defect din catalog — o gaură dezaxată cu 2,5 mm — ar cădea su
 clasă de defect nu ar fi separabilă. La 0,85 m, un dinte ciobit de 4 mm iese pe ~14 pixeli și
 dezaxarea de 2,5 mm pe ~9.
 
-**De ce nu mai jos**: anvelopa brațelor deasupra benzii 2 urcă până la ~1,60 m, măsurat în scenă pe
-plaja articulațiilor (eșantionare uniformă, 2000 de configurații). Un cap optic la 0,25 m peste
-bandă, cum spunea prima variantă, intra în ea: 0,012 m față de brațul 1 și −0,078 m față de
-brațul 2, adică suprapunere. Capul a urcat peste anvelopă, iar obiectivul s-a îngustat de la 30° la
-9° ca acoperirea — deci rezoluția pe piesă — să rămână aceeași.
+**De ce nu mai jos**: pe plaja articulațiilor, geomele unui braț urcă peste axa benzii 2 până la
+~1,63 m în lume, adică ~0,78 m peste suprafața benzii (eșantionare uniformă, 2000 de
+configurații). Cu capul optic la 1,60 m, golul minim față de brațul 2 este −0,022 m, iar la
+1,50 m, −0,071 m: capul ar fi înăuntrul brațelor. Un cap optic la 0,25 m peste bandă, cum spunea
+prima variantă, chiar intra în ele: 0,012 m față de brațul 1 și −0,078 m față de brațul 2. Capul a
+urcat peste anvelopă, iar obiectivul s-a îngustat de la 30° la 9° ca acoperirea — deci rezoluția pe
+piesă — să rămână aceeași.
 
 **Cum stă**: consola camerei se prinde de colțul sud-vest al mașinii CNC și se așază pe capacul ei,
 la 1,90 m; de capătul ei atârnă capul optic pe o tijă subțire, până la 1,70 m. Anvelopa brațelor
-rămâne dedesubt: cea mai mică distanță măsurată este 0,138 m (brațul 1) și 0,052 m (brațul 2).
-Capul optic nu poate sta chiar în punctul camerei din plan: o cameră care privește în jos trebuie
-să fie deasupra subiectului ei, iar capul stă deasupra axei benzii 2, la mijlocul distanței dintre
-locul de așezare (x=3,4) și cel de preluare (x=2,7).
+rămâne dedesubt: cea mai mică distanță măsurată este 0,138 m (brațul 1) și 0,052 m (brațul 2) la
+eșantionarea implicită a verificării, 200 de configurații; la 2000 de configurații coboară la
+0,057 m și 0,034 m, tot peste pragul de 0,02 m. Capul optic nu poate sta chiar în punctul camerei
+din plan: o cameră care privește în jos trebuie să fie deasupra subiectului ei, iar capul stă
+deasupra axei benzii 2, la mijlocul distanței dintre locul de așezare (x=3,4) și cel de preluare
+(x=2,7).
 
 **Axa de privire**: camerele MuJoCo privesc de-a lungul axei lor locale **−Z**, nu +Z (verificat cu
 o scenă de probă: două cutii, una deasupra și una dedesubt). Prima variantă întorcea camera cu
@@ -153,13 +173,11 @@ camerei de inspecție a fost corectată (privea spre cer).
 
 Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
 
-1. **`tests/unit/test_mujoco_scene.py` nu există încă.** El trebuie să verifice, în `.venv`-ul
-   proiectului, că `layout`, `part` și `checks` se importă fără `mujoco`, că înălțimile din
-   `layout.DOCUMENTED_HEIGHTS` se potrivesc cu propozițiile din `docs/11-geaman-mujoco.md` și că
-   regula de contact a brațelor face ce spune; partea care atinge scena se sare cu
-   `pytest.importorskip("mujoco")`.
-2. **Nicio țintă Makefile pentru venv-ul geamănului.** `--check` și `--render` se rulează astăzi
-   scriind calea venviului de mână; ar merita `make mj-check` / `make mj-render`.
-3. **Faza 2 nu e terminată.** Din ea există scena, dar lipsesc `belt.py`, `cell.py` și `run.py`,
-   deci ciclul complet (bandă 1 → braț 1 → CNC → braț 1 → bandă 2 → braț 2 → cutie) și criteriul
-   „o sesiune de 10 minute fără piese pierdute în geometrie" nu se pot verifica încă.
+1. **Faza 2 nu e terminată.** Din ea există scena și verificarea ei, dar lipsesc `belt.py`,
+   `cell.py` și `run.py`, deci ciclul complet (bandă 1 → braț 1 → CNC → braț 1 → bandă 2 →
+   braț 2 → cutie) și criteriul „o sesiune de 10 minute fără piese pierdute în geometrie" nu se
+   pot verifica încă.
+
+Închis în runda de față: testele geamănului (`tests/unit/test_mujoco_scene.py`, cu partea pură în
+`make test` și cea care atinge motorul în `make mj-test`) și țintele Makefile pentru venv-ul
+geamănului.
