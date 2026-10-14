@@ -8,13 +8,12 @@ schemă: nu se adaugă `jsonschema` ca dependență (vezi `telemetry/schemas/REA
 
 Mărimile care nu au coloană în contract — efortul pe braț, forța falcilor, poziția și viteza
 piesei, contactele — nu se strecoară în eșantion: se scriu alături, în `readings.jsonl`, ca
-diagnostic al sesiunii.
+diagnostic al sesiunii. Tot acolo ajung, în `wear.jsonl`, sănătatea fiecărei componente, și în
+`events.jsonl`, eșecurile și acțiunile de operator: fișierul de etichete al detectorului.
 
-Ce nu are încă sursă în scenă stă în :class:`MachineReading`: sarcina axului, vibrația,
-temperatura, debitul de răcire, avansul, uzura sculei, frecarea articulațiilor și calitatea
-suprafeței descriu așchierea, iar scena de azi nu are axele mașinii. Până la motorul de uzură
-(`docs/11-geaman-mujoco.md` §3, faza 1) vin din scenariul sesiunii, sub aceleași nume: când uzura
-există, se scrie în aceleași câmpuri și nimic altceva nu se schimbă.
+Mărimile așchierii stau în :class:`MachineReading`, sub numele din contract, și le compune motorul
+de uzură (`wear.WearModel.reading`): scena nu are axele mașinii, dar uzura sculei, a axului și a
+răcirii se vede în eșantion, fără să fie nevoie de geometrie mișcătoare.
 
 **Fără MuJoCo**: modulul se importă din `.venv`-ul proiectului, unde motorul nu există (ADR 0012).
 """
@@ -40,6 +39,8 @@ SAMPLE_FILE = "samples.jsonl"
 SNAPSHOT_FILE = "snapshots.jsonl"
 FRAME_FILE = "frames.jsonl"
 READING_FILE = "readings.jsonl"
+WEAR_FILE = "wear.jsonl"
+EVENT_FILE = "events.jsonl"
 FRAMES_DIR = "frames"
 SESSION_FILE = "session.json"
 
@@ -68,12 +69,12 @@ IDLE_STATE = "IDLE"
 
 @dataclass(frozen=True)
 class MachineReading:
-    """Mărimile mașinii care nu au încă sursă în scenă, sub numele din contract.
+    """Mărimile mașinii dintr-un eșantion, sub numele din contract.
 
-    Sunt cele care descriu așchierea. Până la motorul de uzură (`wear.py`, faza 1) vin din
-    scenariul sesiunii, cu valori de repaus, iar după aceea se vor scrie tot aici: contractul nu se
-    schimbă, se schimbă cine dă numerele. `coolant_fault` este chiar câmpul `coolant_fault` din
-    contract, adică modul în care simularea semnalează un defect injectat în instalația de răcire.
+    Le compune motorul de uzură (`wear.WearModel.reading`): scula uzată încarcă axul și scade
+    calitatea suprafeței, rulmentul obținut tremură și încălzește, pompa uzată dă mai puțin debit.
+    Câmpul `coolant_fault` este chiar coloana din contract, adică felul în care simularea semnalează
+    o pană de răcire injectată.
     """
 
     spindle_load: float = 0.0
@@ -359,6 +360,53 @@ def cycle_record(*, index: int, seed: int, label: Mapping[str, Any], sim_time_s:
     }
 
 
+# ---------------------------------------------------------------- uzura și evenimentele
+
+
+def wear_row(*, ts_ms: int, sim_time_s: float, cycle: str, machine_state: str,
+             snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    """Un rând din `wear.jsonl`: sănătatea componentelor, aliniată cu eșantioanele.
+
+    Uzura nu are coloană în contract (singurele urme sunt `tool_wear_index`,
+    `joint_friction_index` și `surface_quality`), dar detectorul are nevoie de traiectoria
+    completă, pe componente, ca să știe ce s-a stricat și când. Rândul se scrie la fiecare
+    eșantion, deci se aliniază pe `sim_time_s` cu `samples.jsonl`.
+    """
+    return {
+        "ts_ms": int(ts_ms),
+        "sim_time_s": round(float(sim_time_s), 6),
+        "cycle_id": cycle,
+        "machine_state": machine_state,
+        **{key: value for key, value in snapshot.items()},
+    }
+
+
+def event_row(*, ts_ms: int, sim_time_s: float, cycle: str, event: str, kind: str,
+              component: str, detail: str = "", severity: str = "",
+              health: float | None = None, duration_s: float | None = None) -> dict[str, Any]:
+    """Un rând din `events.jsonl`: un eșec ori o acțiune de operator.
+
+    Acesta este fișierul de **etichete**: `event` spune dacă s-a stricat ceva ori dacă a intervenit
+    cineva, `kind` spune ce anume, iar `sim_time_s` leagă eticheta de eșantioanele din jur. Fără
+    el, un detector antrenat pe ferestre nu ar avea de unde să învețe preavizul.
+    """
+    row: dict[str, Any] = {
+        "ts_ms": int(ts_ms),
+        "sim_time_s": round(float(sim_time_s), 6),
+        "cycle_id": cycle,
+        "event": event,
+        "kind": kind,
+        "component": component,
+        "detail": detail,
+    }
+    if health is not None:
+        row["health"] = round(float(health), 6)
+        row["severity"] = severity
+    if duration_s is not None:
+        row["duration_s"] = round(float(duration_s), 6)
+    return row
+
+
 def session_record(*, session: str, scenario: Mapping[str, Any], totals: Mapping[str, Any],
                    cycles: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """`session.json`: cu ce parametri s-a generat sesiunea, ce conține și ce etichete are.
@@ -376,6 +424,8 @@ def session_record(*, session: str, scenario: Mapping[str, Any], totals: Mapping
             "snapshots": SNAPSHOT_FILE,
             "frames": FRAME_FILE,
             "readings": READING_FILE,
+            "wear": WEAR_FILE,
+            "events": EVENT_FILE,
             "frames_dir": FRAMES_DIR,
         },
         "schemas": {

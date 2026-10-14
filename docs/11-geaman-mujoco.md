@@ -252,7 +252,7 @@ iar `view.py --base-z` o poate coborî pentru măsurători.
 
 ## 3. Motorul de uzură
 
-Cod pur, fără MuJoCo, ca să poată fi testat și reproductibil. Cinci mecanisme:
+Cod pur, fără MuJoCo, ca să poată fi testat și reproductibil (`cncdt_mj/wear.py`). Cinci mecanisme:
 
 **a) Sănătate cu rată de uzură crescătoare.** Pentru fiecare componentă `i`, sănătatea
 `h_i ∈ (0, 1]` pornește de la 1 și scade cu
@@ -264,41 +264,63 @@ dh_i/dt = -k_i · (1 + α_i · u_i) · h_i^{p_i},   u_i = sarcina normalizată, 
 Exponentul `p_i < 1` face uzura lentă la început și accelerată spre avarie, adică exact
 comportamentul non-liniar cerut. Constantele `k_i` se aleg pe timpi nominali, nu pe valori de
 catalog: la sarcină nominală, CNC-ul ajunge la „degradat" în ~30 de minute de așchiere, brațele
-în ~90 de minute de mișcare, banda în câteva ore. Toate se scalează dintr-o singură variabilă de
-mediu, care comprimă timpul de viață fără să atingă ceasul (ADR 0007).
+în ~90 de minute de mișcare, benzile în câteva ore. Ca timpul nominal să fie chiar cel scris,
+`k_i` este împărțit la factorul de sarcină, `1 + α_i u_i`: altfel factorul ar scurta viața sub
+cea documentată.
+
+Ecuația este o ecuație Bernoulli, iar motorul o integrează **exact**: cu `q = 1 - p`,
+`d(h^q)/dt = -q c`, deci `h^q(t) = h^q(0) - q c t`. Timpul până la degradat nu depinde astfel de
+pasul de integrare — același rezultat la pasul de 2 ms al sesiunii și la un pas de o oră. Toate
+timpii se scalează dintr-o singură variabilă, care comprimă viața mașinii fără să atingă ceasul
+(ADR 0007): `--rate`.
+
+**Uzura curge cu timpul de lucru, nu cu ceasul.** Fiecare interval al ciclului are un `Work`, adică
+cine lucrează: banda cât cară, brațul cât se mișcă, scula, axul și răcirea cât taie. Ce nu lucrează
+nu se uzează. Uzura se acumulează **peste cicluri**, fiindcă scena se recompune la fiecare ciclu,
+iar modelul de uzură este al sesiunii.
 
 **b) Drift de calibrare.** `drift_i = d_i · (1 - h_i)`, aplicat ca abatere lentă: viteza benzii
 scade cu până la 8%, articulațiile capătă un offset de poziție, axele CNC capătă eroare de
 poziționare. Driftul este cel care face uzura vizibilă în medii și deviații, nu doar în nivel.
 
 **c) Zgomot dependent de uzură.** `σ_i = σ0_i + s_i · (1 - h_i)`, adăugat peste mărimile
-senzorilor (vibrație, curent de articulație, viteză de bandă), cu sămânță fixă.
+senzorilor (vibrație, sarcină de ax, debit de răcire, temperatură), cu sămânță fixă.
 
 **d) Eșecuri discrete.** Hazard crescător `λ_i(t) = λ0_i · exp(γ_i · (1 - h_i))`, evaluat per
-pas, cu generator cu sămânță. Evenimentele sunt cele cerute: piesa scăpată din griper, blocaj de
-ax CNC (mașina trece pe `IDLE` forțat până la reparație), alunecare de bandă. Fiecare eveniment
-scrie o linie în jurnalul de evenimente (`ts`, componentă, tip, `h`), care este **eticheta**
-pentru detector.
+pas, cu generator cu sămânță. Evenimentele sunt cele cerute, câte unul pe componentă: piesa
+scăpată din griper (`gripper_slip`), alunecarea de bandă (`belt_slip`), scula ruptă
+(`tool_break`, ține până la reparație), rulmentul axului (`spindle_bearing`) și pierderea răcirii
+(`coolant_loss`). Fiecare eveniment scrie o linie în `events.jsonl` **la momentul lui** (`ts`,
+componentă, tip, `h`, durată), care este **eticheta** pentru detector; intervențiile de operator
+intră în același fișier, cu `event: "action"`.
 
 **e) Degradarea camerei.** Blur gaussian cu rază proporțională cu `1 - h_camera`, zgomot aditiv
 pe pixel, ocazional cadru lipsă. Scorul de calitate (`1 - (1 - h_camera)` ponderat cu blurul
-aplicat) intră în metadatele cadrului.
+aplicat) intră în metadatele cadrului. **Neimplementat**: cadrele ies deocamdată curate.
 
 **Legătura cu fizica**. Uzura nu rămâne o cifră în telemetrie, ci schimbă simularea:
 
-| Componentă | Efect fizic | Ce se vede în date |
+| Componentă | Efectul în geamăn azi | Ce se vede în date |
 | --- | --- | --- |
-| Bandă | coeficient de forță tangențială scade cu `h`, viteza reală scade cu driftul | viteză medie și deviație, timpi de ciclu mai lungi |
-| Brațe | `gear` redus și `frictionloss` crescut proporțional cu `1 - h` | curent/efort mai mare, cicluri mai lente |
-| Griper | forță de strângere și frecare reduse | rată de piese scăpate, evenimente |
-| CNC | amplitudinea profilului de vibrație și de sarcină crește, timpul de ciclu crește | `vibration_rms`, `vibration_peak`, `spindle_load_*`, `temp_c_mean` |
-| Cameră | blur și zgomot crescătoare | scor de calitate, verzi la inspecția vizuală |
+| Bandă | scala vitezei de suprafață scade cu driftul (`speed_scale` pe fiecare bandă), iar banda care alunecă stă pe loc cât ține evenimentul | `belt_speed_mps` în diagnostic, timpi de ciclu mai lungi, mai puține eșantioane pe secundă de ceas |
+| Brațe | efortul măsurat în scenă se scalează cu `1 + 0,8 (1 - h)` | `joint_effort` mai mare, efort pe braț în diagnostic |
+| Griper | — (prinderea nu este modelată) | rată de piese scăpate, evenimente |
+| CNC | amplitudinea vibrației și sarcina axului cresc cu uzura rulmentului și a sculei, debitul de răcire scade, avansul scade, temperatura urcă | `vibration`, `spindle_load`, `axis_feed`, `coolant_flow_lpm`, `temp_c`, `tool_wear_index`, `surface_quality` |
+| Cameră | — | scor de calitate, verzi la inspecția vizuală |
+
+**Mașina nu se animează**: nu are axe în scenă, iar prelucrarea intră în dataset ca **fereastră de
+timp** cu starea `CUTTING` (`--machining-s`, implicit 12 s pe ciclu), în care se uzează scula, axul
+și răcirea și cresc mărimile de proces. Când scenei îi vor crește axele, aceleași cifre se citesc
+din motor și nimic din contract nu se schimbă.
 
 **Acțiuni de operator** (în oglindă cu `degradation/model.py`): `inject_tool_wear`,
-`inject_joint_friction`, `replace_tool`, `repair_joints`, plus două noi, locale:
-`inject_fault_burst(componentă, magnitudine, durată)` — scade sănătatea brusc și ridică temporar
-rata de uzură, scenariul pe care detectorul trebuie să îl prindă — și
-`set_wear_rate(multiplier)`, care comprimă sau întinde viața mașinii.
+`inject_joint_friction`, `replace_tool`, `repair_joints` — numele care există deja în
+`cnc.control.v1.json` —, plus altele locale geamănului, fiindcă schema de control este închisă:
+`inject_wear(componentă, cât)`, `repair(componentă)`, `inject_fault_burst(componentă, magnitudine,
+durată)` — scade sănătatea brusc și ridică temporar rata de uzură de 25 de ori, scenariul pe care
+detectorul trebuie să îl prindă —, `set_wear_rate(multiplier)` și `reset_wear`. Din linia de comandă
+se ajung cu `--rate` (compresia vieții) și `--inject componentă:cât` (pornește sesiunea cu o
+componentă deja uzată), iar în sesiune fiecare acțiune lasă o linie în `events.jsonl`.
 
 ## 4. Telemetrie și contracte
 
@@ -331,8 +353,10 @@ runs/wheel_100-7/
   snapshots.jsonl      # metadatele cadrelor de inspecție, exact câmpurile din cnc.qa.snapshot.v1.json
   frames.jsonl         # indexul cadrelor: cale, punct de vedere, moment, eticheta piesei
   readings.jsonl       # diagnostic: efort pe braț, forță de strângere, poziția piesei, contacte
+  wear.jsonl           # sănătatea fiecărei componente, aliniată pe sim_time_s cu eșantioanele
+  events.jsonl         # etichetele: eșecurile componentelor și intervențiile de operator
   frames/cyc-000001/   # PNG-urile, unul pe punct de vedere și moment
-  session.json         # parametrii, versiunea mujoco, sămânța, totalurile, etichetele ciclurilor
+  session.json         # parametrii, versiunea mujoco, sămânța, uzura, totalurile, etichetele ciclurilor
 ```
 
 `frames.jsonl` este datasetul de antrenare al vederii: fiecare rând leagă un PNG de familia,
@@ -343,9 +367,15 @@ publica pe MQTT și în bucketul de date, iar în `frames.jsonl` intră toate, i
 prindere, care sunt pentru antrenare, nu pentru verdict. `readings.jsonl` ține mărimile care n-au
 coloană în contract, ca să nu se strecoare în eșantionul de pe hot path.
 
-Lipsesc încă `windows.parquet`, `events.csv` și `wear.csv`: ferestrele de 60 s au sens când
-există uzura care le face interesante, iar etichetele de evenimente și traiectoria sănătății vin
-cu `wear.py` (secțiunea 3, faza 1).
+`wear.jsonl` și `events.jsonl` sunt perechea pentru antrenarea detectorului: primul dă traiectoria
+sănătății pe fiecare componentă (singurele urme din contract sunt `tool_wear_index`,
+`joint_friction_index` și `surface_quality`), al doilea dă momentele: `event: "failure"` cu
+`kind`, `health`, `severity` și `duration_s`, respectiv `event: "action"` cu comanda de operator.
+`session.json` scrie și tabelul componentelor cu timpii nominali, rata folosită și sănătatea de la
+sfârșit, ca o sesiune să se poată reproduce fără să ghicească parametrii.
+
+Lipsește încă `windows.parquet`: ferestrele de 60 s se exportă în faza 4, când detectorul are ce
+evalua, iar atunci primesc fiecare și eticheta ei din `events.jsonl`.
 
 ### Cum ajunge același conținut pe calea live
 
@@ -448,6 +478,7 @@ simulation/mujoco/          # există
     moves.py                # punctele de lucru ale fiecărui braț: ordine, apropiere, treceri; fără MuJoCo
     povs.py                 # cele patru puncte de vedere: cameră, rezoluție, moment, rol; fără MuJoCo
     telemetry.py            # eșantionul pe contract, metadatele cadrului, fișierele sesiunii; fără MuJoCo
+    wear.py                 # motorul de uzură: sănătate, efecte în contract, eșecuri, acțiuni; fără MuJoCo
     scene.py                # compunerea: cell.xml plus cele două brațe; importă mujoco
     cell.py                 # contactul cu banda, viteza piesei, forța scrisă în data.xfrc_applied; importă mujoco
     arms.py                 # cinematica inversă, urmărirea căii, strângerea; importă mujoco
@@ -456,19 +487,21 @@ simulation/mujoco/          # există
 ```
 
 ```
-simulation/mujoco/cncdt_mj/  # de scris, în fazele 1-5
-  wear.py                   # motorul de uzură (pur, numpy)
-  faults.py                 # injectare bruscă, reparație, rată de uzură (pur)
+simulation/mujoco/cncdt_mj/  # de scris, în fazele 4-5
   detector.py               # RCF local + regula de alarmă (pur, numpy)
   report.py                 # preaviz, rată de detecție, alarme false (pur)
-  cell.py                   # are transportul pe benzi și ciclul brațelor; lipsesc prinderea, stările mașinii și legarea uzurii de fizică
   control.py                # REPL, endpoint local, punte către viewer
+  cell.py                   # are transportul pe benzi și ciclul brațelor; lipsesc prinderea și stările mașinii
 tests/unit/
   test_mujoco_scene.py      # există: layout/part/checks fără MuJoCo, înălțimile față de acest document, camera de inspecție; partea care atinge motorul se rulează cu `make mj-test`
   test_mj_telemetry.py      # există: contractele eșantionului și ale cadrului, planul capturii, fișierele sesiunii
-  test_mj_wear.py           # non-liniaritate, monotonie, mărginire, reproductibilitate
+  test_mj_wear.py           # există: ecuația și independența de pas, efectele în contract, eșecurile, acțiunile
   test_mj_detector.py       # prag, alarmă susținută, preaviz pe episod sintetic
 ```
+
+Injecția de defecțiuni, reparația și rata de uzură nu mai au un modul propriu (`faults.py`):
+trăiesc în `wear.py`, ca acțiuni care își lasă eticheta în `events.jsonl` — aceeași listă de
+comenzi pe care o va chema consola din `control.py`.
 
 **De ce scena nu se poate scrie declarativ.** MJCF nu poate aduce singur modelele din
 `mujoco-menagerie`: `<attach model="...">` nu funcționează în MuJoCo 3.15.0 — încercat cu patru
@@ -489,10 +522,10 @@ module ating motorul: `scene.py`, `cell.py`, `arms.py`, `sensors.py`, `camera.py
 | Fază | Ce se livrează | Criteriu de acceptare |
 | --- | --- | --- |
 | 0 | ADR 0012 + documentul de față | revizuite, fără cod |
-| 1 | `wear.py`, `faults.py`, `report.py` + teste pure | `pytest` verde fără MuJoCo instalat; uzura e monotonă, mărginită și se accelerează la sănătate mică; ferestrele au exact coloanele din contract |
+| 1 | `wear.py` + teste pure | `pytest` verde fără MuJoCo instalat; uzura e monotonă, mărginită și se accelerează la sănătate mică; ferestrele au exact coloanele din contract |
 | 2 | `scene/cell.xml`, `belt.py`, `cell.py`, `povs.py`, `sensors.py`, `camera.py`, `run.py` | o sesiune de 10 minute simulează un ciclu complet (bandă 1 → braț 1 → CNC → braț 1 → bandă 2 → braț 2 → cutie) fără piese pierdute în geometrie; timpul de generare se măsoară și se notează în README |
-| 3 | scrierea sesiunii (JSONL cu eșantioane, cadre și metadate; apoi Parquet, events, wear) | aceeași sămânță produce fișiere identice; un test de paritate compară vectorii de caracteristici cu cei din scena Isaac Sim pe scenariu nominal |
-| 4 | `detector.py` + evaluare | tabelul de metrici din secțiunea 5, generat de o comandă, pe minimum 20 de episoade de eșec și 8 ore sănătoase |
+| 3 | scrierea sesiunii (JSONL cu eșantioane, cadre, metadate, uzură și evenimente; apoi Parquet) | aceeași sămânță produce fișiere identice; un test de paritate compară vectorii de caracteristici cu cei din scena Isaac Sim pe scenariu nominal |
+| 4 | `detector.py`, `report.py` + evaluare | tabelul de metrici din secțiunea 5, generat de o comandă, pe minimum 20 de episoade de eșec și 8 ore sănătoase |
 | 5 | `control.py` + degradarea camerei | injectarea și reparația din REPL se văd în telemetrie în aceeași fereastră; cadrul de cameră degradat păstrează piesa detectabilă până la `h` critic |
 | 6 | (opțional) SageMaker RCF + card de model | antrenare din ferestrele exportate, card în `ml/models/`, cost justificat în PR |
 
@@ -504,15 +537,19 @@ sculei. `view.py --check` este verde, `view.py --demo` rulează ciclul și tipă
 opriri, iar testele geamănului acoperă partea pură (`tests/unit/test_mujoco_scene.py`) și
 contractele colectării (`tests/unit/test_mj_telemetry.py`).
 
+Din faza 1 există motorul de uzură: `cncdt_mj/wear.py` ține sănătatea celor șapte componente,
+o integrează exact pe timpul de lucru al fiecăreia, compune mărimile de așchiere, trage eșecurile
+discrete și primește acțiunile de operator. Testele pure sunt `tests/unit/test_mj_wear.py`.
+
 Din faza 3 există scrierea sesiunii: `make mj-record` parcurge un ciclu pe fiecare familie și scrie
-cele șase ieșiri (cinci cadre pe ciclu), iar `samples.jsonl` respectă întocmai contractul.
+cele șapte ieșiri (cinci cadre pe ciclu), iar `samples.jsonl` respectă întocmai contractul.
 Criteriul **nu este atins**: ciclul atinge punctele, dar nu prinde piesa (falcile doar o ating,
 fiindcă deschiderea mâinii Panda, 83 mm, este mai mică decât discul de 104 mm — prinderea se
-modelează ca legătură rigidă, ca în celula din Isaac Sim), lipsesc stările de așchiere ale mașinii
-CNC, iar un ciclu ține ~53 s simulați, deci „o sesiune de 10 minute" cere zeci de cicluri. Cadrul
-fix de proces se ia la începutul ciclului, fiindcă în geamăn piesa mașinată stă deja sub cameră
-când începe ciclul, iar banda o duce întâi la linia de preluare a brațului 2. Când prinderea
-există, ordinea devine cea reală: piesa ajunge sub cameră după ce brațul 1 o lasă pe bandă.
+modelează ca legătură rigidă, ca în celula din Isaac Sim), mașina nu are axe, iar un ciclu ține
+~65 s simulați, deci „o sesiune de 10 minute" cere zeci de cicluri. Cadrul fix de proces se ia la
+începutul ciclului, fiindcă în geamăn piesa mașinată stă deja sub cameră când începe ciclul, iar
+banda o duce întâi la linia de preluare a brațului 2. Când prinderea există, ordinea devine cea
+reală: piesa ajunge sub cameră după ce brațul 1 o lasă pe bandă.
 
 Fiecare fază se poate opri fără să lase ceva rupt: faza 1 nu are dependențe de MuJoCo, faza 2 nu
 atinge contractele publicate.

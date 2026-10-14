@@ -14,7 +14,7 @@ Modulul importă `mujoco`, ca `scene.py`; restul pachetului rămâne pur (ADR 00
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Mapping
 
 import mujoco
 import numpy as np
@@ -79,7 +79,19 @@ def part_velocity(model: mujoco.MjModel, data: mujoco.MjData, body: str) -> tupl
     return (float(data.qvel[address]), float(data.qvel[address + 1]))
 
 
-def apply_belt_forces(model: mujoco.MjModel, data: mujoco.MjData, speed_scale: float = 1.0,
+def belt_speed_scale(speed_scale: float | Mapping[str, float], key: str) -> float:
+    """Scala vitezei unei benzi: un singur număr pentru toate, ori unul pe fiecare bandă.
+
+    Benzile se uzesc separat (`wear.WearModel.belt_speed_scales`), iar una care alunecă stă pe loc
+    cât ține evenimentul: de aceea scala poate veni și ca dicționar, pe cheia benzii.
+    """
+    if isinstance(speed_scale, Mapping):
+        return float(speed_scale.get(key, 1.0))
+    return float(speed_scale)
+
+
+def apply_belt_forces(model: mujoco.MjModel, data: mujoco.MjData,
+                      speed_scale: float | Mapping[str, float] = 1.0,
                       parts: tuple[str, ...] | None = None) -> dict[str, tuple[float, float]]:
     """Scrie în `data.xfrc_applied` forța pe care o pune fiecare bandă pe piesa de pe ea.
 
@@ -102,13 +114,14 @@ def apply_belt_forces(model: mujoco.MjModel, data: mujoco.MjData, speed_scale: f
             if not item.reached_stop(float(data.xpos[identifier][0])):
                 mass = float(model.body_mass[identifier])
                 force = item.drag_force(mass, part_velocity(model, data, body),
-                                        speed_scale=speed_scale)
+                                        speed_scale=belt_speed_scale(speed_scale, key))
         np.copyto(data.xfrc_applied[identifier, :2], np.asarray(force))
         applied[body] = force
     return applied
 
 
-def transport(model: mujoco.MjModel, data: mujoco.MjData, steps: int, speed_scale: float = 1.0,
+def transport(model: mujoco.MjModel, data: mujoco.MjData, steps: int,
+              speed_scale: float | Mapping[str, float] = 1.0,
               parts: tuple[str, ...] | None = None, hook: StepHook | None = None) -> None:
     """Rulează pașii cu benzile pornite: forța se rescrie la fiecare pas, apoi se face pasul.
 
@@ -131,19 +144,21 @@ def part_positions(model: mujoco.MjModel, data: mujoco.MjData,
 
 
 def bring_parts_to_pickup(model: mujoco.MjModel, data: mujoco.MjData, parts: tuple[str, ...],
-                          budget: int = 6000, hook: StepHook | None = None) -> dict[str, float]:
+                          budget: int = 6000, hook: StepHook | None = None,
+                          speed_scale: float | Mapping[str, float] = 1.0) -> dict[str, float]:
     """Rulează benzile până fiecare piesă trece de linia de oprire, ori până la bugetul de pași.
 
     Ciclul brațelor are sens doar cu piesele la locul de preluare: altfel brațul întinde mâna
     după nimic. Bugetul este plasa de siguranță pentru o piesă care nu ajunge niciodată — la
-    0,12 m/s, 6 000 de pași înseamnă 12 secunde de mers, mult peste orice cursă din celulă.
+    0,12 m/s, 6 000 de pași înseamnă 12 secunde de mers, mult peste orice cursă din celulă; o bandă
+    uzată, care merge mai încet, ori una care alunecă, care stă, consumă din acest buget.
 
     ``hook`` este pentru sesiunea de colectare: piesa trece pe bandă prin dreptul camerei fixe, iar
     cadrul de proces se ia atunci. Se cheamă după fiecare pas, ca la mișcarea brațelor.
     """
     spent = 0
     while spent < budget:
-        transport(model, data, 200, parts=parts, hook=hook)
+        transport(model, data, 200, speed_scale=speed_scale, parts=parts, hook=hook)
         spent += 200
         positions = part_positions(model, data, parts)
         carrying = carried_parts(model, data, parts)

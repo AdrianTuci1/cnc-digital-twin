@@ -89,21 +89,32 @@ def contact_load_n(model: mujoco.MjModel, data: mujoco.MjData, parts: tuple[str,
     return total
 
 
-def reading(model: mujoco.MjModel, data: mujoco.MjData, parts: tuple[str, ...]) -> dict[str, Any]:
+def reading(model: mujoco.MjModel, data: mujoco.MjData, parts: tuple[str, ...],
+            effort_scale: Mapping[str, float] | float = 1.0,
+            belt_speed_mps: float | None = None) -> dict[str, Any]:
     """Toate mărimile unui pas: ce intră în contract și ce rămâne diagnostic local.
 
     `joint_effort_nm` este media brațelor, adică exact câmpul `joint_effort` din
     `cnc.telemetry.v1.json`. Restul — efortul pe braț, forța falcilor, viteza benzii, piesa și
     contactele — nu are coloană în contract: rămâne în sesiune, ca diagnostic și ca sursă pentru
     testul de paritate cu scena Isaac Sim.
+
+    ``effort_scale`` este efectul uzurii articulațiilor: scena are `frictionloss` fix în modelul
+    Panda, deci frecarea crescută se aplică peste efortul măsurat, ca eșantionul și diagnosticul să
+    spună același lucru. ``belt_speed_mps`` este viteza reală de suprafață a benzilor, care scade cu
+    uzura; fără el se raportează cea nominală.
     """
     efforts = joint_effort_nm(model, data)
+    scales = effort_scale if isinstance(effort_scale, Mapping) else None
+    scaled = {arm: value * (scales.get(arm, 1.0) if scales else float(effort_scale))
+              for arm, value in efforts.items()}
     return {
         "sim_time_s": float(data.time),
-        "joint_effort_nm": float(np.mean(list(efforts.values()))),
-        "arm_effort_nm": efforts,
+        "joint_effort_nm": float(np.mean(list(scaled.values()))),
+        "arm_effort_nm": scaled,
         "grip_force_n": grip_force_n(model, data),
-        "belt_speed_mps": belt.BELT_SURFACE_SPEED_MPS,
+        "belt_speed_mps": (belt.BELT_SURFACE_SPEED_MPS if belt_speed_mps is None
+                           else float(belt_speed_mps)),
         "parts": part_readings(model, data, parts),
         "contact_load_n": contact_load_n(model, data, parts),
         "contacts": int(data.ncon),
@@ -124,6 +135,7 @@ def reading_row(reading_values: Mapping[str, Any]) -> dict[str, Any]:
         "arm2_effort_nm": round(float(reading_values["arm_effort_nm"]["arm2"]), 6),
         "arm1_grip_force_n": round(float(reading_values["grip_force_n"]["arm1"]), 6),
         "arm2_grip_force_n": round(float(reading_values["grip_force_n"]["arm2"]), 6),
+        "belt_speed_mps": round(float(reading_values["belt_speed_mps"]), 6),
         "contact_load_n": round(float(reading_values["contact_load_n"]), 6),
         "contacts": int(reading_values["contacts"]),
         **{f"{body}_x": round(float(item["position"][0]), 6) for body, item in parts.items()},

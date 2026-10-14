@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from cncdt_mj import layout, moves, part, povs, telemetry
+from cncdt_mj import layout, moves, part, povs, telemetry, wear
 
 TELEMETRY_SCHEMA = telemetry.SCHEMAS_DIR / "cnc.telemetry.v1.json"
 SNAPSHOT_SCHEMA = telemetry.SCHEMAS_DIR / "cnc.qa.snapshot.v1.json"
@@ -147,10 +147,9 @@ def test_starea_masinii_acopera_toate_punctele_de_lucru() -> None:
     used.add(telemetry.machine_state_for(None))
     with pytest.raises(KeyError):
         telemetry.stage_state("belt9_pick")
-    # `CUTTING` rămâne starea pe care scena nu o poate da încă: nu are axele mașinii. Când
-    # prelucrarea intră în geamăn (`docs/11-geaman-mujoco.md` §8, faza 2), testul cade și se
-    # actualizează împreună cu `STAGE_STATES`.
-    assert set(telemetry.MACHINE_STATES) - used == {"CUTTING"}
+    # `CUTTING` este singura stare pe care rutele nu o dau: mașina nu are axe în scenă, iar
+    # prelucrarea intră în sesiune ca fereastră de timp (`wear.PHASE_CUTTING`), nu ca punct de lucru.
+    assert set(telemetry.MACHINE_STATES) - used == {wear.PHASE_CUTTING}
 
 
 # ---------------------------------------------------------------- punctele de vedere
@@ -231,6 +230,8 @@ def test_sesiunea_declara_fisierele_si_versiunile_publicate() -> None:
         "snapshots": telemetry.SNAPSHOT_FILE,
         "frames": telemetry.FRAME_FILE,
         "readings": telemetry.READING_FILE,
+        "wear": telemetry.WEAR_FILE,
+        "events": telemetry.EVENT_FILE,
         "frames_dir": telemetry.FRAMES_DIR,
     }
     assert record["schemas"]["samples"] == \

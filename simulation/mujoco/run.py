@@ -12,7 +12,15 @@ exact ce cere antrenarea:
 * `frames/` — PNG-urile, pe cicluri;
 * `readings.jsonl` — mărimile care nu au coloană în contract (efort pe braț, forță de strângere,
   poziția și viteza piesei, contacte), ca diagnostic al sesiunii;
+* `wear.jsonl` — sănătatea componentelor, aliniată cu eșantioanele;
+* `events.jsonl` — etichetele: eșecurile componentelor și intervențiile de operator;
 * `session.json` — parametrii, versiunile, totalurile și etichetele fiecărui ciclu.
+
+Uzura este cea din `cncdt_mj/wear.py`: benzi, brațe și mașină se uzează cu timpul lor de lucru, iar
+uzura se acumulează **peste cicluri** — scena se recompune la fiecare ciclu, modelul de uzură nu.
+Mașina nu se animă: nu are axe în scenă, iar prelucrarea intră în dataset ca fereastră de timp cu
+starea `CUTTING` și mărimile care ies din uzură. Cu `--rate` viața mașinii se comprimă, iar cu
+`--inject` se pleacă de la o componentă deja uzată, ca sesiunile scurte să prindă tot lanțul.
 
 Ciclul este cel din `view.py --demo`: benzile aduc materialul la liniile de preluare, brațul 1 ia
 blocul, îl duce în universal și lasă roata pe banda 2, iar brațul 2 o sortează în locul familiei.
@@ -26,7 +34,6 @@ Se rulează din venviul geamănului (`simulation/mujoco/.venv`), singurul loc un
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import platform
 import sys
 import time
@@ -40,8 +47,8 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import (arms, camera, cell, layout, moves, part, povs,  # noqa: E402
-                      scene, sensors, telemetry)
+from cncdt_mj import (arms, belt, camera, cell, layout, moves, part, povs,  # noqa: E402
+                      scene, sensors, telemetry, wear)
 
 #: Unde se scriu sesiunile. Directorul e generat și ignorat de git: un ciclu de cinci familii
 #: înseamnă mii de cadre, care n-au ce căuta în istoricul repo-ului.
@@ -50,6 +57,17 @@ RUNS_DIR = MUJOCO_DIR / "runs"
 #: Cât de aproape de axul camerei fixe trebuie să ajungă piesa ca să se ia cadrul de proces.
 #: 10 mm la 0,12 m/s înseamnă circa 0,08 s de mers, adică sub un pas de eșantionare.
 ON_BELT_TRIGGER_M = 0.01
+
+#: Cât durează prelucrarea unei piese, în secunde simulate. Nu animă nimic: este fereastra în care
+#: motorul de uzură lasă scula să se uzeze, iar eșantioanele poartă starea `CUTTING`.
+MACHINING_S = 12.0
+
+#: Punctul de lucru în care materialul intră în mașină. Fereastra de așchiere se pune imediat după
+#: el: brațul 1 a lăsat piesa în universal, iar până la așezarea pe banda 2 mașina taie.
+MACHINE_TARGET = "cnc_chuck"
+
+#: Ce se uzează cât merg benzile: numai ele. Brațele se adaugă când se mișcă, mașina când taie.
+BELT_WORK = wear.Work(belts=wear.BELT_COMPONENTS)
 
 
 def _body_id(model: mujoco.MjModel, name: str) -> int:
@@ -77,13 +95,15 @@ class Session:
     cycles: int
     frames_on: bool = True
 
-    #: Mărimile așchierii: vin din scenariu până la motorul de uzură (`telemetry.MachineReading`).
-    machine: telemetry.MachineReading = field(default_factory=telemetry.MachineReading)
+    #: Uzura: aceeași peste toate ciclurile sesiunii, fiindcă scena se recompune, mașina nu.
+    wear: wear.WearModel = field(default_factory=wear.WearModel)
 
     samples: list[dict[str, Any]] = field(default_factory=list)
     snapshots: list[dict[str, Any]] = field(default_factory=list)
     frames: list[dict[str, Any]] = field(default_factory=list)
     readings: list[dict[str, Any]] = field(default_factory=list)
+    wear_rows: list[dict[str, Any]] = field(default_factory=list)
+    events: list[dict[str, Any]] = field(default_factory=list)
     labels: list[dict[str, Any]] = field(default_factory=list)
 
     #: Timpul simulat cumulat de ciclurile încheiate: fiecare ciclu are scena lui, care pornește de
@@ -96,11 +116,12 @@ class Session:
 
 
 class Recorder:
-    """Ce se întâmplă la fiecare pas de simulare: eșantioane, cadre, etichete.
+    """Ce se întâmplă la fiecare pas de simulare: eșantioane, cadre, etichete și uzură.
 
     Se instalează ca `hook` la mișcarea brațelor și la transport, deci vede fiecare pas al
     ciclului. Eșantioanele se iau la rata cerută (10 Hz implicit), cadrele la momentele din
-    `povs.frames_per_cycle`, iar starea mașinii se schimbă cu punctul de lucru la care s-a ajuns.
+    `povs.frames_per_cycle`, starea mașinii se schimbă cu faza ori cu punctul de lucru la care s-a
+    ajuns, iar uzura avansează cu timpul de lucru al fiecărei componente.
     """
 
     def __init__(self, model: mujoco.MjModel, data: mujoco.MjData, parts: tuple[str, ...],
@@ -114,6 +135,8 @@ class Recorder:
         self.label = dict(label)
         self.machined = machined
         self.stage: str | None = None
+        self.phase: str | None = None
+        self.work = wear.Work()
         self.cycle_index = 0
         self.taken: set[str] = set()
         self.cycle_frames: list[str] = []
@@ -130,6 +153,15 @@ class Recorder:
         self.cycle_frames = []
         self.steps = 0
 
+    def begin_phase(self, phase: str | None, work: wear.Work) -> None:
+        """Schimbă faza mașinii: ce stare are și cine se uzează de aici înainte.
+
+        Fazele care nu ies din rutele brațelor sunt cele două din contract, `CUTTING` și `IDLE`
+        (`wear.PHASE_CUTTING`, `wear.PHASE_TRANSPORT`); în rest starea vine din punctul de lucru.
+        """
+        self.phase = phase
+        self.work = work
+
     def enter(self, stage: str) -> None:
         """S-a ajuns la un punct de lucru: de aici starea mașinii este a lui."""
         self.stage = stage
@@ -138,10 +170,22 @@ class Recorder:
         """S-a terminat punctul de lucru: celula se întoarce în așteptare."""
         self.stage = None
 
+    @property
+    def machine_state(self) -> str:
+        """Starea mașinii de acum: faza, dacă există, altfel punctul de lucru."""
+        return self.phase or telemetry.machine_state_for(self.stage)
+
+    @property
+    def belt_scales(self) -> dict[str, float]:
+        """Scala de viteză a fiecărei benzi, din uzura de acum."""
+        return self.session.wear.belt_speed_scales()
+
     # ------------------------------------------------------------ la fiecare pas
     def __call__(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
-        """Un pas de simulare: eșantionul, apoi cadrul de pe bandă, dacă e cazul."""
+        """Un pas de simulare: uzura, eșantionul, apoi cadrul de pe bandă, dacă e cazul."""
         self.steps += 1
+        for failure in self.session.wear.advance(float(model.opt.timestep), self.work):
+            self.session.events.append(self.failure_row(failure))
         if self.steps % self.steps_per_sample == 0:
             self.write_sample()
         if self.frames_on:
@@ -155,20 +199,39 @@ class Recorder:
         """Marcajul de timp epoch de acum, pornind de la ceasul sesiunii."""
         return self.session.start_ms + int(round(self.clock() * 1000))
 
+    # ------------------------------------------------------------ ce se scrie
+    def failure_row(self, failure: wear.Failure) -> dict[str, Any]:
+        """Un eșec al motorului de uzură, ca rând de etichetă în `events.jsonl`."""
+        return telemetry.event_row(
+            ts_ms=self.ts_ms(), sim_time_s=self.clock(), cycle=telemetry.cycle_id(self.cycle_index),
+            event="failure", kind=failure.kind, component=failure.component,
+            detail=f"sănătate {failure.health:.3f} ({self.session.wear.severity(failure.component)})",
+            severity=self.session.wear.severity(failure.component), health=failure.health,
+            duration_s=failure.duration_s)
+
     def write_sample(self) -> None:
-        """Un eșantion brut, cu efortul articulațiilor măsurat în scenă."""
-        values = sensors.reading(self.model, self.data, self.parts)
+        """Un eșantion brut, cu efortul articulațiilor măsurat în scenă și uzura aplicată peste."""
+        machine = self.session.wear.reading(cutting=self.phase == wear.PHASE_CUTTING)
+        values = sensors.reading(self.model, self.data, self.parts,
+                                effort_scale=self.session.wear.arm_effort_scales(),
+                                belt_speed_mps=(
+                                    belt.BELT_SURFACE_SPEED_MPS
+                                    * self.session.wear.belt_speed_scale()))
         self.session.samples.append(telemetry.sample(
             seq=len(self.session.samples),
             ts_ms=self.ts_ms(),
-            machine_state=telemetry.machine_state_for(self.stage),
+            machine_state=self.machine_state,
             cycle=telemetry.cycle_id(self.cycle_index),
             part=telemetry.part_id(self.cycle_index),
             joint_effort=values["joint_effort_nm"],
-            machine=self.session.machine,
+            machine=machine,
             is_synthetic_defect=self.synthetic_defect,
         ))
         self.session.readings.append(sensors.reading_row(values))
+        self.session.wear_rows.append(telemetry.wear_row(
+            ts_ms=self.ts_ms(), sim_time_s=self.clock(),
+            cycle=telemetry.cycle_id(self.cycle_index), machine_state=self.machine_state,
+            snapshot=self.session.wear.snapshot()))
 
     # ------------------------------------------------------------ cadrele
     def capture_on_belt(self) -> None:
@@ -231,7 +294,9 @@ class Recorder:
                 role=item.role, camera=item.camera or item.name, resolution=item.resolution,
                 image_key=f"{telemetry.QA_SNAPSHOT_PREFIX}/{cycle}/{name}",
                 machine_state=telemetry.machine_state_for(self.stage),
-                machine=self.session.machine, is_synthetic_defect=self.synthetic_defect))
+                machine=self.session.wear.reading(
+                    cutting=self.phase == wear.PHASE_CUTTING, noise=False),
+                is_synthetic_defect=self.synthetic_defect))
 
     @property
     def synthetic_defect(self) -> bool:
@@ -239,19 +304,44 @@ class Recorder:
         return str(self.label["defect"]) != "PASS"
 
 
+def machining(model: mujoco.MjModel, data: mujoco.MjData, recorder: Recorder,
+              seconds: float) -> None:
+    """Fereastra de așchiere: mașina nu se animă, doar ceasul și uzura merg înainte.
+
+    Piesa nu se schimbă sub ochii noștri — scena are două corpuri, blocul brut pe banda 1 și piesa
+    mașinată pe banda 2 — deci prelucrarea nu are ce mișca. Ce are, în schimb, este timpul de lucru
+    al sculei, al axului și al răcirii, iar de acolo ies mărimile din contract și eticheta
+    `CUTTING`: pe fereastra asta se învață că scula uzată încarcă axul și scade calitatea.
+    """
+    recorder.begin_phase(wear.PHASE_CUTTING, wear.Work(cutting=True))
+    steps = max(1, int(round(seconds / float(model.opt.timestep))))
+    for _ in range(steps):
+        cell.apply_belt_forces(model, data, recorder.belt_scales, recorder.parts)
+        mujoco.mj_step(model, data)
+        recorder(model, data)
+
+
 def run_cycle(model: mujoco.MjModel, data: mujoco.MjData, recorder: Recorder,
-              family: str, settle: int) -> float:
+              family: str, settle: int, machining_s: float = MACHINING_S) -> float:
     """Un ciclu întreg: transport la liniile de preluare, apoi brațele, punct cu punct.
 
     Întoarce cât timp simulat a durat. Eșantioanele se iau pe tot parcursul, inclusiv când merg
-    benzile goale, ca telemetria să acopere ciclul întreg, nu doar mișcarea brațelor.
+    benzile goale, ca telemetria să acopere ciclul întreg, nu doar mișcarea brațelor. Fiecare
+    interval are timpul lui de lucru: benzile cară cât merg, brațul când se mișcă, mașina cât taie.
+
+    Viteza benzilor vine din uzura lor, pe fiecare bandă: una uzată cară mai încet, iar una care
+    alunecă stă pe loc, deci piesa nu mai ajunge la linia de preluare și bugetul de pași se
+    consumă. Scena nu are altă cale prin care uzura să ajungă la piese decât prin forța benzii.
     """
     started = float(data.time)
     parts = recorder.parts
-    cell.bring_parts_to_pickup(model, data, parts, hook=recorder)
+    recorder.begin_phase(wear.PHASE_TRANSPORT, BELT_WORK)
+    cell.bring_parts_to_pickup(model, data, parts, hook=recorder,
+                               speed_scale=recorder.belt_scales)
     for arm in arms.ARMS:
         tool = arms.tool_length(model, data, arm)
         for item in moves.route(arm, tool, family):
+            recorder.begin_phase(None, wear.Work(belts=wear.BELT_COMPONENTS, arms=(arm,)))
             recorder.enter(item.name)
             for stage, point in moves.stages(item):
                 arms.reach_point(model, data, arm, point, item.approach, item.spin_deg,
@@ -259,6 +349,9 @@ def run_cycle(model: mujoco.MjModel, data: mujoco.MjData, recorder: Recorder,
                 if stage == "jos":
                     recorder.after_stage()
             recorder.leave()
+            if item.name == MACHINE_TARGET:
+                machining(model, data, recorder, machining_s)
+    recorder.begin_phase(None, wear.Work())
     return float(data.time) - started
 
 
@@ -283,6 +376,17 @@ def build_parser() -> argparse.ArgumentParser:
                              "două rulări să dea fișiere identice)")
     parser.add_argument("--demo-settle", type=int, default=300,
                         help="câți pași se așteaptă la fiecare punct de lucru")
+    parser.add_argument("--machining-s", type=float, default=MACHINING_S,
+                        help="cât durează prelucrarea unei piese, în secunde simulate (implicit "
+                             f"{MACHINING_S:g}): fereastra cu starea CUTTING în care se uzează "
+                             "scula, axul și răcirea")
+    parser.add_argument("--rate", type=float, default=1.0,
+                        help="compresia vieții mașinii: 1 este uzura nominală, 20 o termină de 20 "
+                             "de ori mai iute (implicit 1). Nu atinge ceasul, doar sănătatea")
+    parser.add_argument("--inject", action="append", default=[], metavar="COMPONENTĂ[:CÂT]",
+                        help="pornește sesiunea cu o componentă deja uzată, cu cantitatea dată "
+                             "din 1 (implicit 0.25); repetabil. Componentele sunt: "
+                             + ", ".join(wear.component_names()))
     parser.add_argument("--frames", action=argparse.BooleanOptionalAction, default=True,
                         help="scrie cadrele și metadatele lor (implicit); `--no-frames` lasă doar "
                              "telemetria, mult mai repede")
@@ -293,13 +397,28 @@ def run_session(args: argparse.Namespace) -> int:
     """Sesiunea întreagă: ciclurile, scrierea fișierelor și verificarea lor."""
     family = args.family or part.family().name
     directory = Path(args.out) if args.out else RUNS_DIR / f"{family}-{args.seed}"
+    try:
+        injections = wear.parse_injections(args.inject)
+    except ValueError as error:
+        print(f"Injecție nevalidă: {error}")
+        return 1
+    wear_model = wear.WearModel(seed=args.seed, rate=args.rate)
     session = Session(directory=directory, name=directory.name, seed=args.seed, family=family,
                       sample_hz=args.sample_hz, start_ms=args.start_ms, cycles=args.cycles,
-                      frames_on=args.frames)
+                      frames_on=args.frames, wear=wear_model)
     plan = povs.frames_per_cycle(family)
     print(f"Sesiune: {directory} | familia {family} | {args.cycles} cicluri | "
           f"{args.sample_hz:g} Hz | cadre: {'da' if args.frames else 'nu'}")
     print(f"  puncte de vedere: {', '.join(f'{item.name} ({stage})' for stage, item in plan)}")
+    print(f"  uzură: rata {args.rate:g}×, așchiere {args.machining_s:g} s pe ciclu"
+          + (f", injecții: {', '.join(args.inject)}" if args.inject else ""))
+    for action in wear_model.apply_actions(injections):
+        # Injecțiile se fac înainte de primul ciclu, la ceasul zero al sesiunii: poartă
+        # identificatorul ciclului 1, fiindcă acela este ciclul pe care îl modelează.
+        session.events.append(telemetry.event_row(
+            ts_ms=args.start_ms, sim_time_s=wear_model.now_s,
+            cycle=telemetry.cycle_id(1), event="action", kind=action.command,
+            component=action.component, detail=action.detail))
     started = time.monotonic()
     failures: list[str] = []
     model: mujoco.MjModel | None = None
@@ -315,7 +434,7 @@ def run_session(args: argparse.Namespace) -> int:
         shots = camera.Frames(model) if args.frames else None
         recorder = Recorder(model, data, cell.part_bodies(model), session, shots, label, machined)
         recorder.begin_cycle(index)
-        duration = run_cycle(model, data, recorder, family, args.demo_settle)
+        duration = run_cycle(model, data, recorder, family, args.demo_settle, args.machining_s)
         if shots is not None:
             shots.close()
         session.elapsed_s += duration
@@ -334,6 +453,8 @@ def run_session(args: argparse.Namespace) -> int:
         "snapshots": len(session.snapshots),
         "frames": len(session.frames),
         "readings": len(session.readings),
+        "wear_rows": len(session.wear_rows),
+        "events": len(session.events),
         "sim_time_s": round(session.elapsed_s, 6),
         "wall_time_s": round(time.monotonic() - started, 3),
     }
@@ -351,12 +472,21 @@ def run_session(args: argparse.Namespace) -> int:
         "cell_id": telemetry.CELL_ID,
         "topic": telemetry.TELEMETRY_TOPIC,
         "povs": [item.name for item in povs.POVS],
-        "machine": dataclasses.asdict(session.machine),
+        "wear": {
+            "seed": args.seed,
+            "rate": args.rate,
+            "machining_s": args.machining_s,
+            "injections": list(args.inject),
+            "components": wear_model.component_table(),
+            "health_end": {name: round(value, 6) for name, value in wear_model.health.items()},
+        },
     }
     telemetry.write_jsonl(session.path(telemetry.SAMPLE_FILE), session.samples)
     telemetry.write_jsonl(session.path(telemetry.SNAPSHOT_FILE), session.snapshots)
     telemetry.write_jsonl(session.path(telemetry.FRAME_FILE), session.frames)
     telemetry.write_jsonl(session.path(telemetry.READING_FILE), session.readings)
+    telemetry.write_jsonl(session.path(telemetry.WEAR_FILE), session.wear_rows)
+    telemetry.write_jsonl(session.path(telemetry.EVENT_FILE), session.events)
     telemetry.write_json(session.path(telemetry.SESSION_FILE), telemetry.session_record(
         session=session.name, scenario=scenario, totals=totals, cycles=session.labels))
 
@@ -367,15 +497,32 @@ def run_session(args: argparse.Namespace) -> int:
     expected = len(plan) * args.cycles
     if args.frames and len(session.frames) != expected:
         failures.append(f"cadre lipsă: {len(session.frames)} din {expected}")
+    if len(session.wear_rows) != len(session.samples):
+        failures.append(f"rânduri de uzură lipsă: {len(session.wear_rows)} din "
+                        f"{len(session.samples)}")
 
     print(f"\nSesiune scrisă în {directory}")
     for name in (telemetry.SAMPLE_FILE, telemetry.SNAPSHOT_FILE, telemetry.FRAME_FILE,
-                 telemetry.READING_FILE, telemetry.SESSION_FILE):
+                 telemetry.READING_FILE, telemetry.WEAR_FILE, telemetry.EVENT_FILE,
+                 telemetry.SESSION_FILE):
         print(f"  {name:<18} {session.path(name).stat().st_size / 1024:8.1f} KB")
     print(f"  cadre            {totals['frames']} PNG, în {totals['cycles']} cicluri "
           f"({totals['wall_time_s']:.1f} s de ceas real)")
     print(f"  în contract      {totals['samples']} eșantioane, {totals['snapshots']} cadre de "
           f"inspecție, {totals['sim_time_s']:.2f} s simulat")
+
+    def health(*names: str) -> float:
+        """Sănătatea cea mai mică dintre componentele date: cea care dă tonul celulei."""
+        return min(wear_model.health_of(name) for name in names)
+
+    print(f"  uzură la final   scula h={health('cnc_tool'):.3f} | articulații "
+          f"h={health(*wear.ARM_COMPONENTS):.3f} | benzi h={health(*wear.BELT_COMPONENTS):.3f} | "
+          f"calitate {wear_model.surface_quality():.3f} | {wear_model.temp_c:.1f} °C")
+    print("  componente       " + ", ".join(
+        f"{name} {wear_model.severity(name)}" for name in wear.component_names()))
+    print(f"  etichete         {totals['events']} evenimente "
+          f"({sum(1 for row in session.events if row['event'] == 'failure')} eșecuri, "
+          f"{sum(1 for row in session.events if row['event'] == 'action')} acțiuni)")
 
     if failures:
         print(f"\nSesiune: CĂZUTĂ ({len(failures)})")
