@@ -153,16 +153,17 @@
             pos="{bin_ng_wall_dx} 0 {bin_wall_z}" material="bin_ng_mat"/>
     </body>
 
-    <!-- Camera de inspecție a calității: stâlpul stă la punctul ei din plan, consola duce capul
-         optic deasupra axei benzii 2, iar centrul optic coboară la 0,25 m peste suprafața benzii
-         (1,10 m), nu la 2,20 m cât prevede documentul pentru camere. Motivul e numeric: la 2,20 m
-         piesa de ~104 mm ar ocupa vreo 10 pixeli într-un cadru de 160 px, iar cel mai mic defect
-         din catalog are 2,5 mm. Aritmetica și consecințele sunt în README.md. -->
-    <body name="camera_mount" pos="{cam_post_x} {cam_post_y} 0">
-      <geom name="cam_post" type="box" size="{cam_post_hxy} {cam_post_hxy} {cam_post_hz}"
-            pos="0 0 {cam_post_z}" material="frame_mat"/>
+    <!-- Camera de inspecție a calității: consola se prinde de colțul sud-vest al mașinii și se
+         așază pe capacul ei (1,90 m), iar de capătul ei atârnă capul optic, deasupra axei benzii
+         2. Centrul optic coboară la 0,85 m peste suprafața benzii (1,70 m), nu la 2,20 m cât
+         prevede documentul pentru camere, și nu mai jos: la 2,20 m piesa de ~104 mm ar ocupa
+         vreo 10 pixeli, iar anvelopa brațelor urcă până la ~1,60 m deasupra benzii. Câmpul
+         vizual s-a îngustat la 9°, ca acoperirea de 179 × 134 mm să rămână aceeași. Aritmetica
+         și consecințele sunt în README.md. -->
+    <body name="camera_mount" pos="{cam_mount_x} {cam_mount_y} 0">
       <geom name="cam_boom" type="box" size="{cam_boom_hx} {cam_boom_hy} {cam_boom_hz}"
-            pos="0 {cam_boom_dy} {cam_boom_z}" material="frame_mat"/>
+            pos="{cam_boom_dx} {cam_boom_dy} {cam_boom_z}"
+            quat="{cam_boom_qw} 0 0 {cam_boom_qz}" material="frame_mat"/>
       <body name="camera_quality_mount" pos="{cam_dx} {cam_dy} {cam_z}">
         <geom name="cam_strut" type="box" size="{cam_strut_hxy} {cam_strut_hxy} {cam_strut_hz}"
               pos="0 0 {cam_strut_dz}" material="frame_mat"/>
@@ -171,10 +172,11 @@
         <geom name="camera_quality_lens" type="cylinder"
               size="{cam_lens_r} {cam_lens_hz}" pos="0 0 {cam_lens_dz}" material="camera_mat"
               contype="0" conaffinity="0"/>
-        <!-- Centrul optic este chiar originea corpului, la {cam_z} m, și tot acolo este și
-             orientarea: camerele MuJoCo privesc de-a lungul axei lor +Z locale, deci „în jos"
-             cere întoarcerea de 180° în jurul lui X. Cota și câmpul vizual sunt parametri. -->
-        <camera name="camera_quality" pos="0 0 0" quat="0 1 0 0" fovy="{cam_fovy}"/>
+        <!-- Centrul optic este chiar originea corpului, la {cam_z} m. Camerele MuJoCo privesc de-a
+             lungul axei lor locale −Z, verificat cu o scenă de probă: identitatea înseamnă „în
+             jos" pentru un corp fără rotație, iar `quat="0 1 0 0"` ar întoarce obiectivul spre
+             cer. Cota și câmpul vizual sunt parametri. -->
+        <camera name="camera_quality" pos="0 0 0" fovy="{cam_fovy}"/>
       </body>
     </body>
 

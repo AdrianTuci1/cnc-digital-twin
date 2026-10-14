@@ -61,13 +61,17 @@ CAMERA_Z = 2.20
 
 #: Cât stă camera de inspecție deasupra suprafeței benzii 2. La 2,20 m piesa de ~104 mm ar ocupa
 #: vreo 10 pixeli, iar cel mai mic defect din catalog are 2,5 mm, deci nicio clasă nu ar fi
-#: separabilă. Cifra și motivarea vin din planul aprobat, secțiunea B.
-INSPECTION_CAMERA_CLEARANCE_Z = 0.25
+#: separabilă. Cota nu coboară însă sub anvelopa brațelor: măsurat în scenă, pe plaja
+#: articulațiilor, geomele unui braț ajung la ~1,60 m deasupra benzii 2, iar capul optic stă la
+#: 0,85 m (1,70 m în lume), cu 5 cm marjă până la brațul 2. Vezi `README.md`, „Camera de
+#: inspecție", și `view.py --check`.
+INSPECTION_CAMERA_CLEARANCE_Z = 0.85
 
-#: Câmpul vizual vertical al camerei de inspecție, în grade. La 0,25 m acoperă 134 mm pe
-#: verticală și, cu raportul de aspect 4:3, 179 mm pe orizontală — adică 3,6 px/mm la 640x480,
-#: destul pentru un dinte ciobit de 4 mm. Vezi :func:`inspection_camera_intrinsics`.
-INSPECTION_CAMERA_FOVY = 30.0
+#: Câmpul vizual vertical al camerei de inspecție, în grade. De la 0,85 m, 9° acoperă tot
+#: 134 mm pe verticală și, cu raportul de aspect 4:3, 179 mm pe orizontală — adică 3,6 px/mm la
+#: 640x480, destul pentru un dinte ciobit de 4 mm. Când camera se ridică peste anvelopa
+#: brațelor, obiectivul se îngustează: acoperirea, deci rezoluția pe piesă, rămâne aceeași.
+INSPECTION_CAMERA_FOVY = 9.0
 
 #: Rezoluția cadrelor de inspecție: cerută explicit de planul aprobat, în locul implicitului
 #: 160x120 din `docs/11-geaman-mujoco.md:53`.
@@ -122,15 +126,11 @@ BIN_FLOOR_HALF_Z = 0.01
 #: Baza brațului are „0,25 Ø" în tabelul de coordonate (`cell_layout.py:386`).
 ARM_PEDESTAL_RADIUS = 0.125
 
-#: Camera de inspecție stă pe un braț consolă, care pornește dintr-un stâlp. Stâlpul se așază
-#: exact la punctul camerei din plan, iar consola iese spre nord până deasupra axei benzii 2, cu
-#: capul optic atârnat sub ea. Cotele de aici sunt secțiuni de desen, nu cifre din plan ori din
+#: Consola camerei de inspecție se prinde de colțul sud-vest al mașinii CNC și se așază pe
+#: capacul ei, la :data:`MACHINE_COVER_Z`; capul optic atârnă de ea pe o tijă subțire, până la
+#: :func:`inspection_camera_z`. Cotele de aici sunt secțiuni de desen, nu cifre din plan ori din
 #: documentație; dacă se schimbă, se schimbă doar aici.
-CAMERA_POST_HALF_XY = 0.04
-#: Consola stă la 0,25 m deasupra centrului optic, ca să nu ajungă în calea mâinii unui braț care
-#: lucrează pe bandă (cu cât brațul se apropie de piesă, cu atât trece mai jos); capul optic
-#: atârnă de ea pe o tije subțire.
-CAMERA_BOOM_CLEARANCE_Z = 0.25
+CAMERA_BOOM_HALF_XY = 0.04
 CAMERA_BOOM_HALF_Z = 0.02
 CAMERA_BODY_HALF = 0.035
 CAMERA_STRUT_HALF_XY = 0.012
@@ -385,42 +385,53 @@ def inspection_camera_intrinsics(camera_z: float | None = None) -> dict[str, flo
 
 
 def camera_geometry(camera_z: float | None = None) -> dict[str, float]:
-    """Camera fixă de inspecție: stâlp la locul ei din plan, cap optic deasupra benzii 2.
+    """Camera fixă de inspecție: consolă pe mașină, cap optic deasupra axei benzii 2.
 
-    Stâlpul stă exact la punctul din plan (`cell_layout.CAMERAS[0]`), iar consola duce capul optic
-    până deasupra axei benzii 2. Mutarea e necesară: o cameră care privește în jos trebuie să fie
-    deasupra subiectului ei, iar la 1,10 m cu 30° pe verticală un punct aflat la 0,45 m spre nord
-    ar ieși complet din cadru. Cota capului optic este parametru, nu constantă.
+    Axul optic stă la punctul camerei din plan (`cell_layout.CAMERAS[0]`), iar consola se prinde
+    de colțul sud-vest al mașinii și se așază pe capacul ei, care este și cota de montaj. Capul
+    optic nu poate sta chiar la punctul din plan: o cameră care privește în jos trebuie să fie
+    deasupra subiectului ei, iar deasupra benzii 2 anvelopa brațelor urcă până la ~1,60 m.
+    Consola ocolește anvelopa pe la 1,90 m, iar tija coboară numai cât să iasă în câmp piesa.
+    Cota capului optic este parametru, nu constantă.
     """
-    camera_plan = CAMERAS[0]
-    post_x, post_y = float(camera_plan["x"]), float(camera_plan["y"])
-    aim_x, aim_y = post_x, center(BELT_OUT)[1]
+    machine = machine_geometry()
+    mount_x = machine["cnc_cx"] - machine["cnc_post_dx"]
+    mount_y = machine["cnc_cy"] - machine["cnc_post_dy"]
+    aim_x = float(CAMERAS[0]["x"])
+    aim_y = center(BELT_OUT)[1]
     z = inspection_camera_z() if camera_z is None else camera_z
-    boom_dy = aim_y - post_y
-    boom_bottom = z + CAMERA_BOOM_CLEARANCE_Z
+    boom_bottom = MACHINE_COVER_Z
+    boom_dx, boom_dy = aim_x - mount_x, aim_y - mount_y
+    boom_length = math.hypot(boom_dx, boom_dy)
+    boom_yaw = math.atan2(boom_dy, boom_dx)
     strut_hz = (boom_bottom - z - CAMERA_BODY_HALF) / 2
-    post_hz = (boom_bottom + 2 * CAMERA_BOOM_HALF_Z) / 2
+    if strut_hz <= 0:
+        raise ValueError(
+            f"capul optic la {z:.3f} m nu încape sub consola de la {boom_bottom:.3f} m; "
+            f"cota maximă este {boom_bottom - CAMERA_BODY_HALF:.3f} m")
     return {
         "cam_x": aim_x,
         "cam_y": aim_y,
         "cam_z": z,
-        "cam_dx": aim_x - post_x,
-        "cam_dy": aim_y - post_y,
+        "cam_dx": boom_dx,
+        "cam_dy": boom_dy,
         "cam_body_half": CAMERA_BODY_HALF,
         "cam_lens_r": CAMERA_LENS_RADIUS,
         "cam_lens_hz": CAMERA_LENS_HALF_Z,
         "cam_lens_dz": -CAMERA_LENS_HALF_Z,
         "cam_fovy": INSPECTION_CAMERA_FOVY,
-        "cam_post_x": post_x,
-        "cam_post_y": post_y,
-        "cam_post_hxy": CAMERA_POST_HALF_XY,
-        "cam_post_hz": post_hz,
-        "cam_post_z": post_hz,
-        "cam_boom_hx": CAMERA_POST_HALF_XY,
-        "cam_boom_dy": boom_dy / 2,
-        "cam_boom_hy": boom_dy / 2,
+        "cam_mount_x": mount_x,
+        "cam_mount_y": mount_y,
+        "cam_boom_hx": boom_length / 2,
+        "cam_boom_hy": CAMERA_BOOM_HALF_XY,
         "cam_boom_hz": CAMERA_BOOM_HALF_Z,
+        # Consola se întinde de la montaj până deasupra axei benzii; orientarea se scrie ca
+        # cuaternar, fiindcă `scene/cell.xml` nu are unde ține un unghi.
+        "cam_boom_dx": boom_dx / 2,
+        "cam_boom_dy": boom_dy / 2,
         "cam_boom_z": boom_bottom + CAMERA_BOOM_HALF_Z,
+        "cam_boom_qw": math.cos(boom_yaw / 2),
+        "cam_boom_qz": math.sin(boom_yaw / 2),
         "cam_strut_hxy": CAMERA_STRUT_HALF_XY,
         "cam_strut_hz": strut_hz,
         "cam_strut_dz": boom_bottom - strut_hz - z,

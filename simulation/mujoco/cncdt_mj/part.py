@@ -186,6 +186,15 @@ def yaw_from_quat(quat: Any) -> float:
     return math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)))
 
 
+def yaw_delta_deg(measured_deg: float, requested_deg: float) -> float:
+    """Diferența dintre două yaw-uri, în grade, adusă în intervalul ``(-180, 180]``.
+
+    Unghiurile se compară pe cerc: 348,5° citit și −11,5° cerut sunt aceeași orientare, iar
+    scăderea lor naivă (360°) ar da o cădere falsă la verificarea scenei.
+    """
+    return (measured_deg - requested_deg + 180.0) % 360.0 - 180.0
+
+
 def describe(variant: PartVariant) -> Mapping[str, Any]:
     """Eticheta piesei, în forma în care intră în datasetul de inspecție."""
     return {

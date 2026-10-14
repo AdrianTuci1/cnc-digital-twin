@@ -31,7 +31,7 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import layout, part, scene  # noqa: E402
+from cncdt_mj import checks, layout, part, scene  # noqa: E402
 
 #: Unde se scriu cadrele; directorul e comis, ca dovada vizuală să fie în repo.
 RENDERS_DIR = MUJOCO_DIR / "renders"
@@ -42,8 +42,18 @@ FREE_CAMERA = {"lookat": (3.0, 2.0, 0.8), "distance": 8.5, "azimuth": 135.0, "el
 #: Cât de aproape are voie să ajungă un braț de camera de inspecție, în orice configurație.
 MIN_CAMERA_CLEARANCE_M = 0.02
 
+#: Cât de fin trebuie să vadă camera de inspecție piesa. Sub atât, cel mai mic defect din catalog
+#: — o gaură dezaxată cu 2,5 mm — cade sub ~9 pixeli și nicio clasă nu mai e separabilă.
+MIN_INSPECTION_PX_PER_MM = 3.0
+
+#: Toleranța la compararea yaw-ului cerut cu cel citit înapoi din scenă, în grade.
+YAW_TOLERANCE_DEG = 0.1
+
 #: Dacă o piesă se mișcă mai mult de atât la așezare, geometria ei nu stă pe bandă.
 MAX_SETTLE_DRIFT_M = 0.005
+
+#: Prefixele corpurilor brațelor, pentru regula de contact (`checks.arm_foreign_contacts`).
+ARM_PREFIXES = tuple(f"{prefix}_" for prefix, _ in scene.ARM_MOUNTS)
 
 
 def write_png(path: Path, image: np.ndarray) -> None:
@@ -170,6 +180,19 @@ def check(args: argparse.Namespace) -> int:
             failures.append(f"camera intră în calea {arm} ({sampled:.3f} m < "
                             f"{MIN_CAMERA_CLEARANCE_M:.3f} m)")
 
+    machined = next(body for body, place in metadata["placements"].items()
+                    if place["state"] == layout.STATE_MACHINED)
+    framing = scene.camera_framing(model, data, "camera_quality", machined,
+                                   layout.INSPECTION_CAMERA_FRAME[1])
+    print(f"  piesa în cadru          : {framing['distance_m']:.3f} m de obiectiv, "
+          f"abatere {framing['angle_x_deg']:+.1f}° / {framing['angle_y_deg']:+.1f}° față de ax, "
+          f"diametru {framing['diameter_px']:.0f} px ({framing['px_per_mm']:.1f} px/mm)")
+    if not framing["in_frame"]:
+        failures.append("piesa nu intră în cadrul camerei de inspecție")
+    elif framing["px_per_mm"] < MIN_INSPECTION_PX_PER_MM:
+        failures.append(f"camera de inspecție vede prea grosier ({framing['px_per_mm']:.1f} px/mm "
+                        f"< {MIN_INSPECTION_PX_PER_MM:.1f} px/mm)")
+
     print("\nMaterial: două stări, amândouă pe benzi")
     for body, place in metadata["placements"].items():
         label = f"{body} ({place['state']})"
@@ -178,7 +201,7 @@ def check(args: argparse.Namespace) -> int:
         print(f"  {'':<22} yaw cerut {place['yaw_deg']:.1f}°, "
               f"yaw citit din scenă {state['yaw_deg'][body]:.1f}°, "
               f"mișcare la așezare {state['drift_m'][body] * 1000:.1f} mm")
-        if abs(place["yaw_deg"] - state["yaw_deg"][body]) > 0.1:
+        if abs(part.yaw_delta_deg(state["yaw_deg"][body], place["yaw_deg"])) > YAW_TOLERANCE_DEG:
             failures.append(f"yaw-ul lui {body} nu se citește înapoi din scenă")
         if state["drift_m"][body] > MAX_SETTLE_DRIFT_M:
             failures.append(f"{body} nu s-a așezat pe bandă (s-a mișcat "
@@ -187,8 +210,10 @@ def check(args: argparse.Namespace) -> int:
     print(f"  blocul brut              : {metadata['blank']}")
 
     print("\nContacte: " + (", ".join(contacts) if contacts else "niciunul"))
-    if any("arm" in pair for pair in contacts):
-        failures.append("un braț atinge un element al celulei la poziția nominală")
+    foreign = checks.arm_foreign_contacts(contacts, ARM_PREFIXES)
+    if foreign:
+        failures.append("un braț atinge un element al celulei la poziția nominală: "
+                        + ", ".join(foreign))
 
     if failures:
         print(f"\nVerificare: CĂZUTĂ ({len(failures)})")

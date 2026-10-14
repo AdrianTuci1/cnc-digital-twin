@@ -12,6 +12,7 @@ pure, ca testele din `.venv`-ul proiectului să le poată importa fără motorul
 
 from __future__ import annotations
 
+import math
 import random
 from pathlib import Path
 from typing import Any, Iterator
@@ -348,6 +349,58 @@ def camera_clearance(model: mujoco.MjModel, data: mujoco.MjData, samples: int = 
     data.qpos[:] = saved
     mujoco.mj_kinematics(model, data)
     return report
+
+
+def _part_radius_m(model: mujoco.MjModel, geom: int) -> float:
+    """Raza piesei în planul ei: maximul distanței orizontale a vârfurilor, nu raza de încadrare.
+
+    Raza de încadrare a unei meșe este sfera care o cuprinde (include și grosimea), deci ar
+    umfla diametrul aparent al piesei din cadru; silueta văzută de sus este cea care contează.
+    """
+    if model.geom_type[geom] == mujoco.mjtGeom.mjGEOM_MESH:
+        mesh = int(model.geom_dataid[geom])
+        start = int(model.mesh_vertadr[mesh])
+        vertices = model.mesh_vert[start:start + int(model.mesh_vertnum[mesh])].reshape(-1, 3)
+        return float(np.hypot(vertices[:, 0], vertices[:, 1]).max())
+    return float(model.geom_size[geom][0])
+
+
+def camera_framing(model: mujoco.MjModel, data: mujoco.MjData, camera: str, body: str,
+                   height_px: int) -> dict[str, float | bool]:
+    """Unde cade o piesă în cadrul unei camere: distanța, abaterea de la ax și diametrul în pixeli.
+
+    Camerele MuJoCo privesc de-a lungul axei lor locale −Z (verificat cu o scenă de probă), iar
+    verificarea asta prinde exact capcana orientării: o cameră întoarsă pe dos trece de orice
+    măsurătoare de distanță, dar nu are piesa în cadru. Diametrul iese din silueta geomei
+    piesei, nu din vreo constantă transcrisă.
+    """
+    camera_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, camera)
+    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body)
+    if camera_id < 0 or body_id < 0:
+        raise ValueError(f"cameră ori corp inexistent în scenă: {camera} / {body}")
+    width_px, frame_height = layout.INSPECTION_CAMERA_FRAME
+    axes = data.cam_xmat[camera_id].reshape(3, 3)
+    offset = data.xpos[body_id] - data.cam_xpos[camera_id]
+    local = axes @ offset
+    depth = -float(local[2])
+    fovy = math.radians(float(model.cam_fovy[camera_id]))
+    fovx = 2 * math.atan(math.tan(fovy / 2) * width_px / frame_height)
+    angle_x = math.degrees(math.atan2(float(local[0]), depth))
+    angle_y = math.degrees(math.atan2(float(local[1]), depth))
+    radius = _part_radius_m(model, int(model.body_geomadr[body_id]))
+    px_per_mm = height_px / (2 * depth * math.tan(fovy / 2)) / 1000 if depth > 0 else 0.0
+    return {
+        "distance_m": float(np.linalg.norm(offset)),
+        "depth_m": depth,
+        "angle_x_deg": angle_x,
+        "angle_y_deg": angle_y,
+        "diameter_px": 2 * radius * px_per_mm * 1000,
+        "px_per_mm": px_per_mm,
+        "fovx_deg": math.degrees(fovx),
+        "fovy_deg": math.degrees(fovy),
+        "in_frame": (depth > 0 and abs(angle_x) <= math.degrees(fovx) / 2
+                     and abs(angle_y) <= math.degrees(fovy) / 2),
+    }
 
 
 def metrics(model: mujoco.MjModel, data: mujoco.MjData) -> dict[str, int]:
