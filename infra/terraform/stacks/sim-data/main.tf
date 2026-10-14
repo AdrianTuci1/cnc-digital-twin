@@ -1,3 +1,35 @@
+# Gardul de lansare (ops/runbooks/launch-guard.md). Nu creează nimic în AWS: doar refuză planul
+# și aplicarea care ar crea sau ar extinde resurse plătite, cât timp `launch_confirmed` nu este
+# `true`. Îl pune pe `true` doar `tools/twinctl/twinctl`, pe căile de lansare, după ce a verificat
+# `INFRA_LAUNCH_ENABLED` din `.env`; verificat pe viu, precondiția NU se evaluează la `destroy`,
+# deci ștergerea rămâne permisă. Acesta e nivelul care închide ocolirea prin `terraform apply`
+# rulat direct din acest director, de aceea mesajul conține comenzile complete de rulat.
+resource "terraform_data" "launch_guard" {
+  lifecycle {
+    precondition {
+      condition     = var.launch_confirmed
+      error_message = <<-EOT
+        Crearea volumului de date este blocată deliberat: `launch_confirmed` este `false`.
+
+        Volumul EBS persistent al simulării se plătește lunar, și când nu rulează nicio instanță,
+        deci nu se creează fără o confirmare explicită. Refuzul apare înainte de orice apel la AWS,
+        deci NU este o eroare de credențiale, de profil sau de rețea.
+
+        Ca să lansezi deliberat:
+          pune în .env:  INFRA_LAUNCH_ENABLED=true
+          apoi rulează:  make sim-data-up    (sau ./tools/twinctl/twinctl data-up)
+
+        Ori, direct din acest director:
+          terraform apply -var launch_confirmed=true
+
+        Ștergerea nu este afectată: `make sim-data-down` face întâi un snapshot și apoi șterge
+        volumul, iar `terraform destroy` rămâne permis, cu sau fără `-var launch_confirmed=true`.
+        Detalii: ops/runbooks/launch-guard.md
+      EOT
+    }
+  }
+}
+
 locals {
   common_tags = merge(
     {

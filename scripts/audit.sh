@@ -192,7 +192,10 @@ else
   if [[ ! -d "${SIM_DIR}/.terraform" ]] && ! terraform -chdir="${SIM_DIR}" init -input=false >/dev/null 2>&1; then
     problem "sim: \`terraform init\` a eșuat"
   else
-    run_plan "${SIM_DIR}"
+    # Gardul de lansare din stack refuză și planul, nu doar aplicarea; inventarul nu are voie
+    # să fie blocat de el, deci planul de aici trimite confirmarea explicit (vezi
+    # ops/runbooks/launch-guard.md). Nu creează nimic: planul rămâne o citire.
+    run_plan "${SIM_DIR}" -var launch_confirmed=true
     report_plan "sim"
   fi
 fi
@@ -211,9 +214,11 @@ else
     PLAN_LOG=""
     data_az="$(terraform -chdir="${DATA_DIR}" output -raw availability_zone 2>/dev/null || true)"
     if [[ -f "${DATA_DIR}/sim-data.auto.tfvars" ]]; then
-      run_plan "${DATA_DIR}"
+      run_plan "${DATA_DIR}" -var launch_confirmed=true
     elif [[ -n "${data_az}" ]]; then
-      run_plan "${DATA_DIR}" -var "availability_zone=${data_az}" \
+      # Ca mai sus: confirmarea ține gardul deschis pentru planul de inventar, nu creează nimic.
+      run_plan "${DATA_DIR}" -var "launch_confirmed=true" \
+        -var "availability_zone=${data_az}" \
         -var "size_gb=${SIM_DATA_VOLUME_GB:-100}" \
         -var "iops=${SIM_DATA_VOLUME_IOPS:-3000}" \
         -var "throughput=${SIM_DATA_VOLUME_THROUGHPUT:-125}"

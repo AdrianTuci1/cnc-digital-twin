@@ -22,6 +22,19 @@ variable "aws_profile" {
   default     = ""
 }
 
+variable "launch_confirmed" {
+  description = <<-EOT
+    Confirmarea explicită că lansarea resurselor plătite este deliberată. Implicit `false`, iar
+    `terraform_data.launch_guard` refuză atât planul, cât și aplicarea, cât timp valoarea rămâne
+    `false`. Se pune pe `true` cu `-var launch_confirmed=true`: `tools/twinctl/twinctl` o face
+    singur pe căile de lansare, după ce `INFRA_LAUNCH_ENABLED=true` în `.env`. Pe căile de
+    ștergere twinctl trimite tot `true`, deși precondiția nu se evaluează la `destroy`.
+    Detalii: ops/runbooks/launch-guard.md.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "instance_type" {
   description = "Tipul instanței GPU."
   type        = string
