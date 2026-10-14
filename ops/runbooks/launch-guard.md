@@ -14,8 +14,8 @@ se decide local, înainte de orice apel la AWS.
 
 ## Când se citește runbook-ul
 
-1. `make up`, `make sim-up`, `make sim-data-up`, `make platform-up` ori `make sim-vpn-on`
-   refuză și vrei să știi exact ce să pui în `.env`.
+1. `make up`, `make sim-up`, `make sim-data-up`, `make platform-up`, `make sim-start` ori
+   `make sim-vpn-on` refuză și vrei să știi exact ce să pui în `.env`.
 2. `terraform plan` sau `terraform apply` din `infra/terraform/stacks/sim` ori
    `infra/terraform/stacks/sim-data` se termină cu `Resource precondition failed`.
 3. Vrei să lansezi deliberat și vrei să știi ce rămâne permis fără comutator.
@@ -36,8 +36,8 @@ refuz: crearea instanței GPU nu pornește (comutatorul de lansare este oprit).
   apoi repetă comanda:
         make sim-up   (sau ./tools/twinctl/twinctl up)
 
-  Fără comutator rămân permise: down, data-down, vpn-off (șterg resurse), precum și
-  status, cost, data, spot, outputs, logs, freeze (citesc ori salvează).
+  Fără comutator rămân permise: down, data-down, vpn-off, stop (șterg ori opresc), precum
+  și status, cost, data, spot, outputs, logs, freeze (citesc ori salvează).
   Detalii: ops/runbooks/launch-guard.md
 ```
 
@@ -65,6 +65,7 @@ Lansarea infrastructurii de simulare este blocată deliberat: `launch_confirmed`
 # 1. în `.env`:  INFRA_LAUNCH_ENABLED=true
 # 2. lansează:
 make sim-up            # instanța GPU (cere și volumul de date, dacă lipsește)
+make sim-start         # repornește o instanță on-demand oprită (SIM_USE_SPOT=false)
 make sim-data-up       # doar volumul EBS persistent
 make sim-vpn-on        # doar endpoint-ul Client VPN
 make up                # platformă + instanță
@@ -97,6 +98,7 @@ Pentru oprire sau curățenie, vezi secțiunea următoare.
 | `make sim-down` (`twinctl down`) | șterge instanța, discul rădăcină, SG, cheia, VPN-ul |
 | `make sim-data-down` (`twinctl data-down`) | șterge volumul de date, după un snapshot |
 | `make sim-vpn-off` (`twinctl vpn-off`) | șterge endpoint-ul Client VPN |
+| `make sim-stop` (`twinctl stop`) | oprește instanța on-demand; discul rămâne |
 | `make sim-status`, `make sim-cost` | starea și estimarea de cost |
 | `make sim-data`, `make sim-data-snapshot` | starea și snapshot-urile volumului |
 | `make sim-spot`, `make sim-outputs`, `make sim-logs` | prețuri spot, ieșiri, loguri |
@@ -107,12 +109,17 @@ Pentru oprire sau curățenie, vezi secțiunea următoare.
 reducere a costului și fac parte din căile de teardown (`down --freeze`, `data-down` face un
 snapshot înainte de ștergere).
 
+`start` este blocat, deși nu creează nimic: pe `SIM_USE_SPOT=false` repornește instanța GPU,
+adică exact cheltuiala pe care gardul o oprește. Nu e chemat de nicio cale internă (`down`,
+`data-down`), deci blocarea lui nu poate atinge teardown-ul. `stop` rămâne liber: oprește
+instanța și reduce costul.
+
 ## Unde stă gardul
 
 | Nivel | Ce face |
 | --- | --- |
-| `Makefile` | refuză devreme, cu un rând de explicație: `up`, `sim-up`, `sim-data-up`, `platform-up`. Strat de mesaj, nu de adevăr. |
-| `tools/twinctl/twinctl` | citește `INFRA_LAUNCH_ENABLED` în `load_env` și refuză înainte de orice apel la AWS: `up`, `data-up`, `vpn-on`. Pe căile de lansare trimite `-var launch_confirmed=true`; pe cele de ștergere îl trimite mereu. |
+| `Makefile` | refuză devreme, cu un rând de explicație: `up`, `sim-up`, `sim-start`, `sim-data-up`, `platform-up`. Strat de mesaj, nu de adevăr. |
+| `tools/twinctl/twinctl` | citește `INFRA_LAUNCH_ENABLED` în `load_env` și refuză înainte de orice apel la AWS: `up`, `start`, `data-up`, `vpn-on`. Pe căile de lansare trimite `-var launch_confirmed=true`; pe cele de ștergere îl trimite mereu. |
 | `infra/terraform/stacks/sim` și `stacks/sim-data` | `terraform_data.launch_guard` cu `lifecycle { precondition }`: refuză orice plan sau apply fără `-var launch_confirmed=true`. Acesta e nivelul care închide ocolirea prin `terraform apply` direct. |
 
 `scripts/audit.sh` trimite `launch_confirmed=true` la planurile de pe cele două stack-uri

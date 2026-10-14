@@ -168,7 +168,8 @@ Comenzi:
   vpn-off | vpn-on     Șterge ori recreează endpoint-ul Client VPN, fără să atingă instanța.
                        Endpoint-ul se taxează orar cât timp există, conectat sau nu.
   logs [--follow]      Afișează logurile Isaac Sim
-  start | stop         Pornește/oprește instanța păstrând discul
+  start | stop         Pornește instanța (cere comutatorul de lansare) ori o oprește, păstrând
+                       discul
   freeze [opțiuni]     Creează un AMI din instanță ca să nu reinstalezi Isaac Sim la următoarea
                        pornire (--list, --keep N șterge AMI-urile mai vechi, --clear renunță)
   data                 Starea volumului de date: ID, zonă, dimensiune, instanța care îl are,
@@ -209,9 +210,9 @@ impune alt snapshot, iar `data-up --fresh` cere un volum gol. Se plătește luna
 există. Detalii: docs/adr/0011-volum-de-date-persistent.md.
 
 Comutatorul de lansare (INFRA_LAUNCH_ENABLED, implicit false, citit din .env) blochează
-comenzile care creează sau extind resurse plătite: up, data-up și vpn-on. Fără el rămân
-neatinse citirea (status, cost, data, spot, outputs, logs) și ștergerea (down, data-down,
-vpn-off). Detalii: ops/runbooks/launch-guard.md
+comenzile care creează, extind sau repornesc resurse plătite: up, start, data-up și vpn-on.
+Fără el rămân neatinse citirea (status, cost, data, spot, outputs, logs) și ștergerea ori
+oprirea (down, data-down, vpn-off, stop). Detalii: ops/runbooks/launch-guard.md
 
 Variabile de mediu (citite din .env dacă există):
   INFRA_LAUNCH_ENABLED, AWS_PROFILE, AWS_REGION, PROJECT_NAME, ENVIRONMENT, SIM_INSTANCE_TYPE,
@@ -255,8 +256,8 @@ require_launch_enabled() {
     plain "  apoi repetă comanda:"
     plain "        ${retry}"
     plain ""
-    plain "  Fără comutator rămân permise: down, data-down, vpn-off (șterg resurse), precum și"
-    plain "  status, cost, data, spot, outputs, logs, freeze (citesc ori salvează)."
+    plain "  Fără comutator rămân permise: down, data-down, vpn-off, stop (șterg ori opresc), precum"
+    plain "  și status, cost, data, spot, outputs, logs, freeze (citesc ori salvează)."
     plain "  Detalii: ops/runbooks/launch-guard.md"
   } >&2
   exit 1
@@ -1312,6 +1313,10 @@ cmd_logs() {
 # ---------------------------------------------------------------- start / stop
 cmd_start() {
   load_env
+  # Repornirea unei instanțe oprite readuce costul de GPU, deci trece prin comutator. Oprirea
+  # (`stop`) nu trece pe aici: reduce costul. Refuzul e local, înainte de `terraform init` și de
+  # orice apel la AWS.
+  require_launch_enabled "pornirea instanței GPU" "make sim-start   (sau ./tools/twinctl/twinctl start)"
   ensure_tf_ready
   state_exists || die "nu există instanță; rulați întâi \`up\`"
 
@@ -1347,6 +1352,7 @@ cmd_start() {
 cmd_stop() {
   [[ $# -eq 0 ]] || die "comanda stop nu primește opțiuni: $1"
 
+  # Deliberat neblocat: oprirea reduce costul, iar gardul acoperă doar ce cheltuiește în plus.
   load_env
   ensure_tf_ready
   state_exists || die "nu există instanță; rulați întâi \`up\`"
