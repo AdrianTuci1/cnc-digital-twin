@@ -132,3 +132,20 @@ Verificat pe 2026-10-13, pe macOS arm64, în venv-ul proiectului (Python 3.14.6)
 
 - 2026-10-13: ADR propus, însoțit de planul din `docs/11-geaman-mujoco.md`. Niciun cod scris
   încă; faza 0 este doar documentația de față.
+- 2026-10-14: verificat pe viu, pe MuJoCo 3.15.0, că MJCF `<attach model="...">` **nu
+  funcționează** în această versiune — patru forme de cale încercate, toate sfârșite cu „could
+  not find model", iar atributul `modeldir` nu există pe `<compiler>`. Decizia 2 se completează:
+  scena nu poate fi un XML declarativ care își ia singur brațele, ci se compune programatic, cu
+  `MjSpec.attach(child, prefix=..., frame=body.to_frame())` și `copy_during_attach = True` pentru
+  al doilea braț. Celula trebuie să scrie explicit `<option integrator="implicitfast"/>`, altfel
+  integratorul modelului copil intră în conflict cu cel al părintelui, și să-și scrie propriile
+  poziții nominale, fiindcă cele ale modelului copil se importă și se ciocnesc între cele două
+  brațe.
+- 2026-10-14: camera de inspecție nu poate rămâne la 2,20 m cu rezoluția implicită de 160×120.
+  Diferențele cele mai fine dintre clasele de defect din generatorul de piese sunt de 4 mm și
+  2,5 mm, iar la acea distanță piesa de ~100 mm ajunge la vreo 10 pixeli. Camera coboară la 0,25 m
+  deasupra benzii 2 și randează la 640×480. Detalii în `docs/11-geaman-mujoco.md`, secțiunea 2.
+- 2026-10-14: fluxul materialului, precizat: pe banda 1 intră un bloc brut de metal, iar
+  generatorul procedural intervine abia după încărcarea în CNC, producând roata dințată cu clasa
+  ei de defect. Generatorul descrie deci rezultatul mașinării, nu piesa de intrare, iar piesa
+  ajunge pe banda 2 la o rotație aleatoare, logată împreună cu cadrul de inspecție.

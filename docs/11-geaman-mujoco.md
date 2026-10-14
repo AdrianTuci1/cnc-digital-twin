@@ -50,10 +50,24 @@ Stările mașinii CNC sunt exact enumerația din `cnc.telemetry.v1.json`: `IDLE`
 bandă 2 (inspecție) → braț 2 → cutie — produce `cycle_id` și `part_id` cu aceleași formate
 (`cyc-000001`, `part-000001`).
 
-Randarea camerei se face cu `mujoco.Renderer` la rezoluție mică (implicit 160×120). Pentru
-sesiunile în care interesează doar telemetria, randarea se oprește complet, iar degradarea
-imaginii se aplică doar cadrelor cerute (inspecție), ca să nu plătească timp de generare.
-Verificat: randarea offscreen funcționează fără fereastră, pe CPU, în afara Kit.
+Randarea camerei se face cu `mujoco.Renderer`. Pentru sesiunile în care interesează doar
+telemetria, randarea se oprește complet, iar degradarea imaginii se aplică doar cadrelor cerute
+(inspecție), ca să nu plătească timp de generare. Verificat: randarea offscreen funcționează
+fără fereastră, pe CPU, în afara Kit.
+
+**Rezoluția nu poate rămâne la implicitul de 160×120.** Diferența cea mai grosieră de rezolvat
+este adâncimea unui dinte ciobit, `chip_depth = 4 mm`, iar cea mai fină este dezaxarea radială a
+unei găuri, 2,5 mm. Ca fiecare să treacă de câțiva pixeli, piesa de ~100 mm trebuie
+să ocupe câteva sute de pixeli, ceea ce cere simultan o rezoluție mai mare **și** o cameră
+aproape. Cu camera la 2,20 m, adică la ~1,35 m deasupra piesei, un obiectiv normal acoperă ~1,5 m
+din cadru: piesa ajunge la vreo 10 pixeli, iar defectul sub un pixel, deci nicio clasă din
+catalogul de defecte nu ar fi separabilă. De aceea camera de inspecție stă la 0,25 m deasupra
+suprafeței benzii 2 și randează la 640×480, adică ~4,5 px/mm pe piesă. Înălțimea camerelor este
+parametru, nu o constantă comună, iar intrinsics-urile camerei de inspecție — înălțime, câmp
+vizual, rezoluție — se scriu în `simulation/mujoco/README.md`, împreună cu ce poate și ce nu
+poate rezolva. Legătura cu uzura: degradarea camerei din secțiunea 3 aplică blur proporțional cu
+`1 - h_camera`, deci o cameră proiectată exact la limita de rezoluție pierde piesa, nu doar
+defectul.
 
 ### Poziționarea în celulă: grid de 0,5 m
 
@@ -94,25 +108,37 @@ Fiecare țintă de prindere cade în raza de 0,855 m a brațului care o deserve�
 | Braț 2 | piesă bună în cutie | 0,83 | da |
 | Braț 2 | rebut în cutie | 0,83 | da |
 
-Fluxul materialului, desenat punctat pe plan: banda 1 intră din `A7` spre est și lasă piesa la
-capătul ei, în `F7`; brațul 1 o ridică, o încarcă în mașină pe fața vestică, iar după ce mașina
-termină o descarcă tot el și o așază pe banda 2, în `G5`. Banda 2 merge într-un singur sens,
-spre vest, iar pe drum piesa trece prin dreptul camerei de inspecție a calității (`G4`), care
-stă deasupra ei: verdictul e gata înainte ca piesa să ajungă la brațul 2, aflat pe latura sudică
-a benzii, în `F4`, și care o ridică din `F5`. Verdictul hotărâște cutia — `E5–E6` pentru piese
+Fluxul materialului, desenat punctat pe plan: banda 1 intră din `A7` spre est și lasă **blocul
+brut** — un disc de metal, nu piesa finită — la capătul ei, în `F7`; brațul 1 îl ridică și îl
+încarcă în mașină pe fața vestică. Abia după ce piesa este poziționată în dispozitiv intră
+generatorul procedural: geometria de pe masa mașinii devine roata dințată cu clasa ei de defect,
+iar eticheta iese din același `GearParams` care a produs geometria, deci nu se pot desincroniza.
+După ce mașina termină, brațul 1 o descarcă tot el și o așază pe banda 2, în `G5`, la o rotație
+aleatoare. Banda 2 merge într-un singur sens, spre vest, iar pe drum piesa trece prin dreptul
+camerei de inspecție a calității (`G4`), care stă deasupra ei: verdictul e gata înainte ca piesa
+să ajungă la brațul 2, aflat pe latura sudică a benzii, în `F4`, și care o ridică din `F5`.
+Verdictul hotărăște cutia — `E5–E6` pentru piese
 bune, `F5–G6` pentru rebut —, iar cutiile stau dincolo de bandă, pe latura nordică. Brațul 2
 ridică și lasă piesa în același sector, spre nord, deci întoarcerea dintre ținta de preluare și
 cele două cutii scade la circa 43°, față de 180° cât ar fi cu cutiile de aceeași parte cu brațul.
 Pistonul de rejecție din scena Isaac Sim nu se dublează aici: clasificarea o face brațul 2, din
 verdictul camerei.
 
+Rotația aleatoare de pe banda 2 nu este un detaliu de fizică, ci o decizie despre dataset: dă
+clasificatorului de calitate aceeași piesă din unghiuri diferite, iar defectele din catalog sunt
+diferențe relative între dinți și cercul de găuri, deci rămân vizibile la orice rotire. Yaw-ul
+așezării se loghează însă împreună cu cadrul și cu eticheta, altfel nu se poate construi o
+partiție de evaluare pe unghiuri nevăzute și nu se poate distinge invarianța la rotire de noroc.
+
 Înălțimile propuse, pentru când se scrie MJCF-ul: suprafețele de lucru ale benzilor la 0,85 m,
 masa mașinii la 0,75 m, capacul de protecție la 1,90 m, cutiile pe podea cu marginea la 0,35 m,
-baza brațelor pe piedestal la 0,55 m, camerele la 2,20 m, orientate în jos. Culoarele libere:
-0,60 m între capătul benzii 1 și fața vestică a mașinii, 0,20 m între marginea nordică a benzii
-2 și fața sudică a mașinii (brațul 1 lucrează pe deasupra benzii, nu prin culoar), 0,25 m între
-marginea sudică a benzii 2 și axul brațului 2, adică 0,13 m până la piedestalul lui. Brațul 1
-are 0,63 m până la axul mașinii și 0,79 m până la locul de așezare pe banda 2, iar brațul 2 are
+baza brațelor pe piedestal la 0,55 m, camerele la 2,20 m, orientate în jos — cu o excepție,
+camera de inspecție a calității, care coboară la 0,25 m deasupra benzii 2, din motivul numeric
+din secțiunea 2. Culoarele libere: 0,60 m între capătul benzii 1 și fața vestică a mașinii,
+0,20 m între marginea nordică a benzii 2 și fața sudică a mașinii (brațul 1 lucrează pe deasupra
+benzii, nu prin culoar), 0,25 m între marginea sudică a benzii 2 și axul brațului 2, adică
+0,13 m până la piedestalul lui. Brațul 1 are 0,63 m până la axul mașinii și 0,79 m până la locul
+de așezare pe banda 2, iar brațul 2 are
 0,45 m până la punctul de preluare și 0,83 m până la fiecare cutie. Ambele brațe lucrează pe
 deasupra benzilor, nu prin culoarele dintre ele; distanța mică dintre axul brațului 2 și banda 2
 se verifică la montaj, în scenă, nu din plan.
