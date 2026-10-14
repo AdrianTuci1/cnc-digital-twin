@@ -13,7 +13,7 @@ Sursa de adevăr pentru decizii. Codul spune *ce* se întâmplă; documentele de
 | [07-cost.md](07-cost.md) | Costurile pe componente și controalele de cost | scris |
 | [08-isaac-sim-guide.md](08-isaac-sim-guide.md) | Kit, extensii, `omni.ui`, obținerea datelor | scris |
 | [09-scena-celulei-cnc.md](09-scena-celulei-cnc.md) | Props, asamblarea scenei, contractul de căi, uzură, camera de sortare, poarta de la lamă | scris |
-| [10-dataset-piese.md](10-dataset-piese.md) | Generatorul de piese, catalogul de defecte, etichete, separarea de inferență | scris |
+| [10-dataset-piese.md](10-dataset-piese.md) | Familiile de piese, generatorul, catalogul de defecte, etichete, separarea de inferență | scris |
 | [11-geaman-mujoco.md](11-geaman-mujoco.md) | Al doilea geamăn, în MuJoCo: scenă, motor de uzură non-liniar, telemetrie, detector, panou, faze | plan, fără cod |
 
 ## Decizii (ADR)

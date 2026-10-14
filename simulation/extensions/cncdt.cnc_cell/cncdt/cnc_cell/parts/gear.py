@@ -1,4 +1,4 @@
-"""Generatorul procedural al roții dințate.
+"""Generatorul procedural al roților dințate.
 
 Piesa de referință este o roată dințată plană: contur dințat, alezaj central cu pană de
 cheie și un cerc de găuri de buloane. Meshul este construit direct, din inele 2D, fără
@@ -11,6 +11,10 @@ operații booleene la runtime:
 Fiecare defect este o schimbare de parametri, nu o operație pe geometrie. Astfel geometria
 randată și eticheta provin din același obiect :class:`GearParams`, iar un dataset se poate
 regenera exact din seed.
+
+Piesele sunt grupate în **familii** (:data:`FAMILIES`): același proces și aceeași sculă, dar
+diametru, număr de dinți, alezaj și cerc de găuri diferite. Familia este prima etichetă a
+piesei — modelul de inspecție trebuie să spună întâi *ce* piesă este, apoi dacă e conformă.
 
 Modulul nu depinde de Isaac Sim: doar ``numpy`` și ``mapbox_earcut``.
 """
@@ -117,14 +121,17 @@ class GearParams:
             )
         if len(self.missing_teeth) + len(self.chipped_teeth) >= self.teeth:
             raise ValueError("nu pot lipsi toți dinții")
+        # Adâncimea penei contează doar la piesele care au pană: o piesă fără pană are
+        # alezajul rotund, iar un `keyway_depth` rămas în parametri nu lărgește golul.
+        keyway_depth = self.keyway_depth if self.keyway else 0.0
         if self.bore_radius > 0:
-            if self.bore_radius + (self.keyway_depth if self.keyway else 0.0) >= self.root_radius:
+            if self.bore_radius + keyway_depth >= self.root_radius:
                 raise ValueError("alezajul iese din coroana dintată")
         if self.bolt_count < 1:
             raise ValueError("piesa are nevoie de cel puțin o gaură de buloane")
         inner = self.bolt_circle_radius - self.hole_radius
         outer = self.bolt_circle_radius + self.hole_radius
-        if self.bore_radius > 0 and inner <= self.bore_radius + self.keyway_depth:
+        if self.bore_radius > 0 and inner <= self.bore_radius + keyway_depth:
             raise ValueError("găurile de buloane intră în alezaj")
         if outer >= self.root_radius:
             raise ValueError("găurile de buloane ies din coroana dintată")
@@ -170,12 +177,169 @@ class GearParams:
 NOMINAL = _nominal_params()
 
 
+# ------------------------------------------------------------------ familiile de piese
+
+# Familiile care intră în celulă. Sunt toate roți dințate plane — același proces, aceeași
+# sculă — dar diferă în plan: diametru, număr de dinți, alezaj, pană de cheie și cerc de
+# găuri. Diferențele sunt intenționat în plan, fiindcă de sus, din camera de inspecție, se
+# vede silueta, iar grosimea aproape deloc (docs/10-dataset-piese.md).
+#
+# Diametrele stau sub Ø110 și peste Ø50: sub ~Ø8 nu se mai distinge nimic la rezoluția de
+# inspecție, iar peste Ø110 piesa nu mai intră în universal. Familiile mici (≤ Ø72) încap
+# între fălcile de 83 mm ale prinzătorului, deci acolo prinderea poate fi reală.
+#
+# Fiecare familie trebuie să rămână la distanță de acțiunea fiecărui defect: alezajul mărit
+# cu 2 mm nu are voie să ajungă în cercul de găuri, gaura deplasată cu 2,5 mm nu are voie să
+# iasă din coroană, iar lățimile dinților trebuie să rămână valide și la numărul de dinți
+# greșit (17 ori 19). Constantele din tabel sunt verificate în
+# ``tests/unit/test_part_generator.py``.
+@dataclass(frozen=True)
+class PartFamily:
+    """O familie de piese: numele, descrierea și parametrii nominali."""
+
+    name: str
+    description: str
+    nominal: GearParams
+
+    @property
+    def teeth(self) -> int:
+        return self.nominal.teeth
+
+    @property
+    def diameter_mm(self) -> float:
+        return 2.0 * self.nominal.outer_radius
+
+    @property
+    def thickness_mm(self) -> float:
+        return self.nominal.thickness
+
+    @property
+    def has_keyway(self) -> bool:
+        return self.nominal.keyway
+
+    def defect_classes(self) -> tuple[str, ...]:
+        """Clasele care au sens pe familia asta.
+
+        Pana dispărută nu are sens pe o piesă fără pană: ar da exact piesa nominală a
+        familiei, adică o etichetă de rebut pe o geometrie corectă.
+        """
+        if self.has_keyway:
+            return DEFECT_CLASSES
+        return tuple(item for item in DEFECT_CLASSES if item != DEFECT_KEYWAY_MISSING)
+
+    def as_dict(self) -> dict[str, Any]:
+        """Reprezentare serializabilă: intră în manifest, lângă eticheta fiecărei piese."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "teeth": self.teeth,
+            "diameter_mm": self.diameter_mm,
+            "thickness_mm": self.thickness_mm,
+        }
+
+
+FAMILIES: tuple[PartFamily, ...] = (
+    PartFamily(
+        name="wheel_100",
+        description="roata de referință: Ø100, 18 dinți, alezaj Ø40 cu pană 12 × 5, 5 găuri Ø9",
+        nominal=NOMINAL,
+    ),
+    PartFamily(
+        name="flange_72",
+        description="flansa: Ø72, 24 dinți mărunți, alezaj Ø28 fără pană, 3 găuri Ø6",
+        nominal=GearParams(
+            outer_radius=36.0,
+            root_radius=30.0,
+            bore_radius=14.0,
+            keyway=False,
+            keyway_depth=0.0,
+            teeth=24,
+            tooth_tip_width_deg=5.0,
+            tooth_root_width_deg=9.0,
+            thickness=10.0,
+            bolt_count=3,
+            bolt_circle_radius=24.0,
+            hole_radius=3.0,
+        ),
+    ),
+    PartFamily(
+        name="bushing_68",
+        description="bucșa: Ø68, 20 dinți, alezaj Ø30 fără pană, 3 găuri Ø7",
+        nominal=GearParams(
+            outer_radius=34.0,
+            root_radius=28.0,
+            bore_radius=15.0,
+            keyway=False,
+            keyway_depth=0.0,
+            teeth=20,
+            thickness=14.0,
+            bolt_count=3,
+            bolt_circle_radius=22.0,
+            hole_radius=3.5,
+        ),
+    ),
+    PartFamily(
+        name="wheel_60",
+        description="roata mică: Ø60, 18 dinți, alezaj Ø20 cu pană 6 × 3,5, 5 găuri Ø5",
+        nominal=GearParams(
+            outer_radius=30.0,
+            root_radius=24.0,
+            bore_radius=10.0,
+            keyway_width=6.0,
+            keyway_depth=3.5,
+            teeth=18,
+            thickness=15.0,
+            bolt_count=5,
+            bolt_circle_radius=18.5,
+            hole_radius=2.5,
+        ),
+    ),
+    PartFamily(
+        name="pinion_56",
+        description="pinionul: Ø56, 12 dinți rari, alezaj Ø14 cu pană 5 × 3, 4 găuri Ø6",
+        nominal=GearParams(
+            outer_radius=28.0,
+            root_radius=22.0,
+            bore_radius=7.0,
+            keyway_width=5.0,
+            keyway_depth=3.0,
+            teeth=12,
+            thickness=12.0,
+            bolt_count=4,
+            bolt_circle_radius=15.5,
+            hole_radius=3.0,
+        ),
+    ),
+)
+
+FAMILY_BY_NAME: Mapping[str, PartFamily] = {family.name: family for family in FAMILIES}
+
+# Familia implicită. Toate uneltele care nu primesc o familie lucrează pe piesa de referință,
+# deci rezultatele de dinainte de familii se reproduc exact.
+DEFAULT_FAMILY = "wheel_100"
+
+
+def family_of(family: str | PartFamily | None = None) -> PartFamily:
+    """Familia cerută, ori cea implicită. Acceptă și obiectul, ca să nu se caute de două ori."""
+    if isinstance(family, PartFamily):
+        return family
+    if family is None:
+        return FAMILY_BY_NAME[DEFAULT_FAMILY]
+    try:
+        return FAMILY_BY_NAME[family]
+    except KeyError:
+        raise ValueError(
+            f"familie necunoscută: {family!r}; cunoscute: {sorted(FAMILY_BY_NAME)}"
+        ) from None
+
+
 @dataclass(frozen=True)
 class PartVariant:
     """O variantă generată: meshul, parametrii și eticheta."""
 
     part_id: str
     seed: int
+    family: str
     defect: str
     verdict: str
     params: GearParams
@@ -402,34 +566,40 @@ def _jittered(base: GearParams, rng: random.Random) -> GearParams:
     )
 
 
-def choose_defect(rng: random.Random) -> str:
+def choose_defect(rng: random.Random, classes: tuple[str, ...] = DEFECT_CLASSES) -> str:
     """Alege o clasă. PASS are ponderea lui, restul se împart egal."""
-    rejects = [item for item in DEFECT_CLASSES if item != DEFECT_PASS]
-    if rng.random() < PASS_WEIGHT:
+    rejects = [item for item in classes if item != DEFECT_PASS]
+    if rng.random() < PASS_WEIGHT or not rejects:
         return DEFECT_PASS
     return rng.choice(rejects)
 
 
-def build_variant(seed: int, defect: str | None = None) -> PartVariant:
+def build_variant(seed: int, defect: str | None = None, family: str | PartFamily | None = None) -> PartVariant:
     """Construiește varianta pentru un seed. Cu ``defect`` dat, clasa este forțată.
 
     Fluxurile de randomizare sunt separate: abaterea în toleranță, alegerea clasei și
     alegerea indicelui (dintele ori gaura afectată) nu se influențează reciproc. Astfel,
     forțarea clasei dă exact aceeași geometrie ca rularea aleatoare care a produs clasa.
+
+    ``family`` alege familia de piese; fără el se lucrează pe piesa de referință, deci
+    rezultatele de dinainte de familii se reproduc exact.
     """
+    item = family_of(family)
     jitter_rng = random.Random(f"{seed}:geometry")
     class_rng = random.Random(f"{seed}:class")
     index_rng = random.Random(f"{seed}:index")
 
-    base = _jittered(NOMINAL, jitter_rng)
-    chosen = defect if defect is not None else choose_defect(class_rng)
-    if chosen not in DEFECT_CLASSES:
-        raise ValueError(f"clasă necunoscută: {chosen}")
+    base = _jittered(item.nominal, jitter_rng)
+    classes = item.defect_classes()
+    chosen = defect if defect is not None else choose_defect(class_rng, classes)
+    if chosen not in classes:
+        raise ValueError(f"clasa {chosen} nu are sens pe familia {item.name}")
     params = apply_defect(base, chosen, index_rng)
     vertices, faces = build_mesh(params)
     return PartVariant(
         part_id=f"part-{seed:08d}",
         seed=seed,
+        family=item.name,
         defect=chosen,
         verdict=VERDICT_PASS if chosen == DEFECT_PASS else VERDICT_REJECT,
         params=params,
@@ -438,13 +608,19 @@ def build_variant(seed: int, defect: str | None = None) -> PartVariant:
     )
 
 
-def build_variant_from_params(seed: int, defect: str, params: Mapping[str, Any]) -> PartVariant:
+def build_variant_from_params(
+    seed: int,
+    defect: str,
+    params: Mapping[str, Any],
+    family: str | None = None,
+) -> PartVariant:
     """Reconstruiește exact o variantă din manifest, fără randomizare."""
     restored = GearParams.from_dict(params)
     vertices, faces = build_mesh(restored)
     return PartVariant(
         part_id=f"part-{seed:08d}",
         seed=seed,
+        family=family_of(family).name,
         defect=defect,
         verdict=VERDICT_PASS if defect == DEFECT_PASS else VERDICT_REJECT,
         params=restored,
@@ -458,6 +634,7 @@ def label_of(variant: PartVariant) -> Mapping[str, Any]:
     return {
         "part_id": variant.part_id,
         "seed": variant.seed,
+        "family": variant.family,
         "verdict": variant.verdict,
         "defect": variant.defect,
         "params": variant.params.as_dict(),

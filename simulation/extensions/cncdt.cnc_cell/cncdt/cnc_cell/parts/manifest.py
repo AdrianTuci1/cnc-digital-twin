@@ -3,10 +3,14 @@
 Un rând JSON per variantă, în ordinea generării. Manifestul este sursa de adevăr pentru
 antrenare: el leagă ``part_id`` de clasa reală. Calea de inferență nu are acces la el.
 
-Formatul unui rând::
+Formatul unui rând (schema 1.1.0)::
 
-    {"part_id": "part-00000007", "seed": 7, "verdict": "REJECT",
+    {"part_id": "part-00000007", "seed": 7, "family": "wheel_100", "verdict": "REJECT",
      "defect": "TOOTH_MISSING", "params": {...}}
+
+Față de 1.0.0, rândul are și ``family``: modelul de inspecție are două capete, unul care
+spune *ce piesă* este (familia) și unul care spune *dacă* e conformă. Un manifest vechi, de
+dinainte de familii, se citește în continuare: el descrie exact familia de referință.
 """
 
 from __future__ import annotations
@@ -16,7 +20,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-SCHEMA_VERSION = "1.0.0"
+# Numele familiei de referință stă în generator, lângă tabelul de familii, ca să nu fie
+# scris de două ori. Importul nu întoarce dependența: generatorul nu știe de manifest.
+from cncdt.cnc_cell.parts.gear import DEFAULT_FAMILY
+
+SCHEMA_VERSION = "1.1.0"
 
 
 @dataclass(frozen=True)
@@ -25,6 +33,7 @@ class LabelRecord:
 
     part_id: str
     seed: int
+    family: str
     verdict: str
     defect: str
     params: Mapping[str, Any]
@@ -34,6 +43,7 @@ class LabelRecord:
             "schema_version": SCHEMA_VERSION,
             "part_id": self.part_id,
             "seed": self.seed,
+            "family": self.family,
             "verdict": self.verdict,
             "defect": self.defect,
             "params": dict(self.params),
@@ -46,6 +56,7 @@ class LabelRecord:
         return cls(
             part_id=str(payload["part_id"]),
             seed=int(payload["seed"]),
+            family=str(payload.get("family", DEFAULT_FAMILY)),
             verdict=str(payload["verdict"]),
             defect=str(payload["defect"]),
             params=payload.get("params", {}),
