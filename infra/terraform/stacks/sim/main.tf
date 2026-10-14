@@ -1,3 +1,34 @@
+# Gardul de lansare (ops/runbooks/launch-guard.md). Nu creează nimic în AWS: doar refuză planul
+# și aplicarea care ar crea sau ar extinde resurse plătite, cât timp `launch_confirmed` nu este
+# `true`. Îl pune pe `true` doar `tools/twinctl/twinctl`, pe căile de lansare, după ce a verificat
+# `INFRA_LAUNCH_ENABLED` din `.env`; verificat pe viu, precondiția NU se evaluează la `destroy`,
+# deci ștergerea rămâne permisă. Acesta e nivelul care închide ocolirea prin `terraform apply`
+# rulat direct din acest director, de aceea mesajul conține comenzile complete de rulat.
+resource "terraform_data" "launch_guard" {
+  lifecycle {
+    precondition {
+      condition     = var.launch_confirmed
+      error_message = <<-EOT
+        Lansarea infrastructurii de simulare este blocată deliberat: `launch_confirmed` este `false`.
+
+        Resursele plătite ale acestui stack (instanța GPU spot, discul rădăcină, IP-ul public,
+        endpoint-ul Client VPN) nu se creează fără o confirmare explicită. Refuzul apare înainte
+        de orice apel la AWS, deci NU este o eroare de credențiale, de profil sau de rețea.
+
+        Ca să lansezi deliberat:
+          pune în .env:  INFRA_LAUNCH_ENABLED=true
+          apoi rulează:  make sim-up          (sau ./tools/twinctl/twinctl up)
+
+        Ori, direct din acest director:
+          terraform apply -var launch_confirmed=true
+
+        Ștergerea nu este afectată: `terraform destroy` rămâne permis, cu sau fără
+        `-var launch_confirmed=true`. Detalii: ops/runbooks/launch-guard.md
+      EOT
+    }
+  }
+}
+
 locals {
   common_tags = merge(
     {

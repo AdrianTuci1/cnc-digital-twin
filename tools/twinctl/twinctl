@@ -208,8 +208,14 @@ reia automat ultimul snapshot; `SIM_DATA_VOLUME_SNAPSHOT` din .env, ori `data-up
 impune alt snapshot, iar `data-up --fresh` cere un volum gol. Se plătește lunar cât timp
 există. Detalii: docs/adr/0011-volum-de-date-persistent.md.
 
+Comutatorul de lansare (INFRA_LAUNCH_ENABLED, implicit false, citit din .env) blochează
+comenzile care creează sau extind resurse plătite: up, data-up și vpn-on. Fără el rămân
+neatinse citirea (status, cost, data, spot, outputs, logs) și ștergerea (down, data-down,
+vpn-off). Detalii: ops/runbooks/launch-guard.md
+
 Variabile de mediu (citite din .env dacă există):
-  AWS_PROFILE, AWS_REGION, PROJECT_NAME, ENVIRONMENT, SIM_INSTANCE_TYPE, SIM_USE_SPOT,
+  INFRA_LAUNCH_ENABLED, AWS_PROFILE, AWS_REGION, PROJECT_NAME, ENVIRONMENT, SIM_INSTANCE_TYPE,
+  SIM_USE_SPOT,
   SIM_ROOT_VOLUME_GB, SIM_ROOT_VOLUME_IOPS, SIM_ROOT_VOLUME_THROUGHPUT, SIM_ALLOCATE_EIP,
   SIM_AUTOSTART, SIM_ISAAC_SIM_IMAGE, SIM_AMI_ID, SIM_GOLDEN_AMI_PREFIX,
   SIM_INSTALL_CLOUDWATCH_AGENT, SIM_WEBRTC_PUBLIC_PORTS, SIM_ASSETS_BUCKET,
@@ -228,6 +234,34 @@ require_cmd() {
   command -v "${cmd}" >/dev/null 2>&1 || die "lipsește comanda \`${cmd}\`.${hint:+ $hint}"
 }
 
+# Comutatorul de lansare: orice comandă care creează sau extinde o resursă plătită trece întâi
+# pe aici. Implicit `false` (`INFRA_LAUNCH_ENABLED` în `.env`), ca o rulare din greșeală să nu
+# poată porni instanța GPU, volumul EBS ori endpoint-ul Client VPN. Verificarea e locală și se
+# face înainte de orice apel la AWS, iar mesajul spune exact ce trebuie pus în `.env`.
+# Ștergerea nu trece niciodată pe aici: teardown-ul rămâne mereu permis.
+require_launch_enabled() {
+  local action="$1" retry="$2"
+  [[ "${INFRA_LAUNCH_ENABLED:-false}" == "true" ]] && return 0
+
+  {
+    printf '%s\n' "${C_RED}refuz${C_RESET}: ${action} nu pornește (comutatorul de lansare este oprit)."
+    plain ""
+    plain "  INFRA_LAUNCH_ENABLED este „${INFRA_LAUNCH_ENABLED:-<nesetat>}” în .env, iar implicit este „false”."
+    plain "  Refuzul este deliberat și se decide local, înainte de orice apel la AWS: nu este o"
+    plain "  eroare de credențiale, de profil sau de rețea."
+    plain ""
+    plain "  Ca să lansezi deliberat, pune în .env:"
+    plain "        INFRA_LAUNCH_ENABLED=true"
+    plain "  apoi repetă comanda:"
+    plain "        ${retry}"
+    plain ""
+    plain "  Fără comutator rămân permise: down, data-down, vpn-off (șterg resurse), precum și"
+    plain "  status, cost, data, spot, outputs, logs, freeze (citesc ori salvează)."
+    plain "  Detalii: ops/runbooks/launch-guard.md"
+  } >&2
+  exit 1
+}
+
 load_env() {
   if [[ -f "${ROOT}/.env" ]]; then
     # Toate valorile din .env devin variabile de mediu pentru procesele copil.
@@ -236,6 +270,10 @@ load_env() {
     source "${ROOT}/.env"
     set +a
   fi
+
+  # Comutatorul de lansare, citit din `.env` (implicit `false`). Orice comandă care creează sau
+  # extinde o resursă plătită refuză înainte de a atinge AWS; căile de ștergere nu depind de el.
+  INFRA_LAUNCH_ENABLED="${INFRA_LAUNCH_ENABLED:-false}"
 
   export AWS_PROFILE="${AWS_PROFILE:-default}"
   export AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -460,6 +498,11 @@ ensure_data_volume() {
     return 0
   fi
 
+  # Volumul se plătește lunar cât timp există, deci comanda care îl poate crea cere comutatorul.
+  # Refuzul e deliberat fail-closed, inclusiv când volumul există deja: citirea stării lui este
+  # `data`, care rămâne permisă fără comutator.
+  require_launch_enabled "crearea volumului de date (EBS)" "make sim-data-up   (sau ./tools/twinctl/twinctl data-up)"
+
   ensure_data_ready
 
   local existing
@@ -532,7 +575,7 @@ ensure_data_volume() {
 
   generate_data_tfvars
   info "creez volumul de date (${SIM_DATA_VOLUME_GB} GB gp3 în ${az})"
-  if ! data_tf apply -input=false -auto-approve 2>&1 | tee "${STATE_DIR}/last-data-apply.log"; then
+  if ! data_tf apply -input=false -auto-approve -var launch_confirmed=true 2>&1 | tee "${STATE_DIR}/last-data-apply.log"; then
     die "crearea volumului de date a eșuat; jurnalul: ${STATE_DIR}/last-data-apply.log"
   fi
   ok "volum de date creat: $(data_volume_id)"
@@ -738,6 +781,9 @@ cmd_up() {
 
   require_cmd terraform
   load_env
+  # Orice cale de lansare cere comutatorul din .env: refuzul vine înainte de AWS și înainte de
+  # orice creare, inclusiv înainte de crearea volumului de date din pasul următor.
+  require_launch_enabled "crearea instanței GPU" "make sim-up   (sau ./tools/twinctl/twinctl up)"
   # Volumul se creează înaintea instanței: de ID-ul și de zona lui depinde tfvars-ul stack-ului
   # `sim`, iar zona devine obligatorie pentru instanță.
   ensure_data_volume
@@ -752,7 +798,7 @@ cmd_up() {
   ensure_tf_ready
 
   if [[ "${plan_only}" == "true" ]]; then
-    tf plan -input=false -out=plan.out
+    tf plan -input=false -var launch_confirmed=true -out=plan.out
     return 0
   fi
 
@@ -775,6 +821,9 @@ cmd_up() {
   fi
 
   local -a apply_args=(-input=false)
+  # Comutatorul a fost verificat mai sus, deci confirmarea explicită deblochează gardul din
+  # `stacks/sim` (precondiția refuză orice plan ori apply fără ea).
+  apply_args+=(-var launch_confirmed=true)
   if [[ "${auto_approve}" == "true" ]]; then
     apply_args+=(-auto-approve)
   fi
@@ -1618,6 +1667,9 @@ cmd_data_up() {
 
   load_env
   require_cmd terraform
+  # Refuzul vine înainte de orice efect local (scrierea zonei ori a snapshot-ului în .env) și
+  # înainte de `terraform init`; `ensure_data_volume` reia verificarea pentru calea din `up`.
+  require_launch_enabled "crearea volumului de date (EBS)" "make sim-data-up   (sau ./tools/twinctl/twinctl data-up)"
 
   if [[ -n "${snapshot}" ]]; then
     set_env_var SIM_DATA_VOLUME_SNAPSHOT "${snapshot}"
@@ -1686,7 +1738,9 @@ cmd_data_down() {
   fi
 
   ensure_data_ready
-  data_tf destroy -input=false -auto-approve
+  # Ștergerea nu depinde de comutator: `launch_confirmed=true` e trimis explicit ca precondiția
+  # din `stacks/sim-data` să nu poată bloca teardown-ul pe nicio versiune de Terraform.
+  data_tf destroy -input=false -auto-approve -var launch_confirmed=true
 
   ok "volumul de date a fost șters"
   local remaining
@@ -2042,7 +2096,9 @@ cmd_vpn_off() {
   fi
 
   info "șterg endpoint-ul ${endpoint} și regulile de tunel (instanța rămâne)"
-  tf destroy -input=false -auto-approve -var vpn_enabled=true "${VPN_TARGETS[@]}" \
+  # Ștergerea rămâne neblocată: `launch_confirmed=true` e trimis explicit, ca precondiția din
+  # `stacks/sim` să nu poată opri teardown-ul.
+  tf destroy -input=false -auto-approve -var vpn_enabled=true -var launch_confirmed=true "${VPN_TARGETS[@]}" \
     || die "ștergerea VPN-ului a eșuat"
   set_env_var SIM_VPN_ENABLED false
 
@@ -2052,6 +2108,9 @@ cmd_vpn_off() {
 
 cmd_vpn_on() {
   load_env
+  # Endpoint-ul Client VPN se taxează orar cât timp există (ADR 0004), deci recrarea lui cere
+  # comutatorul; ștergerea (`vpn-off`) nu trece pe aici. Refuzul vine înainte de `terraform init`.
+  require_launch_enabled "endpoint-ul Client VPN" "make sim-vpn-on   (sau ./tools/twinctl/twinctl vpn-on)"
   ensure_tf_ready
   require_cmd aws
 
@@ -2064,7 +2123,9 @@ cmd_vpn_on() {
   fi
 
   info "recreez endpoint-ul Client VPN (instanța rămâne)"
-  tf apply -input=false -auto-approve -var vpn_enabled=true "${VPN_TARGETS[@]}" \
+  # Țintit pe modul și pe reguli: gardul general nu intră în plan, dar primește oricum
+  # confirmarea, ca intenția să fie explicită la fel ca pe celelalte căi de lansare.
+  tf apply -input=false -auto-approve -var vpn_enabled=true -var launch_confirmed=true "${VPN_TARGETS[@]}" \
     || die "crearea VPN-ului a eșuat"
   set_env_var SIM_VPN_ENABLED true
 
@@ -2217,6 +2278,9 @@ cmd_down() {
 
   local -a args=(-input=false)
   [[ "${assume_yes}" == "true" ]] && args+=(-auto-approve)
+  # Teardown-ul nu depinde de comutator: confirmarea e trimisă mereu, ca precondiția din
+  # `stacks/sim` să nu poată bloca ștergerea.
+  args+=(-var launch_confirmed=true)
   tf destroy "${args[@]}"
 
   ok "resurse șterse. State-ul local rămâne gol în stacks/sim."
