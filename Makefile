@@ -23,6 +23,20 @@ VENV        := $(ROOT)/.venv
 PY          ?= $(shell test -x "$(VENV)/bin/python" && echo "$(VENV)/bin/python" || echo python3)
 PROJECT_NAME ?= cncdt
 AWS_REGION   ?= eu-central-1
+# Comutatorul de lansare. Implicit oprit: orice țintă care poate porni resurse AWS refuză dacă
+# nu este `true`. Garda există în trei straturi — aici, în `tools/twinctl/twinctl` și ca
+# `precondition` Terraform în stack-urile `sim` și `sim-data` — pentru că fiecare cale poate fi
+# folosită separat. `ops/runbooks/launch-guard.md` explică de ce și cum se deschide.
+INFRA_LAUNCH_ENABLED ?= false
+
+define launch_gate
+@if [ "$(INFRA_LAUNCH_ENABLED)" != "true" ]; then \
+	echo "refuz: $(1) nu pornește (comutatorul de lansare este oprit)."; \
+	echo "       INFRA_LAUNCH_ENABLED este „false”; pune „true” în .env, apoi reia."; \
+	echo "       Detalii: ops/runbooks/launch-guard.md"; \
+	exit 1; \
+fi
+endef
 
 # Terraform, AWS CLI și uneltele Python moștenesc aceste variabile din mediu.
 export AWS_PROFILE AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
@@ -38,8 +52,11 @@ help: ## Afișează această listă
 # ---------------------------------------------------------------- ciclu complet
 #   make up     creează tot, în ordine: platforma serverless, cheia SSH, instanța Isaac Sim
 #   make down   șterge tot, în ordine inversă: Isaac Sim, apoi platforma (YES=1 fără confirmări)
-.PHONY: up down
-up: platform-up sim-init sim-up ## LANSEAZĂ TOT: platforma serverless + instanța Isaac Sim
+.PHONY: up down launch-gate
+launch-gate:
+	$(call launch_gate,lansarea)
+
+up: launch-gate platform-up sim-init sim-up ## LANSEAZĂ TOT: platforma serverless + instanța Isaac Sim
 down: ## ȘTERGE TOT (Isaac Sim + platformă); YES=1 sare peste confirmări
 	$(TWINCTL) down $(if $(YES),--yes,)
 	cd $(TF_DIR)/stacks/platform && $(TF) destroy -var-file=envs/$(ENVIRONMENT).tfvars $(if $(YES),-auto-approve,)
@@ -59,6 +76,7 @@ down: ## ȘTERGE TOT (Isaac Sim + platformă); YES=1 sare peste confirmări
 sim-init: ## Preflight: unelte, credențiale, cheie SSH, bucket de asset-uri
 	$(TWINCTL) init
 sim-up: ## LANSEAZĂ Isaac Sim: creează instanța GPU și afișează datele de conectare
+	$(call launch_gate,pornirea instanței GPU)
 	$(TWINCTL) up --wait
 sim-stop: ## Oprește instanța doar dacă rulează on-demand (SIM_USE_SPOT=false); pe spot trimite la sim-down
 	$(TWINCTL) stop
@@ -77,6 +95,7 @@ sim-vpn-on: ## Recreează endpoint-ul Client VPN după `sim-vpn-off` (certificat
 sim-idle: ## Îngheață într-un AMI golden, apoi șterge instanța (rămâne volumul de date)
 	$(TWINCTL) down --freeze $(if $(YES),--yes,)
 sim-start: ## Repornește o instanță on-demand oprită; pe spot reluarea este sim-up
+	$(call launch_gate,pornirea instanței GPU)
 	$(TWINCTL) start
 sim-status: ## Starea instanței + datele de conectare
 	$(TWINCTL) status
@@ -111,6 +130,7 @@ sim-spot: ## Prețul spot pe zone, comparația cu on-demand și scorul de capaci
 sim-data: ## Starea volumului de date persistent (ID, zonă, dimensiune, snapshot-uri, cost)
 	$(TWINCTL) data
 sim-data-up: ## Creează volumul de date dacă lipsește (reia ultimul snapshot; FRESH=1 gol, SNAPSHOT=snap-...)
+	$(call launch_gate,crearea volumului de date)
 	$(TWINCTL) data-up $(if $(SNAPSHOT),--snapshot $(SNAPSHOT),) $(if $(FRESH),--fresh,)
 sim-data-down: ## ȘTERGE volumul de date; YES=1 fără confirmare, SNAPSHOT=0 fără copie de siguranță
 	$(TWINCTL) data-down $(if $(YES),--yes,) $(if $(filter 0,$(SNAPSHOT)),--no-snapshot,)
@@ -122,7 +142,7 @@ sim-data-snapshot: ## Snapshot manual al volumului (LIST=1 afișează, KEEP=2 ș
 #   make platform-down  șterge complet resursele de platformă (bucket-ul de state rămâne)
 .PHONY: platform-up platform-down platform-backend bootstrap platform-plan \
         tf-init tf-plan tf-apply tf-destroy tf-fmt tf-validate
-platform-up: platform-backend tf-init ## LANSEAZĂ restul resurselor (IoT, Firehose, Lambda, S3, CloudWatch, SageMaker)
+platform-up: launch-gate platform-backend tf-init ## LANSEAZĂ restul resurselor (IoT, Firehose, Lambda, S3, CloudWatch, SageMaker)
 	cd $(TF_DIR)/stacks/platform && $(TF) plan -var-file=envs/$(ENVIRONMENT).tfvars -out=plan.out
 	cd $(TF_DIR)/stacks/platform && $(TF) apply plan.out
 platform-down: tf-destroy ## ȘTERGE COMPLET resursele de platformă (cere confirmare)
