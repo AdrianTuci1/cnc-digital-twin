@@ -1,0 +1,19 @@
+# Mediul geamănului MuJoCo, deliberat separat de cel al proiectului (ADR 0012, decizia 7):
+# Kit aduce Python 3.11, proiectul rulează pe 3.14, iar `mujoco` nu are ce căuta în straturile
+# Lambda. Instalarea se face într-un venv propriu, ignorat de git:
+#
+#     python3 -m venv simulation/mujoco/.venv
+#     simulation/mujoco/.venv/bin/python -m pip install -r simulation/mujoco/requirements.txt
+#
+# Versiunile de mai jos sunt cele verificate efectiv, pe Python 3.14.6 / arm64.
+
+# Motorul de fizică. Aduce și numpy, PyOpenGL, glfw, etils, absl-py, typing_extensions.
+mujoco==3.15.0
+
+# Modelele de roboți, cu licența și atribuirea păstrate în pachet, nu copiate în repo.
+# Franka Emika Panda este Apache-2.0.
+mujoco-menagerie==2026.10.1
+
+# Piesa din scenă vine din generatorul procedural existent, care e pur numpy + mapbox-earcut.
+numpy==2.5.4
+mapbox_earcut==2.1.0

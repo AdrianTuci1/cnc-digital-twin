@@ -1,0 +1,192 @@
+<mujoco model="cnc_cell">
+  <!--
+    Componentele celulei CNC: pardoseală, benzi, mașina, cutii, camera de inspecție, lumini.
+
+    Fișierul NU se compilează singur. Cifrele dintre acolade se completează din `cncdt_mj/layout.py`
+    (`cncdt_mj.scene.scene_template()`), fiindcă așezarea în plan are o singură sursă de adevăr,
+    `docs/diagrams/cell_layout.py`. Aici stau doar structura și secțiunile de desen.
+
+    Nici brațele nu sunt aici: MJCF `<attach model="...">` nu funcționează în MuJoCo 3.15.0, deci
+    cele două Panda se atașează programatic, cu `MjSpec.attach`, în `cncdt_mj/scene.py`. Vezi
+    README.md.
+  -->
+  <compiler angle="radian" autolimits="true"/>
+
+  <!-- Integratorul se scrie explicit: modelele copil (Panda) cer `implicitfast`, iar fără linia
+       asta MuJoCo avertizează că valoarea copilului intră în conflict cu a părintelui și păstrează
+       valoarea părintelui. -->
+  <option integrator="implicitfast" timestep="0.002"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.35 0.35 0.35" specular="0 0 0"/>
+    <!-- offwidth/offheight ridică framebufferul offscreen: fără ele randarea se oprește la 640x480. -->
+    <global azimuth="140" elevation="-22" offwidth="1920" offheight="1080"/>
+    <map shadowclip="1.5"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.35 0.5 0.7" rgb2="0.06 0.06 0.09"
+             width="512" height="3072"/>
+    <texture type="2d" name="floor_tex" builtin="checker" mark="edge" rgb1="0.55 0.56 0.58"
+             rgb2="0.46 0.47 0.49" markrgb="0.75 0.75 0.75" width="300" height="300"/>
+    <material name="floor_mat" texture="floor_tex" texuniform="true" texrepeat="12 8"/>
+    <material name="belt_mat" rgba="0.17 0.18 0.20 1"/>
+    <material name="frame_mat" rgba="0.55 0.58 0.62 1"/>
+    <material name="machine_mat" rgba="0.62 0.70 0.80 1"/>
+    <material name="table_mat" rgba="0.42 0.47 0.53 1"/>
+    <material name="chuck_mat" rgba="0.30 0.33 0.37 1"/>
+    <material name="cover_mat" rgba="0.72 0.80 0.88 0.35"/>
+    <material name="bin_ok_mat" rgba="0.36 0.62 0.33 1"/>
+    <material name="bin_ng_mat" rgba="0.70 0.28 0.28 1"/>
+    <material name="camera_mat" rgba="0.45 0.25 0.62 1"/>
+    <material name="marker_mat" rgba="0.85 0.78 0.35 1"/>
+    <!-- Blocul brut și piesa mașinată ies în metal deschis: contrast pe banda închisă, ca piesa să
+         se vadă în cadrul camerei de inspecție. -->
+    <material name="blank_mat" rgba="0.62 0.64 0.66 1"/>
+    <material name="part_mat" rgba="0.78 0.79 0.80 1"/>
+  </asset>
+
+  <worldbody>
+    <light name="key_light" pos="{cell_cx} {cell_cy} 3.0" dir="-0.35 -0.45 -0.82"
+           directional="true" castshadow="true" diffuse="0.7 0.7 0.7"/>
+    <light name="fill_light" pos="0.5 3.5 2.5" dir="0.4 0.5 -0.75"
+           directional="true" castshadow="false" diffuse="0.35 0.35 0.35"/>
+
+    <geom name="floor" type="plane" size="0 0 0.05" material="floor_mat" condim="3"/>
+
+    <!-- Conturul celulei: 6,0 x 4,0 m, cu originea în colțul sud-vest. -->
+    <body name="cell_frame" pos="{cell_cx} {cell_cy} 0">
+      <geom name="cell_marker_south" type="box" size="{cell_half_w} {cell_marker_half} {cell_marker_half_z}"
+            pos="0 {neg_cell_half_h} {cell_marker_z}" material="marker_mat"/>
+      <geom name="cell_marker_north" type="box" size="{cell_half_w} {cell_marker_half} {cell_marker_half_z}"
+            pos="0 {cell_half_h} {cell_marker_z}" material="marker_mat"/>
+      <geom name="cell_marker_west" type="box" size="{cell_marker_half} {cell_half_h} {cell_marker_half_z}"
+            pos="{neg_cell_half_w} 0 {cell_marker_z}" material="marker_mat"/>
+      <geom name="cell_marker_east" type="box" size="{cell_marker_half} {cell_half_h} {cell_marker_half_z}"
+            pos="{cell_half_w} 0 {cell_marker_z}" material="marker_mat"/>
+    </body>
+
+    <!-- Banda 1: alimentare, un singur sens spre est. Suprafața de lucru sus la 0,85 m. -->
+    <body name="belt_in" pos="{belt_in_cx} {belt_in_cy} {belt_in_slab_z}">
+      <geom name="belt_in_slab" type="box" size="{belt_in_hx} {belt_in_hy} {belt_slab_hz}"
+            material="belt_mat" friction="1.0 0.01 0.001"/>
+      <geom name="belt_in_rail_south" type="box" size="{belt_in_hx} {belt_rail_hy} {belt_rail_hz}"
+            pos="0 {neg_belt_in_rail_dy} {belt_rail_dz}" material="frame_mat"/>
+      <geom name="belt_in_rail_north" type="box" size="{belt_in_hx} {belt_rail_hy} {belt_rail_hz}"
+            pos="0 {belt_in_rail_dy} {belt_rail_dz}" material="frame_mat"/>
+      <geom name="belt_in_leg_sw" type="box" size="{belt_leg_hxy} {belt_leg_hxy} {belt_leg_hz}"
+            pos="{neg_belt_in_leg_dx} {neg_belt_in_leg_dy} {belt_leg_dz}" material="frame_mat"/>
+      <geom name="belt_in_leg_se" type="box" size="{belt_leg_hxy} {belt_leg_hxy} {belt_leg_hz}"
+            pos="{belt_in_leg_dx} {neg_belt_in_leg_dy} {belt_leg_dz}" material="frame_mat"/>
+      <geom name="belt_in_leg_nw" type="box" size="{belt_leg_hxy} {belt_leg_hxy} {belt_leg_hz}"
+            pos="{neg_belt_in_leg_dx} {belt_in_leg_dy} {belt_leg_dz}" material="frame_mat"/>
+      <geom name="belt_in_leg_ne" type="box" size="{belt_leg_hxy} {belt_leg_hxy} {belt_leg_hz}"
+            pos="{belt_in_leg_dx} {belt_in_leg_dy} {belt_leg_dz}" material="frame_mat"/>
+    </body>
+
+    <!-- Banda 2: evacuare, un singur sens spre vest, aceeași înălțime de lucru. -->
+    <body name="belt_out" pos="{belt_out_cx} {belt_out_cy} {belt_out_slab_z}">
+      <geom name="belt_out_slab" type="box" size="{belt_out_hx} {belt_out_hy} {belt_slab_hz}"
+            material="belt_mat" friction="1.0 0.01 0.001"/>
+      <geom name="belt_out_rail_south" type="box" size="{belt_out_hx} {belt_rail_hy} {belt_rail_hz}"
+            pos="0 {neg_belt_out_rail_dy} {belt_rail_dz}" material="frame_mat"/>
+      <geom name="belt_out_rail_north" type="box" size="{belt_out_hx} {belt_rail_hy} {belt_rail_hz}"
+            pos="0 {belt_out_rail_dy} {belt_rail_dz}" material="frame_mat"/>
+      <geom name="belt_out_leg_sw" type="box" size="{belt_leg_hxy} {belt_leg_hxy} {belt_leg_hz}"
+            pos="{neg_belt_out_leg_dx} {neg_belt_out_leg_dy} {belt_leg_dz}" material="frame_mat"/>
+      <geom name="belt_out_leg_se" type="box" size="{belt_leg_hxy} {belt_leg_hxy} {belt_leg_hz}"
+            pos="{belt_out_leg_dx} {neg_belt_out_leg_dy} {belt_leg_dz}" material="frame_mat"/>
+      <geom name="belt_out_leg_nw" type="box" size="{belt_leg_hxy} {belt_leg_hxy} {belt_leg_hz}"
+            pos="{neg_belt_out_leg_dx} {belt_out_leg_dy} {belt_leg_dz}" material="frame_mat"/>
+      <geom name="belt_out_leg_ne" type="box" size="{belt_leg_hxy} {belt_leg_hxy} {belt_leg_hz}"
+            pos="{belt_out_leg_dx} {belt_out_leg_dy} {belt_leg_dz}" material="frame_mat"/>
+    </body>
+
+    <!-- Mașina CNC: cabinet, masă la 0,75 m, universal, capac de protecție până la 1,90 m.
+         Fără axe mobile: mișcarea este faza următoare, scena de acum e statică. -->
+    <body name="cnc_3axis" pos="{cnc_cx} {cnc_cy} 0">
+      <geom name="cnc_cabinet" type="box" size="{cnc_hx} {cnc_hy} {cnc_cabinet_hz}"
+            pos="0 0 {cnc_cabinet_z}" material="machine_mat"/>
+      <geom name="cnc_table" type="box" size="{cnc_table_hx} {cnc_table_hy} {cnc_table_hz}"
+            pos="0 0 {cnc_table_z}" material="table_mat"/>
+      <geom name="cnc_chuck" type="cylinder" size="{cnc_chuck_r} {cnc_chuck_hz}"
+            pos="{cnc_chuck_dx} {cnc_chuck_dy} {cnc_chuck_z}" material="chuck_mat"/>
+      <geom name="cnc_post_sw" type="box" size="{cnc_post_hxy} {cnc_post_hxy} {cnc_post_hz}"
+            pos="{neg_cnc_post_dx} {neg_cnc_post_dy} {cnc_post_z}" material="frame_mat"/>
+      <geom name="cnc_post_se" type="box" size="{cnc_post_hxy} {cnc_post_hxy} {cnc_post_hz}"
+            pos="{cnc_post_dx} {neg_cnc_post_dy} {cnc_post_z}" material="frame_mat"/>
+      <geom name="cnc_post_nw" type="box" size="{cnc_post_hxy} {cnc_post_hxy} {cnc_post_hz}"
+            pos="{neg_cnc_post_dx} {cnc_post_dy} {cnc_post_z}" material="frame_mat"/>
+      <geom name="cnc_post_ne" type="box" size="{cnc_post_hxy} {cnc_post_hxy} {cnc_post_hz}"
+            pos="{cnc_post_dx} {cnc_post_dy} {cnc_post_z}" material="frame_mat"/>
+      <!-- Capacul este fizic, nu doar vizual, dar rămâne transparent: brațul 1 lucrează la nivelul
+           mesei, în vestul lui, deci nu îl atinge. -->
+      <geom name="cnc_cover" type="box" size="{cnc_roof_hx} {cnc_roof_hy} {cnc_roof_hz}"
+            pos="0 0 {cnc_roof_z}" material="cover_mat"/>
+    </body>
+
+    <!-- Cutiile stau pe podea, lipite de latura nordică a benzii 2, adică dincolo de bandă față de
+         brațul 2. Marginea de sus la 0,35 m. -->
+    <body name="bin_ok" pos="{bin_ok_cx} {bin_ok_cy} 0">
+      <geom name="bin_ok_floor" type="box" size="{bin_ok_hx} {bin_ok_hy} {bin_floor_hz}"
+            pos="0 0 {bin_floor_z}" material="bin_ok_mat"/>
+      <geom name="bin_ok_wall_south" type="box" size="{bin_ok_wall_hx_long} {bin_wall_hxy} {bin_wall_hz}"
+            pos="0 {neg_bin_ok_wall_dy} {bin_wall_z}" material="bin_ok_mat"/>
+      <geom name="bin_ok_wall_north" type="box" size="{bin_ok_wall_hx_long} {bin_wall_hxy} {bin_wall_hz}"
+            pos="0 {bin_ok_wall_dy} {bin_wall_z}" material="bin_ok_mat"/>
+      <geom name="bin_ok_wall_west" type="box" size="{bin_wall_hxy} {bin_ok_wall_hy_long} {bin_wall_hz}"
+            pos="{neg_bin_ok_wall_dx} 0 {bin_wall_z}" material="bin_ok_mat"/>
+      <geom name="bin_ok_wall_east" type="box" size="{bin_wall_hxy} {bin_ok_wall_hy_long} {bin_wall_hz}"
+            pos="{bin_ok_wall_dx} 0 {bin_wall_z}" material="bin_ok_mat"/>
+    </body>
+
+    <body name="bin_ng" pos="{bin_ng_cx} {bin_ng_cy} 0">
+      <geom name="bin_ng_floor" type="box" size="{bin_ng_hx} {bin_ng_hy} {bin_floor_hz}"
+            pos="0 0 {bin_floor_z}" material="bin_ng_mat"/>
+      <geom name="bin_ng_wall_south" type="box" size="{bin_ng_wall_hx_long} {bin_wall_hxy} {bin_wall_hz}"
+            pos="0 {neg_bin_ng_wall_dy} {bin_wall_z}" material="bin_ng_mat"/>
+      <geom name="bin_ng_wall_north" type="box" size="{bin_ng_wall_hx_long} {bin_wall_hxy} {bin_wall_hz}"
+            pos="0 {bin_ng_wall_dy} {bin_wall_z}" material="bin_ng_mat"/>
+      <geom name="bin_ng_wall_west" type="box" size="{bin_wall_hxy} {bin_ng_wall_hy_long} {bin_wall_hz}"
+            pos="{neg_bin_ng_wall_dx} 0 {bin_wall_z}" material="bin_ng_mat"/>
+      <geom name="bin_ng_wall_east" type="box" size="{bin_wall_hxy} {bin_ng_wall_hy_long} {bin_wall_hz}"
+            pos="{bin_ng_wall_dx} 0 {bin_wall_z}" material="bin_ng_mat"/>
+    </body>
+
+    <!-- Camera de inspecție a calității: stâlpul stă la punctul ei din plan, consola duce capul
+         optic deasupra axei benzii 2, iar centrul optic coboară la 0,25 m peste suprafața benzii
+         (1,10 m), nu la 2,20 m cât prevede documentul pentru camere. Motivul e numeric: la 2,20 m
+         piesa de ~104 mm ar ocupa vreo 10 pixeli într-un cadru de 160 px, iar cel mai mic defect
+         din catalog are 2,5 mm. Aritmetica și consecințele sunt în README.md. -->
+    <body name="camera_mount" pos="{cam_post_x} {cam_post_y} 0">
+      <geom name="cam_post" type="box" size="{cam_post_hxy} {cam_post_hxy} {cam_post_hz}"
+            pos="0 0 {cam_post_z}" material="frame_mat"/>
+      <geom name="cam_boom" type="box" size="{cam_boom_hx} {cam_boom_hy} {cam_boom_hz}"
+            pos="0 {cam_boom_dy} {cam_boom_z}" material="frame_mat"/>
+      <body name="camera_quality_mount" pos="{cam_dx} {cam_dy} {cam_z}">
+        <geom name="cam_strut" type="box" size="{cam_strut_hxy} {cam_strut_hxy} {cam_strut_hz}"
+              pos="0 0 {cam_strut_dz}" material="frame_mat"/>
+        <geom name="camera_quality_body" type="box"
+              size="{cam_body_half} {cam_body_half} {cam_body_half}" material="camera_mat"/>
+        <geom name="camera_quality_lens" type="cylinder"
+              size="{cam_lens_r} {cam_lens_hz}" pos="0 0 {cam_lens_dz}" material="camera_mat"
+              contype="0" conaffinity="0"/>
+        <!-- Centrul optic este chiar originea corpului, la {cam_z} m, și tot acolo este și
+             orientarea: camerele MuJoCo privesc de-a lungul axei lor +Z locale, deci „în jos"
+             cere întoarcerea de 180° în jurul lui X. Cota și câmpul vizual sunt parametri. -->
+        <camera name="camera_quality" pos="0 0 0" quat="0 1 0 0" fovy="{cam_fovy}"/>
+      </body>
+    </body>
+
+    <!-- Piedestalurile brațelor. Brațele înseși se atașează programatic la aceste cadre. -->
+    <body name="arm1_mount" pos="{arm1_x} {arm1_y} {arm1_z}">
+      <geom name="arm1_pedestal" type="cylinder" size="{arm_pedestal_r} {arm_pedestal_hz}"
+            pos="0 0 {arm_pedestal_dz}" material="frame_mat" contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="arm2_mount" pos="{arm2_x} {arm2_y} {arm2_z}">
+      <geom name="arm2_pedestal" type="cylinder" size="{arm_pedestal_r} {arm_pedestal_hz}"
+            pos="0 0 {arm_pedestal_dz}" material="frame_mat" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+</mujoco>
