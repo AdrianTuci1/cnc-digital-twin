@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """Scena MuJoCo a celulei CNC: verificare, randare offscreen, viewer.
 
-Trei moduri, toate pe aceeași scenă compusă de `cncdt_mj.scene`:
+Patru moduri, toate pe aceeași scenă compusă de `cncdt_mj.scene`:
 
 * `--check` (implicit) — compilează scena, pune poziția nominală, rulează câțiva pași și
   raportează cifrele, distanțele până la ținte, distanța minimă până la camera de inspecție,
   yaw-ul citit din scenă și contactele. Iese cu cod 1 dacă vreo verificare cade.
 * `--render` — scrie un PNG offscreen, implicit `renders/cell.png`; cu `--camera camera_quality`
   scrie cadrul de inspecție, la rezoluția lui (`renders/inspection.png`).
+* `--demo` — ciclul brațelor, punct cu punct: piesele sunt aduse la liniile de preluare, fiecare
+  braț își urmează ruta din `cncdt_mj/moves.py`, iar la fiecare oprire se tipăresc eroarea, unghiul
+  și contactele. Se termină cu „Ciclul: verde" ori cu „Ciclul: CĂZUT (n)". Cu `--shots` scrie un
+  PNG la fiecare oprire.
 * `--view` — deschide viewer-ul interactiv, cu benzile pornite: forța de antrenare se rescrie la
   fiecare pas (`cell.apply_belt_forces`), iar ceasul se ține în ritm real, ca transportul să se
-  vadă. `--no-belts` îngheață transportul, `--speed` schimbă ritmul de rulare. Pe macOS viewer-ul
-  merge doar sub `mjpython`, deci scriptul spune asta explicit și refuză să pornească sub `python`.
+  vadă. `--no-belts` îngheață transportul, `--speed` schimbă ritmul de rulare, iar `--demo` rulează
+  ciclul în fereastră, în locul benzilor goale. Pe macOS viewer-ul merge doar sub `mjpython`, deci
+  scriptul spune asta explicit și refuză să pornească sub `python`.
 
 Se rulează din venviul geamănului (`simulation/mujoco/.venv`), care este singurul loc unde
 `mujoco` există (ADR 0012).
@@ -36,13 +41,18 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import belt, cell, checks, layout, part, scene  # noqa: E402
+from cncdt_mj import arms, belt, cell, checks, layout, moves, part, scene  # noqa: E402
 
 #: Unde se scriu cadrele; directorul e comis, ca dovada vizuală să fie în repo.
 RENDERS_DIR = MUJOCO_DIR / "renders"
 
 #: Cadrul general al celulei, din camera liberă: centrul celulei, de sus și dinspre sud-est.
 FREE_CAMERA = {"lookat": (3.0, 2.0, 0.8), "distance": 8.5, "azimuth": 135.0, "elevation": -28.0}
+
+#: Cadrul apropiat al brațelor, pentru cadrele din `--demo --shots`: celula citită ca în plan —
+#: banda 1 sus, mașina în dreapta —, dar de aproape, ca să se vadă și falcile la piesa apucată.
+DEMO_CAMERA = {"lookat": (2.85, 2.55, 0.9), "distance": 4.6, "azimuth": 290.0,
+               "elevation": -24.0}
 
 #: Prefixele corpurilor brațelor, pentru regula de contact (`checks.arm_foreign_contacts`).
 ARM_PREFIXES = tuple(f"{prefix}_" for prefix, _ in scene.ARM_MOUNTS)
@@ -131,16 +141,16 @@ def camera_arguments(args: argparse.Namespace) -> tuple[str | None, int, int]:
     return args.camera, args.width or width, args.height or height
 
 
-def configure_free_camera(camera: mujoco.MjvCamera) -> None:
-    """Așază camera liberă pe celulă: centrul ei, de sus și dinspre sud-est.
+def configure_camera(camera: mujoco.MjvCamera, preset: dict = FREE_CAMERA) -> None:
+    """Așază camera liberă pe unul din cadrele știute ale celulei.
 
     Se folosește și la randare, și la deschiderea viewer-ului, ca fereastra să pornească pe aceeași
     priveliște ca `renders/cell.png`, nu pe încadrarea implicită a MuJoCo.
     """
-    camera.lookat[:] = FREE_CAMERA["lookat"]
-    camera.distance = FREE_CAMERA["distance"]
-    camera.azimuth = FREE_CAMERA["azimuth"]
-    camera.elevation = FREE_CAMERA["elevation"]
+    camera.lookat[:] = preset["lookat"]
+    camera.distance = preset["distance"]
+    camera.azimuth = preset["azimuth"]
+    camera.elevation = preset["elevation"]
 
 
 def render(model: mujoco.MjModel, data: mujoco.MjData, path: Path, camera: str | None,
@@ -150,7 +160,7 @@ def render(model: mujoco.MjModel, data: mujoco.MjData, path: Path, camera: str |
         if camera is None:
             free = mujoco.MjvCamera()
             mujoco.mjv_defaultFreeCamera(model, free)
-            configure_free_camera(free)
+            configure_camera(free)
             renderer.update_scene(data, camera=free)
         else:
             renderer.update_scene(data, camera=camera)
@@ -271,6 +281,147 @@ def transport_line(model: mujoco.MjModel, data: mujoco.MjData,
     return f"t={data.time:6.2f} s | " + " | ".join(cells)
 
 
+class Frames:
+    """Cadre scrise pe drum, cu un singur randator: ce face `--demo --shots`.
+
+    Randatorul se deschide o dată, nu la fiecare cadru, iar camera este cea liberă, aceeași din
+    care iese `renders/cell.png`: pozele arată exact ce arată și verificarea de rutină.
+    """
+
+    def __init__(self, model: mujoco.MjModel, width: int = 1280, height: int = 960) -> None:
+        self.renderer = mujoco.Renderer(model, height=height, width=width)
+        self.camera = mujoco.MjvCamera()
+        mujoco.mjv_defaultFreeCamera(model, self.camera)
+        configure_camera(self.camera, DEMO_CAMERA)
+
+    def write(self, data: mujoco.MjData, path: Path) -> None:
+        """Scrie un cadru."""
+        self.renderer.update_scene(data, camera=self.camera)
+        write_png(path, self.renderer.render())
+
+    def close(self) -> None:
+        """Închide randatorul."""
+        self.renderer.close()
+
+
+def bring_parts_to_pickup(model: mujoco.MjModel, data: mujoco.MjData, parts: tuple[str, ...],
+                          budget: int = 6000) -> dict[str, float]:
+    """Rulează benzile până fiecare piesă trece de linia de oprire, ori până la bugetul de pași.
+
+    Ciclul brațelor are sens doar cu piesele la locul de preluare: altfel brațul întinde mâna
+    după nimic. Bugetul este plasa de siguranță pentru o piesă care nu ajunge niciodată — la
+    0,12 m/s, 6 000 de pași înseamnă 12 secunde de mers, mult peste orice cursă din celulă.
+    """
+    spent = 0
+    while spent < budget:
+        cell.transport(model, data, 200, parts=parts)
+        spent += 200
+        positions = cell.part_positions(model, data, parts)
+        carrying = cell.carried_parts(model, data, parts)
+        arrived = all(
+            carrying.get(body) is None
+            or belt.belt(str(carrying[body])).reached_stop(positions[body][0])
+            for body in parts)
+        if arrived:
+            break
+    return {body: float(cell.part_positions(model, data, parts)[body][0]) for body in parts}
+
+
+def demo(args: argparse.Namespace, hook: arms.StepHook | None = None,
+         shots: Path | None = None) -> int:
+    """Compune scena, așază totul la poziția nominală și rulează o dată ciclul brațelor."""
+    steps = args.steps or scene.SETTLE_STEPS
+    model, data, metadata, warnings = build(args)
+    if warnings:
+        print(f"Avertismente la încărcare: {len(warnings)}")
+        for message in warnings:
+            print(f"  {message}")
+    scene.apply_nominal(model, data, metadata["placements"])
+    scene.settle(model, data, steps)
+    return run_demo(model, data, args, hook=hook, shots=shots)
+
+
+def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespace,
+             hook: arms.StepHook | None = None, shots: Path | None = None) -> int:
+    """Ciclul de lucru al brațelor: fiecare braț își parcurge punctele, în ordinea din plan.
+
+    Este singura parte a verificării care se vede: brațele pornesc din poziția nominală spre
+    fiecare punct de lucru, pe drumul din `moves.stages` — trecerile, urcarea deasupra, coborârea
+    pe punct și ridicarea înapoi. La fiecare oprire se tipăresc eroarea rămasă, cea mai mare eroare
+    de pe drum, câți pași a durat și contactele, iar o verigă a brațului care atinge celula este
+    eșec. Atingerea falcilor este raportată fără să fie eșec: falcile sunt scula, iar acolo — pe
+    piesă, pe bandă, în universal — chiar au ce căuta.
+    """
+    parts = cell.part_bodies(model)
+    arrived = bring_parts_to_pickup(model, data, parts)
+    tool = {arm: arms.tool_length(model, data, arm) for arm in arms.ARMS}
+    frames = Frames(model) if shots is not None else None
+    failures: list[str] = []
+
+    print("Ciclul brațelor: fiecare punct de lucru, atins de sus")
+    for body, x in sorted(arrived.items()):
+        print(f"  piesa {body:<12} la x = {x:.3f} m, pe linia de preluare")
+    for arm in arms.ARMS:
+        print(f"  scula {arm}                : {tool[arm] * 1000:.1f} mm de la flanșă la punctul "
+              f"de strângere")
+    print()
+
+    for arm in arms.ARMS:
+        label = layout.arm(arm)["label"]
+        print(f"{label} ({arm}), rază {layout.ARM_REACH_M:.3f} m")
+        for item in moves.route(arm, tool[arm]):
+            for stage, point in moves.stages(item):
+                report = arms.reach_point(model, data, arm, point, item.approach,
+                                          item.spin_deg, settle=args.demo_settle, hook=hook)
+                pairs = scene.contact_pairs(model, data)
+                fingers = checks.arm_foreign_contacts(pairs, ARM_PREFIXES)
+                links = checks.arm_link_contacts(pairs, ARM_PREFIXES)
+                print(f"  {item.name:<11} {item.label:<28} {stage} "
+                      f"({point[0]:.3f}, {point[1]:.3f}, {point[2]:.3f})  "
+                      f"eroare {report['position_m'] * 1000:6.1f} mm / "
+                      f"{report['angle_deg']:4.1f}°  drum "
+                      f"{report['path_residual_m'] * 1000:6.1f} mm  "
+                      f"pași {int(report['steps']):5d}")
+                if fingers:
+                    print(f"  {'':<11} falcile ating: {', '.join(fingers)}")
+                for pair in links:
+                    failures.append(f"o verigă a brațului atinge ceva la {item.name} {stage}: "
+                                    f"{pair}")
+                if report["position_m"] > checks.MAX_POSE_ERROR_M:
+                    failures.append(
+                        f"scula rămâne {report['position_m'] * 1000:.0f} mm de {item.name} "
+                        f"({stage}), peste pragul de {checks.MAX_POSE_ERROR_M * 1000:.0f} mm")
+                elif report["angle_deg"] > checks.MAX_POSE_ANGLE_DEG:
+                    failures.append(
+                        f"scula rămâne cu {report['angle_deg']:.1f}° răsuciți la {item.name} "
+                        f"({stage}), peste pragul de {checks.MAX_POSE_ANGLE_DEG:.0f}°")
+                if frames is not None and shots is not None:
+                    frames.write(data, shots / f"{arm}-{item.name}-{stage}.png")
+        print()
+
+    if frames is not None:
+        frames.close()
+    print(f"Timp simulat: {data.time:.2f} s")
+
+    # Unde au ajuns piesele: deocamdată ciclul nu prinde nimic, deci falcile doar le ating, iar o
+    # piesă împinsă de sculă se vede aici. Când prinderea există (welding equality, ca în celula
+    # din Isaac Sim), rămânerea pe bandă devine criteriu de eșec.
+    print("\nPiesele după ciclu:")
+    for body in parts:
+        x, y, z = cell.part_positions(model, data, parts)[body]
+        home = belt.belt_at(x, y)
+        place = f"pe {home}" if home else "în afara benzilor"
+        print(f"  {body:<12} la ({x:.3f}, {y:.3f}, {z:.3f})  {place}")
+
+    if failures:
+        print(f"\nCiclul: CĂZUT ({len(failures)})")
+        for failure in failures:
+            print(f"  - {failure}")
+        return 1
+    print("Ciclul: verde")
+    return 0
+
+
 def view(args: argparse.Namespace) -> int:
     """Viewer-ul interactiv, cu benzile pornite; pe macOS are nevoie de `mjpython`."""
     if sys.platform == "darwin" and "MJPYTHON_BIN" not in os.environ:
@@ -300,7 +451,19 @@ def view(args: argparse.Namespace) -> int:
     started = time.monotonic()
     next_report = 0.0
     with mujoco.viewer.launch_passive(model, data) as viewer:
-        configure_free_camera(viewer.cam)
+        configure_camera(viewer.cam)
+        if args.demo:
+            def hook(model: mujoco.MjModel, data: mujoco.MjData) -> None:
+                """Ține viewer-ul la curent cu starea și ritmul de rulare."""
+                if not viewer.is_running():
+                    raise SystemExit(0)
+                if args.speed > 0.0:
+                    delay = started + data.time / args.speed - time.monotonic()
+                    if delay > 0.0:
+                        time.sleep(delay)
+                viewer.sync()
+
+            return run_demo(model, data, args, hook=hook)
         while viewer.is_running():
             if args.belts:
                 cell.apply_belt_forces(model, data)
@@ -330,6 +493,15 @@ def main(argv: list[str] | None = None) -> int:
                            "ori renders/inspection.png cu --camera camera_quality")
     mode.add_argument("--view", action="store_true",
                       help="deschide viewer-ul (pe macOS: mjpython view.py --view)")
+    parser.add_argument("--demo", action="store_true",
+                       help="rulează ciclul brațelor: fiecare punct de lucru, atins de sus, cu "
+                            "erorile și contactele la fiecare oprire; cu `--view`, ciclul se "
+                            "vede în viewer")
+    parser.add_argument("--shots", nargs="?", const="", metavar="DIR",
+                       help="cu `--demo`, scrie un PNG la fiecare oprire (implicit "
+                            "renders/demo/)")
+    parser.add_argument("--demo-settle", type=int, default=300,
+                       help="câți pași se așteaptă la fiecare punct de lucru din ciclu")
     parser.add_argument("--camera", default=None,
                        help="camera de randat: implicit camera liberă; `camera_quality` "
                             "dă cadrul de inspecție, la rezoluția lui")
@@ -360,6 +532,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--camera-z", type=float, default=None,
                        help="cota centrului optic al camerei de inspecție "
                             f"(implicit {layout.inspection_camera_z():.2f} m)")
+    parser.add_argument("--base-z", type=float, default=None,
+                       help="cota vârfului piedestalului brațelor, pentru măsurători: "
+                            f"implicit cea din document, {layout.documented_height('arm_base'):.2f} "
+                            "m. La 0,55 m brațele nu ajung în cutii (pereții lor urcă la "
+                            "nivelul benzii), iar la 0,95 m ciclul se încheie, dar anvelopa "
+                            "brațelor cuprinde capul camerei de inspecție")
     parser.add_argument("--belts", action=argparse.BooleanOptionalAction, default=True,
                        help="în viewer, benzile sunt pornite (implicit); `--no-belts` le oprește, "
                             "ca scena să stea pe loc")
@@ -368,8 +546,19 @@ def main(argv: list[str] | None = None) -> int:
                             "0 rulează cât de repede merge)")
     args = parser.parse_args(argv)
 
+    if args.base_z is not None:
+        # Cota din document rămâne 0,55 m până se decide altfel (`docs/11-geaman-mujoco.md` §2):
+        # ridicarea se face doar pentru măsurători, ca scena comisă să rămână cea verificată.
+        print(f"Măsurătoare: vârful piedestalului brațelor la {args.base_z:.2f} m, în locul cotei "
+              f"documentate, {layout.documented_height('arm_base'):.2f} m.")
+        layout.ARM_BASE_Z = args.base_z
+
     if args.view:
         return view(args)
+    if args.demo:
+        shots = None if args.shots is None else (
+            Path(args.shots) if args.shots else RENDERS_DIR / "demo")
+        return demo(args, shots=shots)
     if args.render is not None:
         camera, width, height = camera_arguments(args)
         path = Path(args.render) if args.render else RENDERS_DIR / (

@@ -217,7 +217,8 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
     # dată, citim adresele articulațiilor după nume, adăugăm keyframe-ul și compilăm din nou:
     # compilarea e ieftină, iar ordinea este deterministică pentru același spec.
     model = spec.compile()
-    spec.add_key(name="nominal", qpos=nominal_qpos(model, places).tolist())
+    spec.add_key(name="nominal", qpos=nominal_qpos(model, places).tolist(),
+                 ctrl=nominal_ctrl(model).tolist())
 
     metadata: dict[str, Any] = {
         "seed": seed,
@@ -237,10 +238,40 @@ def build_model(**kwargs: Any) -> tuple[mujoco.MjModel, dict[str, Any]]:
     return spec.compile(), metadata
 
 
+def nominal_ctrl(model: mujoco.MjModel) -> np.ndarray:
+    """Vectorul `ctrl` al poziției nominale: țintele actuatoarelor, nu doar poziția lor.
+
+    Fără el, servo-urile de poziție ale brațelor primesc comanda zero și încep să tragă spre
+    configurația cu toate articulațiile la zero — iar scena „nominală" se mișcă singură de la
+    primul pas. Griperul primește comanda deschisă, cât ține keyframe-ul modelului copil.
+    """
+    ctrl = np.zeros(model.nu)
+    for prefix, _ in ARM_MOUNTS:
+        for index, value in enumerate(NOMINAL_ARM_QPOS[prefix]):
+            name = f"{prefix}_actuator{index + 1}"
+            actuator = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
+            if actuator < 0:
+                raise ValueError(f"actuator inexistent în scenă: {name}")
+            ctrl[actuator] = value
+        fingers = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR,
+                                    f"{prefix}_actuator{len(NOMINAL_ARM_QPOS[prefix]) + 1}")
+        if fingers < 0:
+            raise ValueError(f"actuator inexistent în scenă: {prefix}_actuator8")
+        # Falcile stau deschise la maximum, adică la capătul cursei lor, iar comanda actuatorului
+        # griperului este remapată pe cursa aceea (`panda.xml`), deci „deschis" este maximul ei.
+        ctrl[fingers] = model.actuator_ctrlrange[fingers][1]
+    return ctrl
+
+
 def apply_nominal(model: mujoco.MjModel, data: mujoco.MjData,
                   places: dict[str, dict[str, Any]]) -> None:
-    """Aduce scena în poziția nominală scrisă de celulă, nu în cea moștenită din modelele copil."""
+    """Aduce scena în poziția nominală scrisă de celulă, nu în cea moștenită din modelele copil.
+
+    Scrie și țintele actuatoarelor, nu doar `qpos`: altfel brațele ar primi comanda zero și ar
+    porni spre altă configurație din primul pas.
+    """
     data.qpos[:] = nominal_qpos(model, places)
+    data.ctrl[:] = nominal_ctrl(model)
     mujoco.mj_forward(model, data)
 
 

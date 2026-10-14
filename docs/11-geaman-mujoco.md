@@ -184,6 +184,20 @@ brațului 1: golul măsurat la poziția nominală este de 14 mm, deci când bra�
 pozițiile lor trebuie să ocolească fâșia cutiilor. Verificarea din scenă prinde o atingere, nu și
 o traiectorie care trece razant pe deasupra.
 
+Piedestalul brațelor este însă cota care nu se poate decide din plan, iar scena a măsurat-o: la
+0,55 m brațele ajung la toate punctele **mai puțin cutiile**, fiindcă pereții lor urcă până la
+0,85 m — nivelul benzii —, iar antebrațul trece prin ei (`arm2_link3↔bin_ng`), cu 41 mm eroare
+rămasă la `bin_ok` și 106 mm la preluarea de pe banda 2. La 0,95 m, adică deasupra benzilor, ciclul
+se încheie la 17,7 mm eroare maximă și fără nicio verigă atinsă, iar amândouă piesele rămân pe
+benzile lor; în schimb anvelopa brațelor cuprinde capul camerei de inspecție, care stă la 1,70 m
+chiar deasupra axei benzii 2, între punctele de lucru ale amândurora
+(`arm2_link6↔camera_quality_body`). Cele două nu încap împreună: ori camera de inspecție se mută
+într-un loc la care brațele nu ajung — ceea ce cere ca piesa să fie inspectată mai la vest, deci și
+punctul de preluare al brațului 2 să se mute —, ori piedestalul rămâne la 0,55 m și cutiile se mută
+de partea brațului 2, mai jos decât antebrațul. Cota din document rămâne 0,55 m până se decide
+(secțiunea 10), iar `make mj-demo MJ_BASE_Z=0.95` rulează ciclul cu brațele ridicate, pentru
+măsurători.
+
 ## 3. Motorul de uzură
 
 Cod pur, fără MuJoCo, ca să poată fi testat și reproductibil. Cinci mecanisme:
@@ -328,7 +342,7 @@ Panoul rămâne o unealtă de dezvoltare. Operarea se uită în dashboard-urile 
 simulation/mujoco/          # există
   README.md                # instalare, comenzi, structură, intrinsics, stare cunoscută
   requirements.txt         # mujoco==3.15.0, mujoco-menagerie==2026.10.1, numpy, mapbox_earcut
-  view.py                   # --check / --render / --view, peste scena compusă de cncdt_mj.scene
+  view.py                   # --check / --render / --demo / --view, peste scena compusă de cncdt_mj.scene
   scene/cell.xml            # șablonul celulei; cifrele se pun prin substituție, nu stau în el
   cncdt_mj/
     __init__.py             # căile pachetului
@@ -336,8 +350,10 @@ simulation/mujoco/          # există
     part.py                 # blocul brut și piesa din generatorul procedural; fără MuJoCo
     belt.py                 # direcțiile benzilor, viteza de suprafață, forța cu limita de frecare; fără MuJoCo
     checks.py               # regulile verificării pe nume de corpuri (contacte normale); fără MuJoCo
+    moves.py                # punctele de lucru ale fiecărui braț: ordine, apropiere, treceri; fără MuJoCo
     scene.py                # compunerea: cell.xml plus cele două brațe; importă mujoco
     cell.py                 # contactul cu banda, viteza piesei, forța scrisă în data.xfrc_applied; importă mujoco
+    arms.py                 # cinematica inversă, urmărirea căii, strângerea; importă mujoco
 ```
 
 ```
@@ -349,7 +365,7 @@ simulation/mujoco/cncdt_mj/  # de scris, în fazele 1-5
   report.py                 # preaviz, rată de detecție, alarme false (pur)
   camera.py                 # randare offscreen + degradare
   sensors.py                # din MjData în mărimi de proces
-  cell.py                   # are transportul pe benzi; lipsesc ciclul, stările mașinii și legarea uzurii de fizică
+  cell.py                   # are transportul pe benzi și ciclul brațelor; lipsesc prinderea, stările mașinii și legarea uzurii de fizică
   control.py                # REPL, endpoint local, punte către viewer
   run.py                    # punctul de intrare: sesiune, scenariu, sămânță, ieșire
 tests/unit/
@@ -384,11 +400,15 @@ importă din `.venv`-ul proiectului, unde `mujoco` nu există.
 | 6 | (opțional) SageMaker RCF + card de model | antrenare din ferestrele exportate, card în `ml/models/`, cost justificat în PR |
 
 Starea de azi: din faza 2 există partea de scenă — `layout.py`, `part.py`, `checks.py`, `scene.py`,
-`scene/cell.xml` și `view.py` — plus transportul pe benzi (`belt.py`, `cell.py`, cu linia de oprire
-din plan și viewer cu benzile pornite), verificate cu `view.py --check`, care este verde, și testele
-geamănului, `tests/unit/test_mujoco_scene.py` — dar **criteriul nu este atins**: lipsesc prinderea
-piesei, stările mașinii CNC și `run.py`, deci ciclul complet și „fără piese pierdute în geometrie"
-nu se pot dovedi.
+`scene/cell.xml` și `view.py` —, transportul pe benzi (`belt.py`, `cell.py`, cu linia de oprire din
+plan și viewer cu benzile pornite) și **brațele în mișcare**: `moves.py` ține punctele de lucru ale
+fiecărui braț, iar `arms.py` le atinge cu cinematică inversă, urmărind linii drepte în spațiul
+sculei. `view.py --check` este verde, `view.py --demo` rulează ciclul și tipărește cifrele fiecărei
+opriri, iar testele geamănului, `tests/unit/test_mujoco_scene.py`, acoperă partea pură. Criteriul
+**nu este atins**: ciclul atinge punctele, dar nu prinde piesa (falcile doar o ating, fiindcă
+deschiderea mâinii Panda, 83 mm, este mai mică decât discul de 104 mm — prinderea se modelează ca
+legătură rigidă, ca în celula din Isaac Sim), lipsesc stările mașinii CNC și `run.py`, deci „fără
+piese pierdute în geometrie" nu se poate dovedi încă.
 
 Fiecare fază se poate opri fără să lase ceva rupt: faza 1 nu are dependențe de MuJoCo, faza 2 nu
 atinge contractele publicate.
@@ -427,3 +447,7 @@ atinge contractele publicate.
    detecția nesupervizată.
 4. **Paralelizare pe GPU (MJX sau MuJoCo Warp)** — se decide când timpul de generare devine
    limita reală a antrenării.
+5. **Cota piedestalului brațelor, față de camera de inspecție** — latura de 0,85 m a cutiilor cere
+   brațele la 0,95 m, iar camera de inspecție la 1,70 m cade atunci în anvelopa lor. Se decide
+   împreună cu mutarea punctului de inspecție și a cutiilor (secțiunea 2), înainte de a lega uzura
+   de fizică: poziția camerei este și ea o mărime din telemetrie.

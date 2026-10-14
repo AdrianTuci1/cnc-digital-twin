@@ -91,16 +91,19 @@ CAMERAS = [
          anchor="start"),
 ]
 
-# Ținte de prindere: punctele pe care brațele trebuie să le atingă.
+# Ținte de prindere: punctele pe care brațele trebuie să le atingă. Cota din plan este centrul
+# piesei, iar brațul ajunge acolo cu flanșa, nu cu vârful: scula atârnă ~0,10 m sub flanșă, iar
+# raza de 0,855 m se măsoară până la flanșă. Locurile de lucru stau deci mai aproape de bazele
+# brațelor decât pare din rază, iar diferența se vede în tabelul de atingere (`make cell-layout`).
 TARGETS = [
     dict(name="belt1_pick", key="arm1", x=2.7, y=3.3, label="preluare de pe banda 1"),
-    dict(name="cnc_chuck", key="arm1", x=3.5, y=3.2, label="încărcare/descărcare CNC"),
-    dict(name="belt2_drop", key="arm1", x=3.4, y=2.0, label="așezare pe banda 2"),
+    dict(name="cnc_chuck", key="arm1", x=3.46, y=3.16, label="încărcare/descărcare CNC"),
+    dict(name="belt2_drop", key="arm1", x=3.25, y=2.0, label="așezare pe banda 2"),
     dict(name="belt2_pick", key="arm2", x=2.7, y=2.0, label="preluare de pe banda 2"),
     # Punctul de așezare din fiecare cutie este locul cel mai apropiat de axul brațului 2 care
     # lasă piesa de rază 0,052 m la 8 mm de pereți; la cutia de piese bune cade lângă colțul de
     # sud-est, la cea de rebut chiar la nord de braț.
-    dict(name="bin_ok", key="arm2", x=2.42, y=2.28, label="piesă bună în cutie"),
+    dict(name="bin_ok", key="arm2", x=2.42, y=2.20, label="piesă bună în cutie"),
     dict(name="bin_ng", key="arm2", x=2.7, y=2.28, label="rebut în cutie"),
 ]
 

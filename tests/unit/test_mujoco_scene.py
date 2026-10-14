@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from cncdt_mj import REPO_ROOT, belt, checks, layout, part
+from cncdt_mj import REPO_ROOT, belt, checks, layout, moves, part
 
 MUJOCO_DIR = REPO_ROOT / "simulation" / "mujoco"
 PACKAGE_DIR = MUJOCO_DIR / "cncdt_mj"
@@ -381,6 +381,84 @@ def test_bratul_care_atinge_celula_ori_celalalt_brat_este_semnalat() -> None:
     assert checks.arm_foreign_contacts(pairs, ("arm1_", "arm2_")) == pairs[1:]
 
 
+def test_falcile_care_ating_piesa_nu_sunt_o_problema_de_veriga() -> None:
+    """Falcile sunt scula: ating piesa, banda și universalul prin definiție."""
+    pairs = ["arm1_left_finger↔blank_01", "arm1_right_finger↔belt_out",
+             "arm1_hand↔belt_in"]
+    assert checks.arm_link_contacts(pairs, ("arm1_", "arm2_")) == pairs[2:]
+
+
+# ---------------------------------------------------------------- mișcările brațelor
+
+
+def test_fiecare_punct_de_lucru_are_loc_in_raza_bratului() -> None:
+    """Locul de deasupra punctului și punctul însuși trebuie să intre în rază cu scula de față.
+
+    Raza se măsoară până la flanșă, iar scula atârnă sub ea: `moves.approach_height` este exact
+    întrebarea „mai am loc să ridic scula deasupra punctului ori port cu 10 cm mai puțin?".
+    """
+    tool_length_m = 0.103
+    for arm in moves.ROUTES:
+        base = np.array([layout.arm(arm)["x"], layout.arm(arm)["y"], layout.ARM_BASE_Z])
+        for item in moves.route(arm, tool_length_m):
+            height = moves.approach_height(item.name, tool_length_m)
+            assert 0.0 < height <= moves.APPROACH_HEIGHT_M, (
+                f"{item.name}: retragere de {height * 1000:.0f} mm")
+            for place in (item.hover, item.point):
+                distance = float(np.linalg.norm(np.array(place) - base))
+                assert distance <= layout.ARM_REACH_M + 1e-9, (
+                    f"{item.name}: {place} este la {distance:.3f} m, peste raza "
+                    f"de {layout.ARM_REACH_M} m")
+
+
+def test_rutele_acopera_tintele_din_plan() -> None:
+    """Fiecare punct din rută este o țintă din plan, a brațului care îl deservește."""
+    for arm, names in moves.ROUTES.items():
+        for name in names:
+            assert layout.target(name)["key"] == arm, (
+                f"{name} aparține altui braț decât {arm}")
+
+
+def test_rotirea_sculei_ceruta_de_plan_ajunge_la_punctul_de_lucru() -> None:
+    """Rotirile cerute de plan sunt pentru puncte din scenă, iar ruta le duce mai departe."""
+    for name in moves.TOOL_SPIN_DEG:
+        assert layout.target(name) is not None
+    for arm, names in moves.ROUTES.items():
+        for item in moves.route(arm):
+            expected = moves.TOOL_SPIN_DEG.get(item.name, 0.0)
+            assert item.spin_deg == expected
+
+
+def test_punctele_de_trecere_intra_in_raza_bratului() -> None:
+    """O trecere este o poziție atinsă de braț ca oricare alta, cu scula de față.
+
+    Flanșa stă cu lungimea sculei deasupra punctului de trecere, fiindcă trecerea se face cu scula
+    îndreptată în jos, ca și coborârea pe punct.
+    """
+    tool_length_m = 0.103
+    for arm in moves.ROUTES:
+        base = np.array([layout.arm(arm)["x"], layout.arm(arm)["y"], layout.ARM_BASE_Z])
+        for item in moves.route(arm, tool_length_m):
+            for point in item.via:
+                flange = np.array(point) - np.array(item.approach) * tool_length_m
+                distance = float(np.linalg.norm(flange - base))
+                assert distance <= layout.ARM_REACH_M + 1e-9, (
+                    f"{item.name}: trecerea {point} pune flanșa la {distance:.3f} m, peste raza "
+                    f"de {layout.ARM_REACH_M} m")
+
+
+def test_drumul_unui_punct_urca_si_coboara_prin_toate_trecerile() -> None:
+    """Ordinea pașilor: trecerile, apoi sus, jos și ridicarea înapoi la aceeași cotă."""
+    for arm in moves.ROUTES:
+        for item in moves.route(arm):
+            steps = moves.stages(item)
+            assert [stage for stage, _ in steps] == (
+                [f"trecere {index}" for index, _ in enumerate(item.via, start=1)]
+                + ["sus", "jos", "ridicare"])
+            assert steps[-1][1] == item.hover
+            assert dict(steps)["jos"] == item.point
+
+
 # ---------------------------------------------------------------- încadrarea modulelor
 
 
@@ -396,7 +474,7 @@ def _imported_top_levels(source: str) -> set[str]:
 
 
 #: Modulele care ating motorul: se validează rulând `view.py --check`, din venv-ul geamănului.
-ENGINE_MODULES = ("scene.py", "cell.py")
+ENGINE_MODULES = ("scene.py", "cell.py", "arms.py")
 
 
 def test_modulele_pure_nu_importa_motorul() -> None:

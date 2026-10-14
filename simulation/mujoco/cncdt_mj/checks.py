@@ -30,6 +30,16 @@ YAW_TOLERANCE_DEG = 0.1
 #: Cât are voie să se miște o piesă la așezarea pe bandă, în metri.
 MAX_SETTLE_DRIFT_M = 0.005
 
+#: Cât de departe are voie să rămână scula de punctul de lucru când brațul l-a atins, în metri, și
+#: cu cât are voie să fie orientarea ei greșită, în grade. Servo-urile au o eroare de regim
+#: permanentă de câțiva milimetri, deci pragul prinde un braț care nu ajunge, nu unul care tremură.
+MAX_POSE_ERROR_M = 0.02
+MAX_POSE_ANGLE_DEG = 5.0
+
+#: Sufixul corpurilor care prind. Falcile ating piesa prin definiție — o strâng, o lasă pe bandă,
+#: se apropie de universal —, deci nu intră în regula „brațul atinge celula".
+FINGER_SUFFIX = "finger"
+
 
 def _arm_of(name: str, prefixes: tuple[str, ...]) -> str | None:
     """Prefixul brațului căruia îi aparține un corp, ori ``None`` dacă nu e al niciunui braț."""
@@ -58,3 +68,21 @@ def arm_foreign_contacts(pairs: Iterable[str], arm_prefixes: Iterable[str]) -> l
             continue
         foreign.append(pair)
     return foreign
+
+
+def arm_link_contacts(pairs: Iterable[str], arm_prefixes: Iterable[str]) -> list[str]:
+    """Perechile în care un braț atinge ceva cu altceva decât falcile.
+
+    Falcile sunt scula: ating piesa când o prind, banda când o lasă pe ea, universalul când o
+    așază în mașină. Verigile, încheietura și flanșa nu au ce căuta în nimic, deci pentru ele
+    regula este cea de mai sus, fără perechile de falci.
+    """
+    prefixes = tuple(arm_prefixes)
+    links: list[str] = []
+    for pair in arm_foreign_contacts(pairs, prefixes):
+        left, _, right = pair.partition(PAIR_SEPARATOR)
+        bodies = [name for name in (left, right) if _arm_of(name, prefixes) is not None]
+        if all(name.endswith(FINGER_SUFFIX) for name in bodies):
+            continue
+        links.append(pair)
+    return links

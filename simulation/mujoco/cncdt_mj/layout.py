@@ -68,7 +68,10 @@ MACHINE_COVER_Z = 1.90
 #: brațului 2 — vârful se ridică peste baza lui (0,55 m) —, deci punctele de așezare din cutii
 #: stau lipite de pereții de sud și de est (`docs/diagrams/cell_layout.py`).
 BIN_RIM_Z = BELT_SURFACE_Z
-#: Baza brațelor, pe piedestal: `docs/11-geaman-mujoco.md` §2.
+#: Baza brațelor, pe piedestal: `docs/11-geaman-mujoco.md` §2. Cota este cea din document, iar
+#: `view.py --base-z` o ridică pentru măsurători: la 0,55 m brațele nu ajung în cutii, fiindcă
+#: pereții lor urcă până la 0,85 m (nivelul benzii), iar la 0,95 m ciclul se încheie, dar anvelopa
+#: brațelor cuprinde capul camerei de inspecție. Amândouă măsurătorile sunt în `README.md`.
 ARM_BASE_Z = 0.55
 #: Înălțimea documentată a camerelor, orientate în jos: `docs/11-geaman-mujoco.md` §2.
 #: Camera de inspecție a calității este singura excepție, deliberată: vezi mai jos
@@ -117,6 +120,15 @@ DOCUMENTED_HEIGHTS: tuple[DocumentedHeight, ...] = (
     DocumentedHeight("arm_base", ARM_BASE_Z, "piedestal", "baza brațelor pe piedestal"),
     DocumentedHeight("camera", CAMERA_Z, "camer", "camerele"),
 )
+
+
+def documented_height(name: str) -> float:
+    """Cota din documentație pentru o înălțime numită (``"arm_base"``, ``"belt_surface"``...).
+
+    Snapshot-ul din :data:`DOCUMENTED_HEIGHTS` se ia la import, deci rămâne cota documentată și
+    când `view.py --base-z` ridică temporar constanta, pentru măsurători.
+    """
+    return next(height.value for height in DOCUMENTED_HEIGHTS if height.name == name)
 
 # ------------------------------------------------------------------ secțiuni de desen
 

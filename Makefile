@@ -185,12 +185,21 @@ cell-layout: ## Regenerează planul celulei, văzut de sus (docs/diagrams/cnc-ce
 # nu are ce căuta în straturile Lambda și nici în `.venv`-ul proiectului. `make mj-venv` îl
 # creează o singură dată, iar `make mj-check` este poarta: iese cu cod 1 dacă vreo verificare a
 # scenei cade. `make test` nu depinde de el, fiindcă suita proiectului rulează fără `mujoco`;
-# `make mj-test` rulează, din venv-ul geamănului, testele care au nevoie de motor.
+# `make mj-test` rulează, din venv-ul geamănului, testele care au nevoie de motor. `make mj-demo`
+# rulează ciclul brațelor offscreen și tipărește cifrele fiecărei opriri; ca să vezi brațele
+# mișcându-se, viewer-ul cere `mjpython` și ține fereastra deschisă, deci nu are țintă Makefile:
+#   simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo
 MJ_DIR     := simulation/mujoco
 MJ_PY      := $(ROOT)/$(MJ_DIR)/.venv/bin/python
 MJ_SAMPLES ?= 200
+# Cota piedestalului brațelor pentru `make mj-demo`. Cota documentată este 0,55 m, dar acolo
+# ciclul nu se încheie: pereții cutiilor urcă până la nivelul benzii, iar antebrațul rămâne blocat
+# în ei. La 0,95 m ciclul se încheie cu eroarea maximă de 18 mm, însă anvelopa brațelor cuprinde
+# capul camerei de inspecție, deci `make mj-check` cade: cele două cote nu pot coexista, iar
+# alegerea este în README-ul geamănului. `make mj-demo MJ_BASE_Z=0.55` arată rularea care cade.
+MJ_BASE_Z  ?= 0.95
 
-.PHONY: mj-venv mj-check mj-render mj-test
+.PHONY: mj-venv mj-check mj-render mj-demo mj-test
 mj-venv: ## Creează venv-ul geamănului MuJoCo și instalează requirements.txt
 	$(PY) -m venv $(ROOT)/$(MJ_DIR)/.venv
 	$(MJ_PY) -m pip install --quiet --upgrade pip
@@ -204,6 +213,10 @@ mj-render: ## Scrie cadrele geamănului: renders/cell.png și renders/inspection
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
 	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --render
 	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --render --camera camera_quality
+
+mj-demo: ## Rulează ciclul brațelor (offscreen) și raportează cifrele fiecărei opriri
+	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
+	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --demo --base-z $(MJ_BASE_Z)
 
 mj-test: ## Testele geamănului care ating motorul; rulează din venv-ul lui (pytest e acolo)
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }

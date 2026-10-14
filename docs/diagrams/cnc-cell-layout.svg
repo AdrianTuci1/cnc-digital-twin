@@ -100,10 +100,10 @@
 <line x1="813.5" y1="613.0" x2="688.5" y2="476.0" stroke="#6a3f9b" stroke-width="1.0" stroke-dasharray="3 3"/>
 <text x="819.5" y="609.0" font-size="12" text-anchor="start" fill="#59308a" font-weight="normal" opacity="1.00">Cameră inspecție calitate (consolă pe mașină)</text>
 <circle cx="601.0" cy="229.0" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
-<circle cx="753.0" cy="248.0" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
-<circle cx="734.0" cy="476.0" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
+<circle cx="745.4" cy="255.6" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
+<circle cx="705.5" cy="476.0" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
 <circle cx="601.0" cy="476.0" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
-<circle cx="547.8" cy="422.8" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
+<circle cx="547.8" cy="438.0" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
 <circle cx="601.0" cy="422.8" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
 <text x="525.0" y="331.6" font-size="12" text-anchor="middle" fill="#2f5c2a" font-weight="bold" opacity="1.00">Piese bune (Accepted)</text>
 <text x="591.5" y="358.2" font-size="12" text-anchor="middle" fill="#8a2f2f" font-weight="bold" opacity="1.00">Rebuts (Trash)</text>

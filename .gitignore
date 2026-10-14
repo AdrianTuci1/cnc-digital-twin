@@ -63,6 +63,8 @@ simulation/assets/**/*.jpg
 simulation/assets/**/*.zip
 simulation/logs/
 simulation/cache/
+# Cadrele din `view.py --demo --shots`: se refac dintr-o rulare, una la fiecare oprire a ciclului.
+simulation/mujoco/renders/demo/
 !simulation/assets/.gitkeep
 !simulation/assets/**/.gitkeep
 

@@ -30,7 +30,9 @@ make mj-venv     # o singură dată: creează venv-ul geamănului și instaleaz�
 make mj-check    # poarta: compilează scena, măsoară, raportează; iese cu 1 dacă ceva cade
 make mj-test     # testele geamănului care ating motorul, din venv-ul lui
 make mj-render   # scrie renders/cell.png și renders/inspection.png
+make mj-demo     # rulează ciclul brațelor și tipărește cifrele fiecărei opriri
 make mj-check MJ_SAMPLES=2000   # degajarea camerei, pe mai multe configurații de braț
+make mj-demo MJ_BASE_Z=0.55     # ciclul la cota documentată a piedestalului: cade, vezi mai jos
 ```
 
 Fără Makefile, aceleași lucruri se scriu direct:
@@ -40,6 +42,12 @@ MUJOCO=simulation/mujoco/.venv/bin/python
 
 # Verificarea implicită: compilează scena, așază piesele, rulează pași, raportează cifrele.
 $MUJOCO simulation/mujoco/view.py --check
+
+# Ciclul brațelor, punct cu punct: eroarea, unghiul, contactele și unde au ajuns piesele.
+$MUJOCO simulation/mujoco/view.py --demo
+
+# Același ciclu, cu un PNG la fiecare oprire, în renders/demo/ (director generat, ignorat de git).
+$MUJOCO simulation/mujoco/view.py --demo --shots
 
 # Un cadru al celulei, din camera liberă (implicit renders/cell.png).
 $MUJOCO simulation/mujoco/view.py --render
@@ -52,19 +60,26 @@ $MUJOCO simulation/mujoco/view.py --render --camera camera_quality
 # `MJPYTHON_BIN`, fiindcă `sys.executable` rămâne interpretul din venv.
 simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view
 
-# Aceeași fereastră, cu amândouă piesele lăsate mai în amonte și în reluare lentă, ca transportul
-# până la liniile de oprire să se vadă (altfel piesa mașinată pornește chiar sub cameră, iar cea
-# brută chiar la linia benzii 1).
+# Aceeași fereastră, cu ciclul brațelor în locul benzilor goale: ăsta e modul în care se văd
+# brațele mișcându-se.
+simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo
+
+# Cu amândouă piesele lăsate mai în amonte și în reluare lentă, ca transportul până la liniile de
+# oprire să se vadă (altfel piesa mașinată pornește chiar sub cameră, iar cea brută chiar la linia
+# benzii 1).
 simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py \
     --view --speed 0.5 --blank-x 0.6 --part-x 4.4
 ```
 
-`--check` iese cu cod 1 dacă vreo verificare cade, ca să poată fi folosit ca poartă. Restul
-opțiunilor: `--steps`, `--samples` (configurații de braț eșantionate la degajarea camerei),
-`--seed`, `--defect`, `--blank-shape`, `--blank-x`/`--blank-y`, `--blank-yaw-deg`,
-`--part-yaw-deg`, `--part-x`/`--part-y`, `--camera-z`, `--width`, `--height`, iar pentru viewer
-`--belts`/`--no-belts` și `--speed`. La pozițiile cerute explicit, cota care lipsește rămâne cea
-din plan: `--blank-x 0.6` mută piesa pe banda 1, fără să ceară și `--blank-y`.
+`--check` iese cu cod 1 dacă vreo verificare cade, ca să poată fi folosit ca poartă, iar `--demo`
+iese cu cod 1 dacă vreo oprire a ciclului nu ajunge la punct ori dacă o verigă a brațului atinge
+celula. Restul opțiunilor: `--steps`, `--samples` (configurații de braț eșantionate la degajarea
+camerei), `--seed`, `--defect`, `--blank-shape`, `--blank-x`/`--blank-y`, `--blank-yaw-deg`,
+`--part-yaw-deg`, `--part-x`/`--part-y`, `--camera-z`, `--base-z` (cota piedestalului brațelor,
+pentru măsurători), `--demo-settle` (câți pași se așteaptă la fiecare oprire), `--shots [DIR]`,
+`--width`, `--height`, iar pentru viewer `--belts`/`--no-belts` și `--speed`. La pozițiile cerute
+explicit, cota care lipsește rămâne cea din plan: `--blank-x 0.6` mută piesa pe banda 1, fără să
+ceară și `--blank-y`.
 
 Viewer-ul rulează în ritm real și tipărește în terminal, la fiecare secundă simulată, ce piesă e pe
 ce bandă, cu ce viteză și cât mai are până la linia de oprire. `--speed 0` scoate ritmul real, ca
@@ -82,16 +97,18 @@ rulează cu `make mj-test`, din venv-ul care are motorul.
 | `cncdt_mj/part.py` | Cele două stări ale materialului: blocul brut (disc cu adaos de prelucrare) și roata dințată din generator. Geometria iese în milimetri, în planul `XY`, cu grosimea pe `Z`; se scalează în metri. Aici stau și pozițiile de așezare: `stopped_xy` pentru piesa așezată la linia de oprire a benzii, `on_belt_xy` pentru una cerută explicit. **Fără MuJoCo.** |
 | `cncdt_mj/belt.py` | Benzile: direcția fiecărei benzi, viteza de suprafață și forța de antrenare cu limita de frecare Coulomb. **Fără MuJoCo.** |
 | `cncdt_mj/checks.py` | Regulile verificării care lucrează pe nume de corpuri și pe cifre, nu pe starea motorului (de pildă care contacte ale unui braț sunt normale), plus pragurile verificării, împărțite cu `view.py`. **Fără MuJoCo.** |
-| `cncdt_mj/scene.py` | Compunerea scenei: `scene/cell.xml` plus cele două brațe atașate programatic. Unul dintre cele două module care importă `mujoco`. |
+| `cncdt_mj/moves.py` | Mișcările: ce puncte deservește fiecare braț, în ce ordine, din ce parte vine scula, cu ce rotire și prin ce puncte de trecere. Cotele punctelor de lucru ies din înălțimile documentate. **Fără MuJoCo.** |
+| `cncdt_mj/scene.py` | Compunerea scenei: `scene/cell.xml` plus cele două brațe atașate programatic. Unul dintre cele trei module care importă `mujoco`. |
 | `cncdt_mj/cell.py` | Celula în mișcare: cine e în contact cu banda, ce viteză are piesa, ce forță se scrie în `data.xfrc_applied`. Al doilea modul care importă `mujoco`. |
+| `cncdt_mj/arms.py` | Brațele: numele articulațiilor și ale actuatoarelor, lungimea sculei măsurată în scenă, cinematica inversă, urmărirea liniei dintre două puncte și strângerea. Al treilea modul care importă `mujoco`. |
 | `scene/cell.xml` | Șablonul celulei. Cifrele nu stau în el: se pun prin substituție, din `layout.scene_geometry()`. |
-| `view.py` | Cele trei moduri: `--check`, `--render`, `--view`. |
+| `view.py` | Cele patru moduri: `--check`, `--render`, `--demo`, `--view`. |
 
-Consecința practică a împărțirii: `layout`, `part`, `belt` și `checks` se importă din `.venv`-ul
-proiectului, unde `mujoco` nu există (ADR 0012), iar tot ce atinge motorul se validează rulând
-`view.py --check`. Lista modulelor de motor (`scene.py`, `cell.py`) este scrisă explicit în
-`tests/unit/test_mujoco_scene.py`: un modul nou care importă `mujoco` trebuie declarat acolo, altfel
-testul cade.
+Consecința practică a împărțirii: `layout`, `part`, `belt`, `checks` și `moves` se importă din
+`.venv`-ul proiectului, unde `mujoco` nu există (ADR 0012), iar tot ce atinge motorul se validează
+rulând `view.py --check`. Lista modulelor de motor (`scene.py`, `cell.py`, `arms.py`) este scrisă
+explicit în `tests/unit/test_mujoco_scene.py`: un modul nou care importă `mujoco` trebuie declarat
+acolo, altfel testul cade.
 
 ### De ce scena se compune în Python, nu în MJCF
 
@@ -104,13 +121,13 @@ scrie propriile poziții nominale, fiindcă ale modelului copil se importă și 
 
 ## Ce verifică `--check`
 
-Cifrele de referință, la sămânța implicită 7: `nq/nv/nu = 32/30/16`, 33 de corpuri, 209 geome, zero
+Cifrele de referință, la sămânța implicită 7: `nq/nv/nu = 32/30/16`, 33 de corpuri, 207 geome, zero
 avertismente MuJoCo. Piesele se așază pe benzi cu 0,1 mm derivă, iar yaw-ul cerut se citește înapoi
 din scenă (comparat pe cerc, deci 348,5° și −11,5° sunt același unghi).
 
 Țintele de prindere, măsurate **în spațiu** de la baza brațului, față de raza de 0,855 m din plan:
-brațul 1 ajunge la 0,758 m (preluare bandă 1), 0,814 m (mașină) și 0,846 m (așezare bandă 2);
-brațul 2 la 0,541 m (preluare bandă 2), 0,837 m (cutia de piese bune) și 0,789 m (cutia de rebut).
+brațul 1 ajunge la 0,758 m (preluare bandă 1), 0,760 m (mașină) și 0,776 m (așezare bandă 2);
+brațul 2 la 0,541 m (preluare bandă 2), 0,769 m (cutia de piese bune) și 0,789 m (cutia de rebut).
 Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md` spune explicit că o țintă poate părea
 la îndemână în desen și să fie prea sus — verificarea de aici este cea în spațiu.
 
@@ -119,6 +136,55 @@ nominală plus `--samples` configurații eșantionate, prag 0,02 m), încadrarea
 abaterea de la ax și diametrul aparent în pixeli, față de pragul de 3,0 px/mm — și faptul că
 niciun braț nu atinge un element al celulei la poziția nominală. Autocontactele unui braț
 (`arm1_hand↔arm1_link5`) sunt normale și se ignoră.
+
+## Brațele: ciclul din `--demo`
+
+`--demo` este partea care se vede: piesele sunt aduse întâi la liniile de preluare
+(`bring_parts_to_pickup`, cu benzile pornite), apoi fiecare braț își parcurge punctele, în ordinea
+din `moves.ROUTES` — brațul 1 ia blocul de pe banda 1, îl duce în universal și lasă roata pe banda
+2, iar brațul 2 preia roata și o așază în cutia verdictului. La fiecare oprire se tipăresc eroarea
+rămasă (poziție și rotire a sculei), cea mai mare abatere de pe drum, câți pași a durat, contactele
+și, la sfârșit, unde au ajuns piesele. Iese cu cod 1 dacă o oprire nu ajunge la punct ori dacă o
+**verigă** a brațului atinge celula; atingerea falcilor se tipărește fără să fie eșec, fiindcă
+falcile sunt scula.
+
+Un punct se atinge așa: `arms.solve_point` caută configurația prin cinematica inversă amortizată pe
+jacobianul corpului mâinii, pornind din două sămânțe — comanda curentă și poziția nominală — și
+tăind soluția la capetele actuatoarelor; dacă rotirea cerută de plan nu prinde ținta la 2 mm,
+rotirea se caută din 45° în 45°. Apoi `arms.follow_line` merge în linie dreaptă în spațiul sculei,
+din 10 mm în 10 mm, la 0,15 m/s, fiecare punct rezolvat din cel dinainte. Falcile rămân deschise
+toată cursa: actuatorul lor primește comanda nominală, iar `arms.set_joint_controls` scrie doar cele
+șapte articulații.
+
+Lungimea sculei nu se presupune: se măsoară în scenă, de la flanșă la punctul de strângere, și iese
+**102,9 mm** pe amândouă brațele. Ea intră în retragerea de deasupra punctului
+(`moves.approach_height`), care la așezarea pe banda 2 rămâne de câțiva centimetri — acolo raza
+brațului se termină.
+
+Două lecții de drum, amândouă măsurate:
+
+1. **Ridicarea după fiecare punct.** Fără ea, drumul spre punctul următor pornește de la cota de
+   lucru și mătură banda cu scula: blocul brut chiar era împins de pe banda 1, până pe podea
+   (`z = 9 mm` în loc de 859 mm). Cu ridicare, amândouă piesele rămân pe benzile lor.
+2. **Punctul de trecere pe la vest de mașină** (`moves.VIA`). Dreapta dintre universal și așezarea
+   pe banda 2 iese din mașină exact prin colțul ei sud-vestic; brațul nu are planificator de
+   traiectorie, deci intră în carcasă. Măsurat: fără punctul de trecere scula rămânea cu 880 mm de
+   țintă și mâna pe mașină, cu el eroarea maximă a ciclului este 17,7 mm.
+
+La cota documentată a piedestalului, 0,55 m, ciclul **cade**: pereții cutiilor urcă până la nivelul
+benzii, iar antebrațul trece prin ei (`arm2_link3↔belt_out`, 106 mm eroare la preluarea de pe banda
+2, 41 mm la `bin_ok`). La 0,95 m trece: 17,7 mm eroare maximă, nicio verigă atinsă, 53,9 s
+simulate. Cota asta ridică însă brațele peste anvelopa camerei de inspecție, deci `make mj-check`
+cade, iar cele două cerințe nu pot coexista — alegerea este scrisă în `docs/11-geaman-mujoco.md`
+§2 și §10. De aceea `make mj-demo` rulează implicit la 0,95 m, ca măsurătoare, iar
+`make mj-demo MJ_BASE_Z=0.55` arată rularea care cade.
+
+**Ce lipsește: prinderea.** Mâna Panda se deschide 83 mm, blocul brut are 104 mm și universalul
+110 mm, deci falcile nu pot cuprinde piesa — de aceea o ating razant pe toată cursa. Celula reală
+din Isaac Sim prinde la fel: cu o legătură rigidă (`grasping.py`, `/World/Robot1/GraspJoint`).
+Geamănul o va oglindi cu o egalitate de tip weld, pornită și oprită prin `data.eq_active`. Până
+atunci ciclul nu ridică nimic, iar `--demo` tipărește unde a lăsat fiecare piesă, fără să cadă
+din asta.
 
 ## Camera de inspecție
 
@@ -215,24 +281,31 @@ va însoți cadrul de inspecție.
 
 La sămânța 7, `view.py --check` este **verde**: scena se compilează fără avertismente, țintele cad
 în raza brațelor, camera de inspecție are piesa în cadru la 3,6 px/mm și rămâne la cel puțin
-0,052 m de brațe pe configurațiile eșantionate. Cele patru constatări din runda precedentă s-au
-închis: suportul camerei a ieșit din anvelopa brațelor (consolă pe mașină, cap optic la 1,70 m),
-comparația de yaw se face pe cerc, regula de contact ignoră autocontactele brațului, iar orientarea
-camerei de inspecție a fost corectată (privea spre cer). Transportul pe benzi merge: amândouă
-piesele ajung la linia de oprire a benzii și se opresc 13 mm peste ea, fără să cadă din geometrie.
+0,052 m de brațe pe configurațiile eșantionate. Transportul pe benzi merge: amândouă piesele ajung
+la linia de oprire a benzii și se opresc 13 mm peste ea, fără să cadă din geometrie.
+
+`view.py --demo` este **verde la 0,95 m** (`make mj-demo`): 17,7 mm eroare maximă pe cele 15
+opriri, nicio verigă a brațelor atinsă, 53,9 s simulate, iar amândouă piesele rămân pe benzile lor.
+La 0,55 m, cota documentată, ciclul **cade** cu 5 constatări, fiindcă antebrațul nu intră în cutii,
+ale căror pereți urcă până la nivelul benzii (`make mj-demo MJ_BASE_Z=0.55`). Cifrele ciclului și
+calea lui sunt în secțiunea „Brațele" de mai sus.
 
 Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
 
-1. **Din faza 2 lipsesc brațele în mișcare și ciclul.** Transportul pe benzi există (`belt.py`,
-   `cell.py`) și este verificat numeric, dar prinderea piesei, stările mașinii CNC
-   (`IDLE`/`LOADING`/`CUTTING`/`UNLOADING`/`INSPECTING`) și `run.py` — sesiunea cu durată, sămânță,
-   scenariu și ieșire — nu sunt scrise. Deci criteriul „o sesiune de 10 minute simulează un ciclu
-   complet fără piese pierdute în geometrie" nu se poate dovedi încă.
-2. **Mișcarea laterală a pieselor pe bandă nu e măsurată la impact.** Într-o cursă lungă, o piesă
+1. **Prinderea piesei.** Falcile ating piesa fără să o cuprindă (mâna se deschide 83 mm, discul are
+   104 mm): prinderea se modelează ca legătură rigidă, ca în celula din Isaac Sim, cu o egalitate
+   `weld` pornită prin `data.eq_active`. De ea atârnă și „fără piese pierdute în geometrie".
+2. **Stările mașinii CNC și `run.py`.** `IDLE`/`LOADING`/`CUTTING`/`UNLOADING`/`INSPECTING`, sesiunea
+   cu durată, sămânță, scenariu și ieșire nu sunt scrise, deci criteriul „o sesiune de 10 minute
+   simulează un ciclu complet" nu se poate dovedi încă.
+3. **Decizia asupra cotei piedestalului** (0,55 m cu cutiile mutate, ori 0,95 m cu camera de
+   inspecție mutată), care blochează legarea uzurii de fizică: poziția camerei este și ea o mărime
+   din telemetrie. Vezi `docs/11-geaman-mujoco.md` §2 și §10.
+4. **Mișcarea laterală a pieselor pe bandă nu e măsurată la impact.** Într-o cursă lungă, o piesă
    poate aluneca spre șină; de verificat când intră brațele, fiindcă de acolo vine poziția de
    prindere.
 
-Închis în runda de față: transportul pe benzi (`belt.py`, `cell.py`), oprirea fără perete fizic
-(banda își scoate forța la linia din plan) și viewer-ul cu benzile pornite, plus testele geamănului
-(`tests/unit/test_mujoco_scene.py`, cu partea pură în `make test` și cea care atinge motorul în
-`make mj-test`) și țintele Makefile pentru venv-ul geamănului.
+Închis în runda de față: brațele în mișcare — `moves.py` (punctele, ordinea, apropierea, trecerile),
+`arms.py` (cinematica inversă, urmărirea liniei, lungimea sculei măsurată), `view.py --demo` cu
+cifrele fiecărei opriri și `make mj-demo` —, plus cele două lecții de cale (ridicarea după fiecare
+punct, trecerea pe la vest de mașină) și testele pure noi pentru treceri și pentru ordinea pașilor.
