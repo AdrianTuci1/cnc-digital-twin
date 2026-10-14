@@ -39,14 +39,14 @@ def half_thickness_m(name: str, family: str | None = None) -> float:
     return part.gear_half_thickness_m(family)
 
 
-#: Suprafața pe care stă piesa în fiecare punct de lucru. Raftul are podeaua la nivelul benzii:
-#: piesa se așază direct pe ea, ca pe bandă, deci nu se eliberează deasupra unui perete.
+#: Suprafața pe care stă piesa în fiecare punct de lucru: podeaua treptei din raft, platforma
+#: benzilor, masa mașinii. Piesa se așază direct pe ea, deci nu se eliberează deasupra unei buze.
 SURFACE_Z: Mapping[str, float] = {
     "belt1_pick": layout.BELT_SURFACE_Z,
     "belt2_drop": layout.BELT_SURFACE_Z,
     "belt2_pick": layout.BELT_SURFACE_Z,
     "cnc_chuck": layout.MACHINE_TABLE_Z + 2 * layout.MACHINE_CHUCK_HALF_Z,
-    **{name: layout.RACK_SHELF_Z for name in layout.RACK_TARGETS.values()},
+    **{name: layout.target_z(name) for name in layout.RACK_TARGETS.values()},
 }
 
 
@@ -72,9 +72,9 @@ ROUTES: Mapping[str, tuple[str, ...]] = {arm: route_names(arm) for arm in ("arm1
 
 #: Rotirea sculei în jurul axei de apropiere, în grade, în fiecare punct de lucru. Piesa este un
 #: disc, deci rotirea nu schimbă prinderea, iar falcile se deschid nord-sud după convenția din
-#: `arms.tool_quat`. Pe raft, deschiderea nord-sud este chiar cea bună: despărțitoarele curg pe
-#: aceeași direcție ca falcile, deci nu se trece peste ele, iar adâncimea raftului acoperă
-#: deschiderea de 83 mm cu loc.
+#: `arms.tool_quat`. Pe raft, deschiderea nord-sud este chiar cea bună: despărțitorul dintre cele
+#: două locuri ale treptei și buzele de la margini stau dincolo de falci, iar treapta are 0,167 m
+#: adâncime, cât să intre mâna cu piesa întreaga.
 TOOL_SPIN_DEG: Mapping[str, float] = {}
 
 #: Punctele prin care trece scula pe drumul spre un punct de lucru, la cota de călătorie. Fără ele,

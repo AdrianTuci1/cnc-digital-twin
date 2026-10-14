@@ -1,6 +1,7 @@
 <mujoco model="cnc_cell">
   <!--
-    Componentele celulei CNC: pardoseală, benzi, mașina, cutii, camera de inspecție, lumini.
+    Componentele celulei CNC: pardoseală, benzi, mașina, raftul pe familii, lada de rebut, camera de
+    inspecție, lumini.
 
     Fișierul NU se compilează singur. Cifrele dintre acolade se completează din `cncdt_mj/layout.py`
     (`cncdt_mj.scene.scene_template()`), fiindcă așezarea în plan are o singură sursă de adevăr,
@@ -133,39 +134,61 @@
             pos="0 0 {cnc_roof_z}" material="cover_mat"/>
     </body>
 
-    <!-- Raftul pe familii: un blat la nivelul suprafeței benzii (0,85 m), cu despărțitoare scurte
-         între compartimente și buze la capete, pe patru picioare. Are un compartiment pentru
-         fiecare familie de piese, în ordinea din plan (`docs/diagrams/cell_layout.py`), iar
-         numărul despărțitoarelor iese din numărul compartimentelor: una la fiecare margine.
-         Buzunarele se deschid spre nord, adică spre brațul 2, care lasă piesa de sus; de aceea nu
-         există pereți înalți în care să intre antebrațul. Cine așază o piesă o lasă pe blat. -->
+    <!-- Raftul pe familii: trei trepte pline, fiecare cu două locuri despărțite pe latura scurtă.
+         Treptele urcă spre est, spre braț, de la 0,85 m — cota documentată a podelei de jos, adică
+         nivelul suprafeței benzii — cu pasul de 0,25 m. Fiecare treaptă e un bloc plin până la
+         podeaua ei, iar fața lui de est slujește drept perete de vest locului de deasupra; peste
+         bloc vin buzele de nord, de sud și de vest, despărțitorul dintre cele două locuri, iar
+         treapta de sus, care nu mai are nimic în față, are și buză la est.
+         Piesa se lasă de sus, culcată, pe podeaua treptei, iar numărul treptelor și al locurilor
+         iese din plan (`docs/diagrams/cell_layout.py`). Numele geomeleor poartă numărul nivelului,
+         numărat de jos în sus. -->
     <body name="rack" pos="{rack_cx} {rack_cy} 0">
-      <geom name="rack_slab" type="box" size="{rack_hx} {rack_hy} {rack_slab_hz}"
-            pos="0 0 {rack_slab_z}" material="rack_mat"/>
-      <geom name="rack_divider_0" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
-            pos="{rack_div_dx_0} 0 {rack_div_z}" material="rack_mat"/>
-      <geom name="rack_divider_1" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
-            pos="{rack_div_dx_1} 0 {rack_div_z}" material="rack_mat"/>
-      <geom name="rack_divider_2" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
-            pos="{rack_div_dx_2} 0 {rack_div_z}" material="rack_mat"/>
-      <geom name="rack_divider_3" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
-            pos="{rack_div_dx_3} 0 {rack_div_z}" material="rack_mat"/>
-      <geom name="rack_divider_4" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
-            pos="{rack_div_dx_4} 0 {rack_div_z}" material="rack_mat"/>
-      <geom name="rack_divider_5" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
-            pos="{rack_div_dx_5} 0 {rack_div_z}" material="rack_mat"/>
-      <geom name="rack_lip_north" type="box" size="{rack_hx} {rack_lip_hy} {rack_div_hz}"
-            pos="0 {rack_lip_dy} {rack_div_z}" material="rack_mat"/>
-      <geom name="rack_lip_south" type="box" size="{rack_hx} {rack_lip_hy} {rack_div_hz}"
-            pos="0 {neg_rack_lip_dy} {rack_div_z}" material="rack_mat"/>
-      <geom name="rack_leg_sw" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{neg_rack_leg_dx} {neg_rack_leg_dy} {rack_leg_dz}" material="frame_mat"/>
-      <geom name="rack_leg_se" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_dx} {neg_rack_leg_dy} {rack_leg_dz}" material="frame_mat"/>
-      <geom name="rack_leg_nw" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{neg_rack_leg_dx} {rack_leg_dy} {rack_leg_dz}" material="frame_mat"/>
-      <geom name="rack_leg_ne" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_dx} {rack_leg_dy} {rack_leg_dz}" material="frame_mat"/>
+      <geom name="rack_block_1" type="box"
+            size="{rack_block_hx_1} {rack_hy} {rack_block_hz_1}"
+            pos="{rack_block_cx_1} 0 {rack_block_hz_1}" material="rack_mat"/>
+      <geom name="rack_block_2" type="box"
+            size="{rack_block_hx_2} {rack_hy} {rack_block_hz_2}"
+            pos="{rack_block_cx_2} 0 {rack_block_hz_2}" material="rack_mat"/>
+      <geom name="rack_block_3" type="box"
+            size="{rack_block_hx_3} {rack_hy} {rack_block_hz_3}"
+            pos="{rack_block_cx_3} 0 {rack_block_hz_3}" material="rack_mat"/>
+      <geom name="rack_lip_north_1" type="box"
+            size="{rack_lip_hx_1} {rack_lip_hy} {rack_lip_h}"
+            pos="{rack_block_cx_1} {rack_lip_dy} {rack_lip_z_1}" material="frame_mat"/>
+      <geom name="rack_lip_south_1" type="box"
+            size="{rack_lip_hx_1} {rack_lip_hy} {rack_lip_h}"
+            pos="{rack_block_cx_1} {neg_rack_lip_dy} {rack_lip_z_1}" material="frame_mat"/>
+      <geom name="rack_lip_east_1" type="box"
+            size="{rack_lip_hy} {rack_hy} {rack_lip_h}"
+            pos="{rack_lip_east_dx_1} 0 {rack_lip_z_1}" material="frame_mat"/>
+      <geom name="rack_divider_1" type="box"
+            size="{rack_divider_hx_1} {rack_divider_hy} {rack_divider_h}"
+            pos="{rack_divider_dx_1} 0 {rack_divider_z_1}" material="rack_mat"/>
+      <geom name="rack_lip_north_2" type="box"
+            size="{rack_lip_hx_2} {rack_lip_hy} {rack_lip_h}"
+            pos="{rack_block_cx_2} {rack_lip_dy} {rack_lip_z_2}" material="frame_mat"/>
+      <geom name="rack_lip_south_2" type="box"
+            size="{rack_lip_hx_2} {rack_lip_hy} {rack_lip_h}"
+            pos="{rack_block_cx_2} {neg_rack_lip_dy} {rack_lip_z_2}" material="frame_mat"/>
+      <geom name="rack_lip_east_2" type="box"
+            size="{rack_lip_hy} {rack_hy} {rack_lip_h}"
+            pos="{rack_lip_east_dx_2} 0 {rack_lip_z_2}" material="frame_mat"/>
+      <geom name="rack_divider_2" type="box"
+            size="{rack_divider_hx_2} {rack_divider_hy} {rack_divider_h}"
+            pos="{rack_divider_dx_2} 0 {rack_divider_z_2}" material="rack_mat"/>
+      <geom name="rack_lip_north_3" type="box"
+            size="{rack_lip_hx_3} {rack_lip_hy} {rack_lip_h}"
+            pos="{rack_block_cx_3} {rack_lip_dy} {rack_lip_z_3}" material="frame_mat"/>
+      <geom name="rack_lip_south_3" type="box"
+            size="{rack_lip_hx_3} {rack_lip_hy} {rack_lip_h}"
+            pos="{rack_block_cx_3} {neg_rack_lip_dy} {rack_lip_z_3}" material="frame_mat"/>
+      <geom name="rack_lip_west_3" type="box"
+            size="{rack_lip_hy} {rack_hy} {rack_lip_h}"
+            pos="{rack_lip_west_dx_3} 0 {rack_lip_z_3}" material="frame_mat"/>
+      <geom name="rack_divider_3" type="box"
+            size="{rack_divider_hx_3} {rack_divider_hy} {rack_divider_h}"
+            pos="{rack_divider_dx_3} 0 {rack_divider_z_3}" material="rack_mat"/>
     </body>
 
     <!-- Lada de rebut, sub capătul de vest al benzii 2: podea și trei pereți, cu latura de est
@@ -185,14 +208,16 @@
             pos="{neg_scrap_bin_wall_dx} 0 {scrap_bin_wall_z}" material="scrap_mat"/>
     </body>
 
-    <!-- Camera de inspecție a calității: consola se prinde de colțul sud-vest al mașinii și se
-         așază pe capacul ei (1,90 m), iar de capătul ei atârnă capul optic, deasupra axei benzii
-         2. Centrul optic coboară la 0,85 m peste suprafața benzii (1,70 m), nu la 2,20 m cât
-         prevede documentul pentru camere, și nu mai jos: la 2,20 m piesa de ~104 mm ar ocupa
-         vreo 10 pixeli, iar anvelopa brațelor urcă până la ~1,60 m deasupra benzii. Câmpul
-         vizual s-a îngustat la 9°, ca acoperirea de 179 × 134 mm să rămână aceeași. Aritmetica
-         și consecințele sunt în README.md. -->
+    <!-- Camera de inspecție a calității: piciorul consolei se așază pe capacul mașinii (1,90 m),
+         brațul consolei merge de acolo până deasupra axei benzii 2, iar de capătul lui atârnă
+         capul optic. Centrul optic stă la 2,20 m, cota documentată a camerelor: sub ea, anvelopa
+         cotului unui braț, măsurată în scenă pe plaja articulațiilor, cuprinde orice structură
+         deasupra benzii 2. De la 1,35 m deasupra benzii, obiectivul s-a îngustat la 5,6°, ca
+         acoperirea de 176 × 132 mm — deci 3,6 px/mm — să rămână aproape aceeași ca la 0,85 m cu
+         9°. Aritmetica și consecințele sunt în README.md. -->
     <body name="camera_mount" pos="{cam_mount_x} {cam_mount_y} 0">
+      <geom name="cam_riser" type="box" size="{cam_riser_hxy} {cam_riser_hxy} {cam_riser_hz}"
+            pos="0 0 {cam_riser_z}" material="frame_mat"/>
       <geom name="cam_boom" type="box" size="{cam_boom_hx} {cam_boom_hy} {cam_boom_hz}"
             pos="{cam_boom_dx} {cam_boom_dy} {cam_boom_z}"
             quat="{cam_boom_qw} 0 0 {cam_boom_qz}" material="frame_mat"/>

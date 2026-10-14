@@ -32,7 +32,7 @@ make mj-test     # testele geamănului care ating motorul, din venv-ul lui
 make mj-render   # scrie renders/cell.png și renders/inspection.png
 make mj-demo     # rulează ciclul brațelor și tipărește cifrele fiecărei opriri
 make mj-check MJ_SAMPLES=2000   # degajarea camerei, pe mai multe configurații de braț
-make mj-demo MJ_BASE_Z=0.55     # ciclul la cota documentată a piedestalului: cade, vezi mai jos
+make mj-demo MJ_FAMILIES="wheel_100 pinion_56"   # doar familiile cerute, ca proba să fie scurtă
 ```
 
 Fără Makefile, aceleași lucruri se scriu direct:
@@ -128,9 +128,9 @@ avertismente MuJoCo. Piesele se așază pe benzi cu 0,1 mm derivă, iar yaw-ul c
 din scenă (comparat pe cerc, deci 348,5° și −11,5° sunt același unghi).
 
 Țintele de prindere, măsurate **în spațiu** de la baza brațului, față de raza de 0,855 m din plan:
-brațul 1 ajunge la 0,758 m (preluare bandă 1), 0,760 m (mașină) și 0,776 m (așezare bandă 2);
-brațul 2 la 0,541 m (preluare bandă 2) și între 0,478 m (compartimentul 4) și 0,614 m
-(compartimentul 1) la raft. Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md` spune
+brațul 1 ajunge la 0,704 m (preluare bandă 1), 0,739 m (mașină) și 0,723 m (așezare bandă 2);
+brațul 2 la 0,461 m (preluare bandă 2) și între 0,310 m (locul 1) și 0,637 m (locul 5) la raft.
+Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md` spune
 explicit că o țintă poate părea la îndemână în desen și să fie prea sus — verificarea de aici este
 cea în spațiu.
 
@@ -175,18 +175,19 @@ Două lecții de drum, amândouă măsurate:
    traiectorie, deci intră în carcasă. Măsurat: fără punctul de trecere scula rămânea cu 880 mm de
    țintă și mâna pe mașină, cu el eroarea maximă a ciclului este 17,7 mm.
 
-La cota documentată a piedestalului, 0,55 m, ciclul **cade**: ca să ridice piesa de pe banda 2,
-brațul 2 trebuie să treacă cu antebrațul peste platformă, iar acolo platforma este deasupra lui
-(`arm2_link3↔belt_out`, 106 mm eroare la punctul de deasupra). La 0,95 m trece: 17,7 mm eroare
-maximă, nicio verigă atinsă, 56,8 s simulate. Cota asta ridică însă brațele peste anvelopa camerei
-fixe, deci `make mj-check` cade la 0,95 m, iar cele două cerințe nu pot coexista — alegerea este
-scrisă în `docs/11-geaman-mujoco.md` §2 și §10. De aceea `make mj-demo` rulează implicit la
-0,95 m, ca măsurătoare, iar `make mj-demo MJ_BASE_Z=0.55` arată rularea care cade.
+Piedestalul brațelor este cota care nu se poate decide din plan. La 0,55 m ciclul **cade**: ca să
+ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar acolo
+platforma este deasupra lui (`arm2_link3↔belt_out`, 106 mm eroare la punctul de deasupra), iar
+locurile din raft devin de neatins (`arm2_link3↔rack`, peste 1 m eroare). La 0,95 m, cota
+documentată acum, `make mj-demo` încheie ciclul pentru toate cele cinci familii: 17,7 mm eroare
+maximă pe cele 80 de opriri, nicio verigă atinsă, 56,4 s simulate. Cota ridică însă brațele peste
+axa benzii 2, deci camera fixă urcă la cota documentată a camerelor, 2,20 m; alegerea este scrisă în
+`docs/11-geaman-mujoco.md` §2 și §10. `view.py --base-z` coboară cota pentru măsurători.
 
-Raftul, pe rând: la 0,95 m, toate cele cinci compartimente se ating cu eroare sub 6 mm (`--family`
-alege familia), iar la 0,55 m, cota documentată, aceleași compartimente se ating cu 1,2–5,5 mm. Deci
-mutarea cutiilor în raft a scos exact piedica pe care o puneau cutiile adânci; ce a rămas la 0,55 m
-este banda 2 în sine, nu sortarea.
+Raftul, pe rând: la 0,95 m, toate cele cinci locuri se ating cu eroare sub 18 mm (`--family` alege
+familia), în orice variantă; la 0,55 m, locurile se ating cu peste 1 m eroare la al cincilea. Deci
+mutarea cutiilor în raft a scos piedica pe care o puneau cutiile adânci; ce a rămas la 0,55 m este
+banda 2 în sine, nu sortarea.
 
 **Ce lipsește: prinderea.** Mâna Panda se deschide 83 mm, blocul brut are 104 mm și universalul
 110 mm, deci falcile nu pot cuprinde piesa — de aceea o ating razant pe toată cursa. Celula reală
@@ -197,35 +198,32 @@ din asta.
 
 ## Camera de inspecție
 
-Camera stă la **0,85 m deasupra suprafeței benzii 2**, adică `Z = 1,70 m` în lume, și randează la
-**640×480** cu **9° pe verticală**. Acoperă 178 × 134 mm la nivelul benzii, adică **3,6 px/mm** pe
-piesă: roata de 104 mm intră pe ~55% din lățimea cadrului (362 px în `--check`, ~355 px în
-`renders/inspection.png`). Cota este parametru (`--camera-z`, ori `layout.inspection_camera_z()`),
-nu o constantă comună cu celelalte camere, iar intrinsics-urile se calculează din geometrie, în
-`layout.inspection_camera_intrinsics()`, nu se afirmă.
-
-**De ce nu la 2,20 m ca restul camerelor**: acolo piesa de ~104 mm ajunge la vreo 10 pixeli, iar
-cel mai mic defect din catalog — o gaură dezaxată cu 2,5 mm — ar cădea sub un pixel, deci nicio
-clasă de defect nu ar fi separabilă. La 0,85 m, un dinte ciobit de 4 mm iese pe ~14 pixeli și
-dezaxarea de 2,5 mm pe ~9.
+Camera stă la cota documentată a camerelor, **2,20 m** în lume, adică **1,35 m deasupra suprafeței
+benzii 2**, și randează la **640×480** cu **5,6° pe verticală**. Acoperă **176 × 132 mm** la nivelul
+benzii, adică **3,6 px/mm** pe piesă: roata de 104 mm intră pe ~59% din lățimea cadrului (366 px în
+`--check`). Cota este parametru (`--camera-z`, ori `layout.inspection_camera_z()`), iar
+intrinsics-urile se calculează din geometrie, în `layout.inspection_camera_intrinsics()`, nu se
+afirmă. Sub cota documentată geometria refuză compunerea scenei: `camera_geometry` ridică
+`ValueError`.
 
 **De ce nu mai jos**: pe plaja articulațiilor, geomele unui braț urcă peste axa benzii 2 până la
-~1,63 m în lume, adică ~0,78 m peste suprafața benzii (eșantionare uniformă, 2000 de
-configurații). Cu capul optic la 1,60 m, golul minim față de brațul 2 este −0,022 m, iar la
-1,50 m, −0,071 m: capul ar fi înăuntrul brațelor. Un cap optic la 0,25 m peste bandă, cum spunea
-prima variantă, chiar intra în ele: 0,012 m față de brațul 1 și −0,078 m față de brațul 2. Capul a
-urcat peste anvelopă, iar obiectivul s-a îngustat de la 30° la 9° ca acoperirea — deci rezoluția pe
-piesă — să rămână aceeași.
+~2,10 m în lume, adică ~1,15 m peste baza de la 0,95 m (cotul), iar capul optic stă deasupra lor.
+La cota documentată, golul minim măsurat pe 2000 de configurații eșantionate este 0,115 m față de
+brațul 1 și 0,095 m față de brațul 2.
 
-**Cum stă**: consola camerei se prinde de colțul sud-vest al mașinii CNC și se așază pe capacul ei,
-la 1,90 m; de capătul ei atârnă capul optic pe o tijă subțire, până la 1,70 m. Are 0,79 m, fiindcă
-prinderea călătorește cu masa mașinii, iar axul optic stă peste banda 2. Anvelopa brațelor
-rămâne dedesubt: cea mai mică distanță măsurată este 0,138 m (brațul 1) și 0,052 m (brațul 2) la
-eșantionarea implicită a verificării, 200 de configurații; la 2000 de configurații coboară la
-0,057 m și 0,034 m, tot peste pragul de 0,02 m. Capul optic nu poate sta chiar în punctul camerei
-din plan: o cameră care privește în jos trebuie să fie deasupra subiectului ei, iar capul stă
-deasupra axei benzii 2, la mijlocul distanței dintre locul de așezare (x=3,4) și cel de preluare
-(x=2,7).
+**De ce 5,6° și nu un obiectiv normal**: la 2,20 m un obiectiv care acoperă ~1,5 m din cadru lasă
+piesa de ~104 mm la vreo 10 pixeli, iar cel mai fin defect din catalog — o gaură dezaxată cu 2,5 mm
+— ar cădea sub un pixel, deci nicio clasă de defect nu ar fi separabilă. Obiectivul s-a îngustat
+până când acoperirea la nivelul benzii — deci rezoluția pe piesă — a ajuns aceeași cu cea a
+variantei de dinainte: un dinte ciobit de 4 mm iese pe ~14 pixeli și dezaxarea de 2,5 mm pe ~9.
+
+**Cum stă**: consola camerei se prinde pe capacul mașinii CNC, la 0,25 m vest de axul ei (`H6`), și
+se așază pe el, la 1,90 m; de capătul ei atârnă capul optic pe o tijă subțire, iar brațul consolei
+trece imediat deasupra capului optic. Anvelopa brațelor rămâne dedesubt: cea mai mică distanță
+măsurată este 0,115 m (brațul 1) și 0,095 m (brațul 2) la 2000 de configurații eșantionate, peste
+pragul de 0,02 m. Capul optic nu poate sta chiar în punctul camerei din plan: o cameră care privește
+în jos trebuie să fie deasupra subiectului ei, iar capul stă deasupra axei benzii 2, la mijlocul
+distanței dintre locul de așezare (x=3,4) și cel de preluare (x=2,7).
 
 **Axa de privire**: camerele MuJoCo privesc de-a lungul axei lor locale **−Z**, nu +Z (verificat cu
 o scenă de probă: două cutii, una deasupra și una dedesubt). Prima variantă întorcea camera cu
@@ -288,17 +286,31 @@ va însoți cadrul de inspecție.
 
 ## Raftul pe familii
 
-Cutiile de piese bune și de rebut au fost înlocuite cu un **raft cu cinci compartimente**, câte
-unul pentru fiecare familie de piese din generator (`docs/10-dataset-piese.md`), plus o **ladă de
-rebut** sub capătul de vest al benzii 2. Motivul nu este estetic: cutiile aveau pereți până la
-nivelul benzii, iar antebrațul brațului 2 trecea prin ei. Raftul are blatul la 0,85 m, despărțitoare
-de 50 mm și buze scurte la capete, iar buzunarele se deschid spre braț, deci piesa se lasă de sus.
+Cutiile de piese bune și de rebut au fost înlocuite cu un **raft cu trei niveluri a câte două
+locuri**, șase locuri pentru cinci familii de piese din generator (`docs/10-dataset-piese.md`), plus
+o **ladă de rebut** sub capătul de vest al benzii 2. Al șaselea loc rămâne gol. Motivul nu este
+estetic: cutiile aveau pereți până la nivelul benzii, iar antebrațul brațului 2 trecea prin ei.
 
-Ordinea compartimentelor, de la vest la est, este ordinea familiilor din generator —
-`wheel_100`, `flange_72`, `bushing_68`, `wheel_60`, `pinion_56` — și un test o verifică, ca planul,
-scena și clasificatorul să nu se despartă. Lățimea unui compartiment este 144 mm, deci cea mai mare
-piesă (Ø104) are circa 20 mm joc de fiecare parte. Codurile citite de pe raft sunt amânate
-deliberat (`docs/10-dataset-piese.md`).
+Raftul este o **scară**, nu un dulap cu rafturi suprapuse, iar treptele urcă **spre vest, departe de
+braț**: 0,85 m, 0,97 m, 1,09 m, cu pasul de 0,12 m, iar fiecare treaptă are 0,167 m adâncime și
+0,25 m lățime pe loc. Ordinea nu e o preferință: lângă bază brațul are cel mai puțin loc — placa
+lui de bază coboară la 0,82 m, antebrațul mătură amprenta raftului la ~1,20 m în timpul apropierii,
+iar încheietura trece la ~0,153 m peste podeaua locului în care coboară scula. De aceea treapta de
+lângă braț stă la nivelul benzii, iar scara urcă spre vest; pasul de 0,12 m are două margini
+măsurate: sub el, antebrațul ar da în vârful treptei de sus; peste el, încheietura s-ar sprijini pe
+marginea de est a treptei de dedesubt, cu buza ei cu tot.
+
+Fiecare treaptă e un bloc plin până la podeaua ei, peste care vin buzele de 20 mm și despărțitorul
+dintre cele două locuri ale treptei, de 30 mm. **Despărțitorul se retrage 3,5 cm de la marginea de
+est a treptei**: scula se lasă în locul treptei vecine, iar încheietura brațului rămâne deasupra
+muchiei dintre trepte, chiar la colțul lui — cu despărțitorul până în margine, veriga se sprijină pe
+el și scula nu mai ajunge la punct.
+
+Ordinea locurilor, de la treapta de lângă braț spre vest și, în treaptă, de la nord la sud, este
+ordinea familiilor din generator — `wheel_100`, `flange_72`, `bushing_68`, `wheel_60`, `pinion_56`
+— și un test o verifică, ca planul, scena și clasificatorul să nu se despartă. Locul are 0,25 m
+lățime, deci cea mai mare piesă (Ø104) are circa 70 mm joc de fiecare parte. Codurile citite de pe
+raft sunt amânate deliberat (`docs/10-dataset-piese.md`).
 
 Lada de rebut are marginea la 0,62 m, sub nivelul benzii, și **fără perete la est**, chiar sub
 capătul de vest al benzii: piesa neconformă nu are punct de lucru, rămâne pe bandă până la capătul
@@ -308,14 +320,13 @@ ei și cade în ladă. Un perete chiar acolo ar prinde-o și ar ține-o afară.
 
 La sămânța 7, `view.py --check` este **verde**: scena se compilează fără avertismente, țintele cad
 în raza brațelor, camera de inspecție are piesa în cadru la 3,6 px/mm și rămâne la cel puțin
-0,052 m de brațe pe configurațiile eșantionate. Transportul pe benzi merge: amândouă piesele ajung
-la linia de oprire a benzii și se opresc 13 mm peste ea, fără să cadă din geometrie.
+0,095 m de brațe pe 2000 de configurații eșantionate. Transportul pe benzi merge: amândouă piesele
+ajung la linia de oprire a benzii și se opresc 13 mm peste ea, fără să cadă din geometrie.
 
-`view.py --demo` este **verde la 0,95 m** (`make mj-demo`): 17,7 mm eroare maximă pe cele 16
-opriri, nicio verigă a brațelor atinsă, 56,8 s simulate, iar amândouă piesele rămân pe benzile lor.
-La 0,55 m, cota documentată, ciclul **cade** cu 4 constatări, toate la preluarea de pe banda 2:
-antebrațul brațului 2 nu are loc peste platformă (`make mj-demo MJ_BASE_Z=0.55`). Cifrele ciclului
-și calea lui sunt în secțiunea „Brațele" de mai sus.
+`view.py --demo` este **verde** (`make mj-demo`), la cota documentată a piedestalului: 17,7 mm
+eroare maximă pe cele 80 de opriri — 16 pe fiecare dintre cele cinci familii —, nicio verigă a
+brațelor atinsă, 56,4 s simulate, iar amândouă piesele rămân pe benzile lor. Cifrele ciclului și
+calea lui sunt în secțiunea „Brațele" de mai sus.
 
 Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
 
@@ -325,10 +336,8 @@ Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
 2. **Stările mașinii CNC și `run.py`.** `IDLE`/`LOADING`/`CUTTING`/`UNLOADING`/`INSPECTING`, sesiunea
    cu durată, sămânță, scenariu și ieșire nu sunt scrise, deci criteriul „o sesiune de 10 minute
    simulează un ciclu complet" nu se poate dovedi încă.
-3. **Decizia asupra cotei piedestalului** (0,55 m, unde antebrațul brațului 2 nu are loc peste
-   banda 2, ori 0,95 m, unde camera fixă cade în anvelopa brațelor), care blochează legarea uzurii
-   de fizică: poziția camerei este și ea o mărime din telemetrie. Vezi `docs/11-geaman-mujoco.md`
-   §2 și §10.
+3. **Colectarea datelor de antrenare** — camerele, senzorii și verdictul, scrise ca eșantioane pe
+   contractul din `telemetry/schemas/`. Nu e scrisă.
 4. **Mișcarea laterală a pieselor pe bandă nu e măsurată la impact.** Într-o cursă lungă, o piesă
    poate aluneca spre șină; de verificat când intră brațele, fiindcă de acolo vine poziția de
    prindere.

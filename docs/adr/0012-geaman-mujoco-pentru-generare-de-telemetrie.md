@@ -53,9 +53,10 @@ Verificat pe 2026-10-13, pe macOS arm64, în venv-ul proiectului (Python 3.14.6)
 2. **Fizica o face MuJoCo, pe MJCF.** Scena conține banda 1, un braț Franka Emika Panda care
    încarcă piesa în mașină și, după ce mașina termină, o descarcă pe banda 2, o mașină CNC cu
    3 axe (stare `IDLE`/`LOADING`/`CUTTING`/`UNLOADING`/`INSPECTING`, fără așchiere efectivă),
-   banda 2 cu un singur sens de mers, al doilea braț la mijlocul ei, un raft cu compartimente pe
-   familii de piese de partea cealaltă a celui de-al doilea braț, camera fixă de inspecție a
-   calității deasupra benzii 2, înainte de brațul 2, și câte o cameră pe flanșa fiecărui braț,
+   banda 2 cu un singur sens de mers, al doilea braț la mijlocul ei, un raft-scară cu trei niveluri
+   a câte două locuri, câte unul pe familie de piese, care urcă spre vest, departe de braț, camera
+   fixă de inspecție a calității deasupra benzii 2, înainte de brațul 2, și câte o cameră pe
+   flanșa fiecărui braț,
    pentru prindere. Modelele de roboți vin din pachetul `mujoco-menagerie`, cu licența și
    atribuirea păstrate, nu copiate manual în repo.
 3. **Motorul de uzură este cod pur Python (numpy), non-liniar**, cu patru mecanisme: rată de uzură

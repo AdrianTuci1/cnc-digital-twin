@@ -61,6 +61,15 @@ BELT_DIRECTIONS: Mapping[str, tuple[float, float]] = {
 #: Ținta de preluare a fiecărei benzi: locul unde se oprește piesa și de unde o ridică brațul.
 BELT_STOP_TARGETS: Mapping[str, str] = {"belt_in": "belt1_pick", "belt_out": "belt2_pick"}
 
+#: Câte niveluri are raftul și câte locuri are un nivel, din plan.
+RACK_LEVELS = int(RACK["levels"])
+RACK_SLOTS_PER_LEVEL = int(RACK["slots_per_level"])
+
+#: Locurile raftului, în ordinea de umplere: nivelurile de sus în jos, iar în nivel de la nord la
+#: sud. Toate au câte o țintă în plan, în afară de cele care rămân goale — familiile sunt cinci,
+#: iar locurile șase.
+RACK_SLOT_TARGETS: tuple[str, ...] = tuple(RACK_TARGETS[family] for family in RACK_FAMILIES)
+
 # ------------------------------------------------------------------ înălțimile documentate
 
 #: Suprafața de lucru a benzilor: `docs/11-geaman-mujoco.md` §2.
@@ -69,41 +78,50 @@ BELT_SURFACE_Z = 0.85
 MACHINE_TABLE_Z = 0.75
 #: Capacul de protecție: `docs/11-geaman-mujoco.md` §2.
 MACHINE_COVER_Z = 1.90
-#: Podeaua raftului, adică suprafața pe care stau piesele din compartimente:
+#: Podeaua treptei de jos a raftului, adică suprafața pe care stau piesele de acolo:
 #: `docs/11-geaman-mujoco.md` §2. Stă la nivelul suprafeței benzii, ca piesa să treacă din bandă
-#: pe raft fără să urce ori să coboare, iar brațul să coboare pe ea la fel ca pe bandă. De aici
-#: vine și câștigul față de cutii: un raft deschis, cu despărțitoare scurte, nu are pereți de
-#: 0,85 m în care să intre antebrațul.
+#: în raft fără să urce ori să coboare. De aici vine și câștigul față de cutii: raftul e deschis,
+#: cu buze scurte, nu are pereți de 0,85 m în care să intre antebrațul.
 RACK_SHELF_Z = BELT_SURFACE_Z
+#: Cât urcă o treaptă față de cea de dedesubt: `docs/11-geaman-mujoco.md` §2. Pasul are două
+#: margini, amândouă măsurate în scenă cu `view.py --demo`. De sus, antebrațul brațului 2 mătură
+#: amprenta raftului la ~1,20 m în timpul apropierii, deci vârful treptei de sus rămâne sub atât. De
+#: jos, încheietura brațului trece la ~0,153 m peste podeaua locului în care coboară scula, iar
+#: marginea de est a treptei de dedesubt, cu buza ei cu tot, stă la ``pas + 0,02`` peste aceeași
+#: podea: la 0,14 m veriga rămâne sprijinită pe buza treptei de la est, la 0,12 m trece cu 13 mm. La
+#: 0,12 m podelele cad la 0,85 / 0,97 / 1,09 m. Treptele urcă spre vest, departe de braț, fiindcă
+#: scula nu nimerește nimic sub ~0,65 m la sud de baza brațului 2; vezi `docs/diagrams/cell_layout.py`.
+RACK_LEVEL_PITCH = 0.12
 #: Marginea lăzii de rebut, sub capătul de vest al benzii 2: `docs/11-geaman-mujoco.md` §2. Cota
 #: stă sub nivelul benzii, ca piesa care cade de la capătul benzii să treacă peste margine.
 SCRAP_BIN_RIM_Z = 0.62
-#: Baza brațelor, pe piedestal: `docs/11-geaman-mujoco.md` §2. Cota este cea din document, iar
-#: `view.py --base-z` o ridică pentru măsurători. La 0,55 m brațele nu ajungeau în cutiile adânci
-#: de dinainte, fiindcă pereții lor urcau până la 0,85 m (nivelul benzii), iar la 0,95 m ciclul se
-#: încheia, dar anvelopa brațelor cuprindea capul camerei de inspecție. Raftul deschis mută
-#: problema: nu mai are pereți înalți, deci cota se remăsoară cu `make mj-demo`, iar cifrele
-#: rămase din măsurătoarea veche sunt în `README.md`.
-ARM_BASE_Z = 0.55
+#: Baza brațelor, pe piedestal: `docs/11-geaman-mujoco.md` §2. `view.py --base-z` o schimbă
+#: pentru măsurători, dar cota din scenă este cea documentată. Cota a fost 0,55 m până s-a măsurat
+#: în scenă: acolo brațul 2 nu putea ridica piesa de pe banda 2, fiindcă antebrațul lui coboară sub
+#: platformă, iar platforma rămâne deasupra sculei (`arm2_link3↔belt_out`, 106 mm eroare rămasă).
+#: La 0,95 m ciclul se încheie; în schimb anvelopa brațelor urcă până la ~1,63 m, peste capul
+#: camerei fixe, deci camera se ridică și ea (vezi mai jos) și nu mai are cum să rămână singura
+#: sursă a verdictului: verdictul îl dă camera de pe braț, iar camera fixă privește banda de sus.
+ARM_BASE_Z = 0.95
 #: Înălțimea documentată a camerelor, orientate în jos: `docs/11-geaman-mujoco.md` §2.
 #: Camera de inspecție a calității este singura excepție, deliberată: vezi mai jos
 #: :data:`INSPECTION_CAMERA_CLEARANCE_Z` și `README.md` pentru aritmetica din spate.
 CAMERA_Z = 2.20
 
-#: Cât stă camera de inspecție deasupra suprafeței benzii 2. La 2,20 m piesa de ~104 mm ar ocupa
+#: Cât stă camera de inspecție deasupra suprafeței benzii 2: capul optic stă la cota documentată a
+#: camerelor, :data:`CAMERA_Z`, adică 1,35 m peste bandă. La 2,20 m piesa de ~104 mm ar ocupa
 #: vreo 10 pixeli, iar cel mai mic defect din catalog are 2,5 mm, deci nicio clasă nu ar fi
-#: separabilă. Cota nu coboară însă sub anvelopa brațelor: măsurat în scenă pe plaja
-#: articulațiilor, geomele unui braț urcă acolo până la ~1,63 m în lume, adică ~0,78 m peste banda
-#: 2. Cu capul optic la 1,60 m, golul minim măsurat pe 2000 de configurații este −0,022 m (adică
-#: suprapunere); la cota de față, 1,70 m, cel mai mic gol este +0,034 m. Vezi `README.md`,
-#: „Camera de inspecție", și `view.py --check`.
-INSPECTION_CAMERA_CLEARANCE_Z = 0.85
+#: separabilă; obiectivul se îngustează atât cât acoperirea pe piesă să rămână aceeași. Sub cota
+#: asta, camera nu are însă loc: măsurat în scenă pe plaja articulațiilor, cu baza la
+#: :data:`ARM_BASE_Z`, cotul unui braț ajunge la ~1,15 m de bază, adică ~2,10 m în lume, peste axa
+#: benzii 2. Vezi `README.md`, „Camera de inspecție", și `view.py --check`.
+INSPECTION_CAMERA_CLEARANCE_Z = CAMERA_Z - BELT_SURFACE_Z
 
-#: Câmpul vizual vertical al camerei de inspecție, în grade. De la 0,85 m, 9° acoperă tot
-#: 134 mm pe verticală și, cu raportul de aspect 4:3, 179 mm pe orizontală — adică 3,6 px/mm la
-#: 640x480, destul pentru un dinte ciobit de 4 mm. Când camera se ridică peste anvelopa
-#: brațelor, obiectivul se îngustează: acoperirea, deci rezoluția pe piesă, rămâne aceeași.
-INSPECTION_CAMERA_FOVY = 9.0
+#: Câmpul vizual vertical al camerei de inspecție, în grade. De la 1,35 m, 5,6° acoperă 132 mm pe
+#: verticală și, cu raportul de aspect 4:3, 176 mm pe orizontală — adică 3,6 px/mm la 640x480,
+#: destul pentru un dinte ciobit de 4 mm. Cota și obiectivul merg împreună: singură contează
+#: acoperirea la nivelul benzii, adică rezoluția pe piesă.
+INSPECTION_CAMERA_FOVY = 5.6
 
 #: Rezoluția cadrelor de inspecție: cerută explicit de planul aprobat, în locul implicitului
 #: 160x120 din `docs/11-geaman-mujoco.md` §2.
@@ -127,7 +145,9 @@ DOCUMENTED_HEIGHTS: tuple[DocumentedHeight, ...] = (
     DocumentedHeight("belt_surface", BELT_SURFACE_Z, "benz", "suprafețele de lucru ale benzilor"),
     DocumentedHeight("machine_table", MACHINE_TABLE_Z, "mașin", "masa mașinii"),
     DocumentedHeight("machine_cover", MACHINE_COVER_Z, "capac", "capacul de protecție"),
-    DocumentedHeight("rack_shelf", RACK_SHELF_Z, "raft", "podeaua raftului pe familii"),
+    DocumentedHeight("rack_shelf", RACK_SHELF_Z, "raft", "podelele raftului pe familii"),
+    DocumentedHeight("rack_level_pitch", RACK_LEVEL_PITCH, "nivel",
+                     "pasul dintre nivelurile raftului"),
     DocumentedHeight("scrap_bin_rim", SCRAP_BIN_RIM_Z, "lăz", "marginea lăzii de rebut"),
     DocumentedHeight("arm_base", ARM_BASE_Z, "piedestal", "baza brațelor pe piedestal"),
     DocumentedHeight("camera", CAMERA_Z, "camer", "camerele"),
@@ -162,16 +182,22 @@ MACHINE_ROOF_HALF_Z = 0.025
 MACHINE_CHUCK_RADIUS = 0.055
 MACHINE_CHUCK_HALF_Z = 0.04
 
-#: Raftul pe familii: un blat subțire, despărțitoare scurte și patru picioare. Numărul
-#: despărțitoarelor iese din plan (unul mai mult decât compartimentele), iar blatul stă la
-#: :data:`RACK_SHELF_Z`. Buzunarele se deschid spre nord, adică spre brațul 2, deci raftul nu are
-#: pereți decât scurți, cât să prindă piesa la așezare.
-RACK_SLAB_HALF_Z = 0.015
-RACK_DIVIDER_HALF_XY = 0.005
-RACK_DIVIDER_HALF_Z = 0.025
-RACK_LIP_HALF_Y = 0.005
-RACK_LEG_HALF_XY = 0.02
-RACK_LEG_INSET = 0.05
+#: Raftul pe familii: trei trepte pline, fiecare cu două locuri. Treptele urcă spre est, spre
+#: braț, iar fiecare treaptă e un bloc plin până la podeaua ei, deci fața de est a treptei de
+#: dedesubt slujește drept perete de vest locului de deasupra. Peste blocuri vin buzele, scunde cât
+#: să țină piesa culcată fără să stea în calea mâinii, și despărțitorul dintre cele două locuri ale
+#: treptei. Sunt secțiuni de desen, nu cifre din plan ori din documentație.
+RACK_LIP_H = 0.02
+RACK_LIP_HALF_THICKNESS = 0.005
+#: Despărțitorul dintre locurile unei trepte: peste înălțimea piesei, dar cât mai jos, fiindcă
+#: încheietura brațului trece pe deasupra lui când scula coboară în locul de lângă braț.
+RACK_DIVIDER_H = 0.03
+RACK_DIVIDER_HALF_THICKNESS = 0.005
+#: Cât se retrage despărțitorul de la marginea de est a treptei. Scula se lasă în locul treptei de
+#: la est, iar încheietura brațului rămâne deasupra muchiei dintre trepte, chiar la colțul de est al
+#: despărțitorului: măsurat în scenă, cu despărțitorul până în margine veriga încheieturii îl atinge
+#: și rămâne sprijinită pe el, iar cu 3,5 cm de retragere trece.
+RACK_DIVIDER_INSET = 0.035
 
 #: Lada de rebut: podea și trei pereți, cu latura de est deschisă, sub capătul de vest al benzii 2.
 SCRAP_BIN_WALL_HALF_THICKNESS = 0.01
@@ -180,16 +206,24 @@ SCRAP_BIN_FLOOR_HALF_Z = 0.025
 #: Baza brațului are „0,25 Ø" în tabelul de coordonate (`cell_layout.py:386`).
 ARM_PEDESTAL_RADIUS = 0.125
 
-#: Consola camerei de inspecție se prinde de colțul sud-vest al mașinii CNC și se așază pe
-#: capacul ei, la :data:`MACHINE_COVER_Z`; capul optic atârnă de ea pe o tijă subțire, până la
-#: :func:`inspection_camera_z`. Cotele de aici sunt secțiuni de desen, nu cifre din plan ori din
-#: documentație; dacă se schimbă, se schimbă doar aici.
+#: Consola camerei de inspecție: un picior care se așază pe capacul mașinii CNC, la
+#: :data:`MACHINE_COVER_Z`, o braț care merge de acolo până deasupra axei benzii 2 și capul optic
+#: atârnat sub braț pe o tijă subțire, până la :func:`inspection_camera_z`. Cotele de aici sunt
+#: secțiuni de desen, nu cifre din plan ori din documentație; dacă se schimbă, se schimbă doar aici.
 CAMERA_BOOM_HALF_XY = 0.04
 CAMERA_BOOM_HALF_Z = 0.02
+CAMERA_RISER_HALF_XY = 0.03
 CAMERA_BODY_HALF = 0.035
 CAMERA_STRUT_HALF_XY = 0.012
+#: Cât atârnă tija între braț și corpul camerei. Sub braț nu are loc decât atât: capul optic stă la
+#: cota documentată a camerelor, iar brațul trece imediat deasupra lui.
+CAMERA_STRUT_HEIGHT = 0.08
 CAMERA_LENS_RADIUS = 0.018
 CAMERA_LENS_HALF_Z = 0.02
+#: Cât de departe de axul brațului 1 stă piciorul consolei, pe capac. Sub cota asta, anvelopa
+#: cotului cuprinde colțul sud-vestic al capacului: măsurat, cotul lui arm1 ajunge la ~1,15 m de
+#: bază, iar colțul e la 1,05 m. Deplasarea spre est mută piciorul la 1,33 m.
+CAMERA_RISER_INSET_X = 0.25
 
 CELL_MARKER_HALF = 0.015
 CELL_MARKER_HALF_Z = 0.005
@@ -237,22 +271,59 @@ def targets_of(key: str) -> tuple[Mapping[str, Any], ...]:
 
 
 def rack_target(family: str) -> str:
-    """Numele țintei de prindere a compartimentului familiei date.
+    """Numele țintei de prindere a locului familiei date.
 
-    Compartimentul fiecărei familii este o țintă ca oricare alta, fiindcă acolo ajunge piesa:
-    planul le desenează, iar brațul 2 le deservește pe toate cinci.
+    Locul fiecărei familii este o țintă ca oricare alta, fiindcă acolo ajunge piesa: planul le
+    desenează, iar brațul 2 le deservește pe toate cinci.
     """
     try:
         return RACK_TARGETS[family]
     except KeyError:
-        raise KeyError(f"familie fără compartiment în raft: {family}") from None
+        raise KeyError(f"familie fără loc în raft: {family}") from None
+
+
+def rack_slot_index(name: str) -> int:
+    """Locul unei ținte din raft, în ordinea de umplere (0 = treapta de jos, latura nordică)."""
+    return int(target(name)["slot"])
+
+
+def rack_level_of(name: str) -> int:
+    """Nivelul unei ținte din raft, numerotat de jos în sus, de la 1."""
+    return rack_slot_index(name) // RACK_SLOTS_PER_LEVEL + 1
+
+
+def rack_level_floor_z(level: int) -> float:
+    """Podeaua unui nivel din raft: nivelul 1 e cel de jos, la cota documentată.
+
+    Treptele urcă spre vest, departe de braț: lângă bază brațul are cel mai puțin loc, iar scula nu
+    nimerește oricum nimic sub ~0,65 m la sud de baza brațului 2 (vezi `docs/diagrams/cell_layout.py`).
+    """
+    if not 1 <= level <= RACK_LEVELS:
+        raise KeyError(f"nivel inexistent în raft: {level}")
+    return RACK_SHELF_Z + (level - 1) * RACK_LEVEL_PITCH
+
+
+def rack_level_span(level: int) -> tuple[float, float]:
+    """Felia din lungimea raftului pe care stă nivelul dat, în lume (``x0``, ``x1``).
+
+    Nivelul 1 este treapta de la est, cea de lângă braț: scara urcă spre vest, departe de braț.
+    """
+    if not 1 <= level <= RACK_LEVELS:
+        raise KeyError(f"nivel inexistent în raft: {level}")
+    return tuple(cell_layout.rack_level_span(level))  # type: ignore[return-value]
+
+
+def rack_empty_names() -> tuple[str, ...]:
+    """Locurile raftului care rămân goale: fără familie, deci fără țintă în plan."""
+    count = RACK_LEVELS * RACK_SLOTS_PER_LEVEL - len(RACK_SLOT_TARGETS)
+    return tuple(f"rack_loc_{index + 1 + len(RACK_SLOT_TARGETS)}" for index in range(count))
 
 
 def target_z(name: str) -> float:
     """Cota punctului de prindere, din înălțimile documentate.
 
     Planul dă doar desenul de sus, deci cota fiecărei ținte o fixează scena: benzile se prind de
-    pe suprafața lor de lucru, compartimentele raftului de pe podeaua lui
+    pe suprafața lor de lucru, locurile raftului de pe podeaua nivelului lor
     (`docs/11-geaman-mujoco.md` §2), iar dispozitivul mașinii la înălțimea universalului, pe masa
     mașinii.
     """
@@ -261,7 +332,7 @@ def target_z(name: str) -> float:
     if name == "cnc_chuck":
         return MACHINE_TABLE_Z + MACHINE_CHUCK_HALF_Z
     if name in RACK_TARGETS.values():
-        return RACK_SHELF_Z
+        return rack_level_floor_z(rack_level_of(name))
     raise KeyError(f"țintă fără cotă cunoscută: {name}")
 
 
@@ -411,40 +482,42 @@ def machine_geometry() -> dict[str, float]:
 
 
 def rack_geometry() -> dict[str, float]:
-    """Raftul pe familii: blatul, despărțitoarele, buzele de la capete și picioarele.
+    """Raftul pe familii: trei trepte pline, fiecare cu podeaua, buzele și despărțitorul ei.
 
-    Despărțitoarele ies din plan: ``compartments + 1`` muchii, una la fiecare margine de
-    compartiment, fiindcă numărul compartimentelor stă într-un singur loc, în plan. Blatul are
-    fața de sus la :data:`RACK_SHELF_Z`, iar buzele de la capete sunt scurte, cât să țină piesa
-    pe blat fără să stea în calea falcilor.
+    Numărul nivelurilor și al locurilor iese din plan, iar cotele din înălțimile documentate:
+    treapta de jos are podeaua la :data:`RACK_SHELF_Z` — cota suprafeței benzii, ca piesa să treacă
+    din bandă în raft fără să urce — iar celelalte urcă cu câte :data:`RACK_LEVEL_PITCH`, spre vest,
+    departe de braț. Fiecare treaptă e un bloc plin până la podeaua ei, deci fața de est a treptei
+    de dedesubt este peretele de vest al locului; peste asta, fiecare nivel are buze scunde la
+    marginile lui și un despărțitor între cele două locuri, iar treapta de sus, care nu mai are
+    nimic în față spre vest, are și buză la vest.
     """
     cx, cy = center(RACK)
     hx, hy = float(RACK["w"]) / 2, float(RACK["h"]) / 2
-    slab_hz = RACK_SLAB_HALF_Z
-    slab_z = RACK_SHELF_Z - slab_hz
-    leg_top = slab_z - slab_hz
-    leg_hz = leg_top / 2
     values: dict[str, float] = {
         "rack_cx": cx,
         "rack_cy": cy,
-        "rack_hx": hx,
         "rack_hy": hy,
-        "rack_slab_hz": slab_hz,
-        "rack_slab_z": slab_z,
-        "rack_div_hxy": RACK_DIVIDER_HALF_XY,
-        "rack_div_hz": RACK_DIVIDER_HALF_Z,
-        "rack_div_z": RACK_SHELF_Z + RACK_DIVIDER_HALF_Z,
-        "rack_lip_hy": RACK_LIP_HALF_Y,
-        "rack_lip_dy": hy - RACK_LIP_HALF_Y,
-        "rack_leg_hxy": RACK_LEG_HALF_XY,
-        "rack_leg_hz": leg_hz,
-        "rack_leg_dz": leg_hz,
-        "rack_leg_dx": hx - RACK_LEG_INSET,
-        "rack_leg_dy": hy - RACK_LEG_INSET,
+        "rack_lip_h": RACK_LIP_H,
+        "rack_lip_hy": RACK_LIP_HALF_THICKNESS,
+        "rack_lip_dy": hy - RACK_LIP_HALF_THICKNESS,
+        "rack_divider_hy": RACK_DIVIDER_HALF_THICKNESS,
+        "rack_divider_h": RACK_DIVIDER_H,
     }
-    compartments = int(RACK["compartments"])
-    for index in range(compartments + 1):
-        values[f"rack_div_dx_{index}"] = -hx + 2 * hx * index / compartments
+    for level in range(1, RACK_LEVELS + 1):
+        floor = rack_level_floor_z(level)
+        x0, x1 = rack_level_span(level)
+        step_hx = (x1 - x0) / 2
+        values[f"rack_block_cx_{level}"] = (x0 + x1) / 2 - cx
+        values[f"rack_block_hx_{level}"] = step_hx
+        values[f"rack_block_hz_{level}"] = floor / 2
+        values[f"rack_lip_west_dx_{level}"] = x0 + RACK_LIP_HALF_THICKNESS - cx
+        values[f"rack_lip_east_dx_{level}"] = x1 - RACK_LIP_HALF_THICKNESS - cx
+        values[f"rack_lip_hx_{level}"] = step_hx
+        values[f"rack_lip_z_{level}"] = floor + RACK_LIP_H / 2
+        values[f"rack_divider_hx_{level}"] = (x1 - x0 - RACK_DIVIDER_INSET) / 2
+        values[f"rack_divider_dx_{level}"] = (x0 + x1 - RACK_DIVIDER_INSET) / 2 - cx
+        values[f"rack_divider_z_{level}"] = floor + RACK_DIVIDER_H / 2
     return values
 
 
@@ -503,30 +576,34 @@ def inspection_camera_intrinsics(camera_z: float | None = None) -> dict[str, flo
 
 
 def camera_geometry(camera_z: float | None = None) -> dict[str, float]:
-    """Camera fixă de inspecție: consolă pe mașină, cap optic deasupra axei benzii 2.
+    """Camera fixă de inspecție: picior pe capacul mașinii, braț, cap optic deasupra benzii 2.
 
-    Axul optic stă la punctul camerei din plan (`cell_layout.CAMERAS[0]`), iar consola se prinde
-    de colțul sud-vest al mașinii și se așază pe capacul ei, care este și cota de montaj. Capul
-    optic nu poate sta chiar la punctul din plan: o cameră care privește în jos trebuie să fie
-    deasupra subiectului ei, iar acolo, peste axa benzii 2, brațele urcă până la ~1,63 m în lume.
-    Consola ocolește anvelopa pe la 1,90 m, iar tija coboară numai cât să iasă în câmp piesa.
-    Cota capului optic este parametru, nu constantă.
+    Axul optic stă la punctul camerei din plan (`cell_layout.CAMERAS[0]`), iar consola se așază pe
+    capacul mașinii, la :data:`MACHINE_COVER_Z`: capacul este singura structură înaltă de lângă
+    bandă, iar piciorul lui stă spre est, ca să nu intre în anvelopa cotului brațului 1.
+    Capul optic nu poate sta chiar la punctul din plan: o cameră care privește în jos trebuie să
+    fie deasupra subiectului ei, iar acolo, peste axa benzii 2, anvelopa brațelor urcă până la
+    ~2,10 m în lume — cotul ajunge la ~1,15 m de bază. De aceea capul optic stă la cota
+    documentată a camerelor, :data:`CAMERA_Z`, iar brațul consolei trece imediat deasupra lui.
+    Cota capului optic este parametru, dar geometria refuză cotele de sub :data:`CAMERA_Z`: acolo
+    obiectivul ar vedea brațele, nu piesa.
     """
     machine = machine_geometry()
-    mount_x = machine["cnc_cx"] - machine["cnc_post_dx"]
-    mount_y = machine["cnc_cy"] - machine["cnc_post_dy"]
+    mount_x = machine["cnc_cx"] - CAMERA_RISER_INSET_X
+    mount_y = machine["cnc_cy"] - machine["cnc_roof_hy"]
     aim_x = float(CAMERAS[0]["x"])
     aim_y = center(BELT_OUT)[1]
     z = inspection_camera_z() if camera_z is None else camera_z
-    boom_bottom = MACHINE_COVER_Z
+    if z < CAMERA_Z:
+        raise ValueError(
+            f"capul optic la {z:.3f} m coboară sub cota documentată a camerelor, "
+            f"{CAMERA_Z:.2f} m; sub ea anvelopa brațelor trece peste axa benzii 2")
+    boom_bottom = z + CAMERA_BODY_HALF + CAMERA_STRUT_HEIGHT
     boom_dx, boom_dy = aim_x - mount_x, aim_y - mount_y
     boom_length = math.hypot(boom_dx, boom_dy)
     boom_yaw = math.atan2(boom_dy, boom_dx)
-    strut_hz = (boom_bottom - z - CAMERA_BODY_HALF) / 2
-    if strut_hz <= 0:
-        raise ValueError(
-            f"capul optic la {z:.3f} m nu încape sub consola de la {boom_bottom:.3f} m; "
-            f"cota maximă este {boom_bottom - CAMERA_BODY_HALF:.3f} m")
+    riser_hz = (boom_bottom - MACHINE_COVER_Z) / 2
+    strut_hz = CAMERA_STRUT_HEIGHT / 2
     return {
         "cam_x": aim_x,
         "cam_y": aim_y,
@@ -540,11 +617,14 @@ def camera_geometry(camera_z: float | None = None) -> dict[str, float]:
         "cam_fovy": INSPECTION_CAMERA_FOVY,
         "cam_mount_x": mount_x,
         "cam_mount_y": mount_y,
+        "cam_riser_hxy": CAMERA_RISER_HALF_XY,
+        "cam_riser_hz": riser_hz,
+        "cam_riser_z": MACHINE_COVER_Z + riser_hz,
         "cam_boom_hx": boom_length / 2,
         "cam_boom_hy": CAMERA_BOOM_HALF_XY,
         "cam_boom_hz": CAMERA_BOOM_HALF_Z,
-        # Consola se întinde de la montaj până deasupra axei benzii; orientarea se scrie ca
-        # cuaternar, fiindcă `scene/cell.xml` nu are unde ține un unghi.
+        # Brațul consolei se întinde de la picior până deasupra axei benzii; orientarea se scrie
+        # ca cuaternar, fiindcă `scene/cell.xml` nu are unde ține un unghi.
         "cam_boom_dx": boom_dx / 2,
         "cam_boom_dy": boom_dy / 2,
         "cam_boom_z": boom_bottom + CAMERA_BOOM_HALF_Z,
@@ -552,7 +632,7 @@ def camera_geometry(camera_z: float | None = None) -> dict[str, float]:
         "cam_boom_qz": math.sin(boom_yaw / 2),
         "cam_strut_hxy": CAMERA_STRUT_HALF_XY,
         "cam_strut_hz": strut_hz,
-        "cam_strut_dz": boom_bottom - strut_hz - z,
+        "cam_strut_dz": CAMERA_BODY_HALF + strut_hz,
     }
 
 

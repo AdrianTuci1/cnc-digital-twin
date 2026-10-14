@@ -543,8 +543,7 @@ def main(argv: list[str] | None = None) -> int:
                        help="cota vârfului piedestalului brațelor, pentru măsurători: "
                             f"implicit cea din document, {layout.documented_height('arm_base'):.2f} "
                             "m. La 0,55 m brațul 2 nu poate trece cu antebrațul peste banda 2 ca "
-                            "să ridice piesa (`arm2_link3↔belt_out`, 106 mm eroare), iar la "
-                            "0,95 m ciclul se încheie, dar camera fixă cade în anvelopa brațelor")
+                            "să ridice piesa (`arm2_link3↔belt_out`, 106 mm eroare)")
     parser.add_argument("--belts", action=argparse.BooleanOptionalAction, default=True,
                        help="în viewer, benzile sunt pornite (implicit); `--no-belts` le oprește, "
                             "ca scena să stea pe loc")
@@ -554,8 +553,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.base_z is not None:
-        # Cota din document rămâne 0,55 m până se decide altfel (`docs/11-geaman-mujoco.md` §2):
-        # ridicarea se face doar pentru măsurători, ca scena comisă să rămână cea verificată.
+        # Cota documentată este cea din `docs/11-geaman-mujoco.md` §2; coborârea se face doar
+        # pentru măsurători, ca scena comisă să rămână cea verificată.
         print(f"Măsurătoare: vârful piedestalului brațelor la {args.base_z:.2f} m, în locul cotei "
               f"documentate, {layout.documented_height('arm_base'):.2f} m.")
         layout.ARM_BASE_Z = args.base_z

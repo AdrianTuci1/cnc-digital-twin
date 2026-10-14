@@ -192,14 +192,9 @@ cell-layout: ## Regenerează planul celulei, văzut de sus (docs/diagrams/cnc-ce
 MJ_DIR     := simulation/mujoco
 MJ_PY      := $(ROOT)/$(MJ_DIR)/.venv/bin/python
 MJ_SAMPLES ?= 200
-# Cota piedestalului brațelor pentru `make mj-demo`. Cota documentată este 0,55 m, dar acolo
-# ciclul nu se încheie: ca să ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul
-# peste platformă, iar la 0,55 m platforma este deasupra lui (`arm2_link3↔belt_out`, 106 mm
-# eroare). La 0,95 m ciclul se încheie cu 17,7 mm eroare maximă, însă anvelopa brațelor cuprinde
-# capul camerei fixe, deci `make mj-check` cade la cota asta: cele două cote nu pot coexista, iar
-# alegerea este în README-ul geamănului și în `docs/11-geaman-mujoco.md` §10.
-# `make mj-demo MJ_BASE_Z=0.55` arată rularea care cade.
-MJ_BASE_Z  ?= 0.95
+# Familiile de piese pe care le parcurge `make mj-demo`. Ciclul atinge locul familiei în raft, deci
+# fiecare familie este o probă separată; `make mj-demo MJ_FAMILIES=wheel_100` scurtează proba.
+MJ_FAMILIES ?= wheel_100 flange_72 bushing_68 wheel_60 pinion_56
 
 .PHONY: mj-venv mj-check mj-render mj-demo mj-test
 mj-venv: ## Creează venv-ul geamănului MuJoCo și instalează requirements.txt
@@ -216,9 +211,12 @@ mj-render: ## Scrie cadrele geamănului: renders/cell.png și renders/inspection
 	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --render
 	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --render --camera camera_quality
 
-mj-demo: ## Rulează ciclul brațelor (offscreen) și raportează cifrele fiecărei opriri
+mj-demo: ## Rulează ciclul brațelor (offscreen), familie cu familie, și raportează fiecare oprire
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
-	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --demo --base-z $(MJ_BASE_Z)
+	@for family in $(MJ_FAMILIES); do \
+		echo "== familia $$family"; \
+		cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --demo --family $$family || exit 1; \
+	done
 
 mj-test: ## Testele geamănului care ating motorul; rulează din venv-ul lui (pytest e acolo)
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }

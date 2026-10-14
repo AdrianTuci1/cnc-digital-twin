@@ -16,7 +16,7 @@ coloana. O diagramă produce o singură imagine, fără variante.
 | --- | --- |
 | `architecture-loop.png` | bucla de date și control: clientul WebRTC, nodul AWS VPN, pipeline-ul (EC2 cu Isaac Sim, IoT Core, Firehose), coloana din mijloc cu ML route (S3 raw, Data Wrangler, cele două modele, pe două rânduri), Live route (Lambda-urile, pe un rând) și Observabilitate (CloudWatch, SNS, pe un rând), apoi Comandă (dispatcher-ul plus simularea, pe un rând) și utilizatorul notificat |
 | `architecture-platform.png` | platforma: de la data lake la endpoint, operarea și guvernanța |
-| `cnc-cell-layout.png` | planul celulei CNC, văzut de sus, pe un grid de 0,5 m: banda 1, brațul 1 care încarcă și descarcă mașina, CNC-ul, banda 2 cu sens unic, brațul 2 pe latura sudică a ei, raftul cu cinci compartimente, câte unul pe familie de piese, de cealaltă parte a benzii, lada de rebut de sub capătul de vest al benzii 2, camera fixă de proces și camerele de pe flanșele brațelor, țintele de prindere și fluxul materialului |
+| `cnc-cell-layout.png` | planul celulei CNC, văzut de sus, pe un grid de 0,5 m: banda 1, brațul 1 care încarcă și descarcă mașina, CNC-ul, banda 2 cu sens unic, brațul 2 pe latura sudică a ei, raftul-scară cu trei niveluri a câte două locuri, câte unul pe familie de piese, de cealaltă parte a benzii, lada de rebut de sub capătul de vest al benzii 2, camera fixă de proces și camerele de pe flanșele brațelor, țintele de prindere și fluxul materialului |
 
 Fiecare imagine de arhitectură are lângă ea sursa Graphviz (`.gv`), scrisă de script, utilă la
 depanat layout-ul. Fișierul conține căi absolute către pictogramele din mediul virtual în care a
@@ -104,8 +104,8 @@ conversia la lumea MuJoCo este identitatea: planul `(x, y)` devine lumea `(x, y)
 Celula măsoară 6,0 × 4,0 m și este tăiată în celule de 0,5 m, cu **coloanele A–L** spre est și
 **rândurile 1–8** spre nord, așa cum se vede pe marginile desenului. Un element se numește pe
 scurt după celula lui: brațul 1 stă în **F6**, mașina ocupă **G6–J8**, banda 2 în **B4–J5**,
-brațul 2 în **F4**, raftul pe familii în **E3–F3**, lada de rebut în **A4–B5**, axul optic al
-camerei fixe în **G5**, cu consola ei prinsă de colțul de sud-vest al mașinii.
+brațul 2 în **F4**, raftul pe familii în **E3–E4**, lada de rebut în **A4–B5**, axul optic al
+camerei fixe în **G5**, cu consola ei prinsă pe capacul mașinii, în **H6**.
 
 Tabelul de coordonate și verificarea razei de atingere se tipăresc cu `--table`; el este cel
 lipit în `docs/11-geaman-mujoco.md`, deci nu se transcriu cifre manual. Când se mută o

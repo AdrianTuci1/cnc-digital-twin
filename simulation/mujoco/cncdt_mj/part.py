@@ -158,6 +158,15 @@ def gear_half_thickness_m(family_name: str | None = None) -> float:
     return family(family_name).nominal.thickness * MESH_SCALE / 2
 
 
+def gear_radius_m(family_name: str | None = None) -> float:
+    """Raza piesei mașinate, în metri: de la centru până în vârful dinților.
+
+    Este raza conturului ei din desen, deci și cea care se vede în cadru, spre deosebire de
+    jumătatea grosimii, care este cota centrului când piesa stă culcată.
+    """
+    return family(family_name).nominal.outer_radius * MESH_SCALE
+
+
 def blank_half_thickness_m(family_name: str | None = None) -> float:
     """Jumătatea grosimii semifabricatului, în metri."""
     return blank_thickness_mm(family_name) * MESH_SCALE / 2
@@ -172,7 +181,7 @@ def belt_part_radius_m(key: str, family_name: str | None = None) -> float:
     if key == "belt_in":
         return blank_radius_mm(family_name) * MESH_SCALE
     if key == "belt_out":
-        return family(family_name).nominal.outer_radius * MESH_SCALE
+        return gear_radius_m(family_name)
     raise KeyError(f"bandă fără material cunoscut: {key}")
 
 
