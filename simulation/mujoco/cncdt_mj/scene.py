@@ -105,7 +105,7 @@ def placements(variant: part.PartVariant, blank: part.BlankStock, seed: int = pa
         if key is None:
             raise ValueError("piesa mașinată nu are bandă nominală în plan")
         part_xy = part.on_belt_xy(part_xy[0], part_xy[1], machined_place.bounds,
-                                  part.BELT_PART_RADIUS_M[key])
+                                  part.belt_part_radius_m(key, variant.family))
 
     return {
         blank_place.body: {
@@ -188,14 +188,17 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
                blank_shape: str = part.BLANK_SHAPES[0],
                blank_xy: tuple[float, float] | None = None, blank_yaw_deg: float | None = None,
                part_yaw_deg: float | None = None, part_xy: tuple[float, float] | None = None,
-               camera_z: float | None = None) -> tuple[mujoco.MjSpec, dict[str, Any]]:
+               camera_z: float | None = None,
+               family: str | None = None) -> tuple[mujoco.MjSpec, dict[str, Any]]:
     """Scena completă, ca `MjSpec`, plus metadatele pieselor (poziție, yaw, etichetă).
 
     Toți parametrii de material sunt opționali: implicit, sămânța dă aceeași scenă de fiecare dată.
+    ``family`` alege familia de piese; blocul brut și piesa mașinată sunt din aceeași familie,
+    fiindcă între ele se petrece prelucrarea.
     """
     panda_dir = Path(mujoco_menagerie.get(PANDA_MODEL).path())
-    variant = part.load_variant(seed, defect)
-    blank = part.blank_stock(blank_shape)
+    variant = part.load_variant(seed, defect, family)
+    blank = part.blank_stock(blank_shape, family)
     places = placements(variant, blank, seed, blank_xy, blank_yaw_deg, part_yaw_deg, part_xy)
 
     spec = mujoco.MjSpec.from_string(scene_template(camera_z))

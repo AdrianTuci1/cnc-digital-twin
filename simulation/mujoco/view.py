@@ -88,6 +88,7 @@ def build(args: argparse.Namespace) -> tuple[mujoco.MjModel, mujoco.MjData, dict
         model, metadata = scene.build_model(
             seed=args.seed,
             defect=args.defect,
+            family=args.family,
             blank_shape=args.blank_shape,
             blank_xy=requested_xy(args.blank_x, args.blank_y, layout.STATE_BLANK),
             blank_yaw_deg=args.blank_yaw_deg,
@@ -338,11 +339,12 @@ def demo(args: argparse.Namespace, hook: arms.StepHook | None = None,
             print(f"  {message}")
     scene.apply_nominal(model, data, metadata["placements"])
     scene.settle(model, data, steps)
-    return run_demo(model, data, args, hook=hook, shots=shots)
+    return run_demo(model, data, args, str(metadata["part"]["family"]), hook=hook, shots=shots)
 
 
 def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespace,
-             hook: arms.StepHook | None = None, shots: Path | None = None) -> int:
+             family: str | None = None, hook: arms.StepHook | None = None,
+             shots: Path | None = None) -> int:
     """Ciclul de lucru al brațelor: fiecare braț își parcurge punctele, în ordinea din plan.
 
     Este singura parte a verificării care se vede: brațele pornesc din poziția nominală spre
@@ -350,7 +352,8 @@ def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespac
     pe punct și ridicarea înapoi. La fiecare oprire se tipăresc eroarea rămasă, cea mai mare eroare
     de pe drum, câți pași a durat și contactele, iar o verigă a brațului care atinge celula este
     eșec. Atingerea falcilor este raportată fără să fie eșec: falcile sunt scula, iar acolo — pe
-    piesă, pe bandă, în universal — chiar au ce căuta.
+    piesă, pe bandă, pe raft — chiar au ce căuta. ``family`` este familia pieselor din scenă: ea
+    alege compartimentul în care brațul 2 lasă piesa, deci toate cele cinci se pot proba.
     """
     parts = cell.part_bodies(model)
     arrived = bring_parts_to_pickup(model, data, parts)
@@ -358,7 +361,7 @@ def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespac
     frames = Frames(model) if shots is not None else None
     failures: list[str] = []
 
-    print("Ciclul brațelor: fiecare punct de lucru, atins de sus")
+    print(f"Ciclul brațelor: fiecare punct de lucru, atins de sus; familia {family}")
     for body, x in sorted(arrived.items()):
         print(f"  piesa {body:<12} la x = {x:.3f} m, pe linia de preluare")
     for arm in arms.ARMS:
@@ -369,7 +372,7 @@ def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespac
     for arm in arms.ARMS:
         label = layout.arm(arm)["label"]
         print(f"{label} ({arm}), rază {layout.ARM_REACH_M:.3f} m")
-        for item in moves.route(arm, tool[arm]):
+        for item in moves.route(arm, tool[arm], family):
             for stage, point in moves.stages(item):
                 report = arms.reach_point(model, data, arm, point, item.approach,
                                           item.spin_deg, settle=args.demo_settle, hook=hook)
@@ -463,7 +466,7 @@ def view(args: argparse.Namespace) -> int:
                         time.sleep(delay)
                 viewer.sync()
 
-            return run_demo(model, data, args, hook=hook)
+            return run_demo(model, data, args, str(metadata["part"]["family"]), hook=hook)
         while viewer.is_running():
             if args.belts:
                 cell.apply_belt_forces(model, data)
@@ -514,6 +517,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=part.DEFAULT_SEED,
                        help="sămânța piesei și a așezării ei")
     parser.add_argument("--defect", default=None, help="clasa de defect a piesei mașinate")
+    parser.add_argument("--family", default=None, choices=part.family_names(),
+                        help="familia de piese: alege piesa mașinată, blocul brut, "
+                             "compartimentul din raft și cota de lucru "
+                             f"(implicit {part.family().name})")
     parser.add_argument("--blank-shape", choices=part.BLANK_SHAPES, default=part.BLANK_SHAPES[0],
                        help="forma blocului brut (implicit disc, ca semifabricatul de strunjit)")
     parser.add_argument("--blank-x", type=float, default=None,
@@ -535,9 +542,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-z", type=float, default=None,
                        help="cota vârfului piedestalului brațelor, pentru măsurători: "
                             f"implicit cea din document, {layout.documented_height('arm_base'):.2f} "
-                            "m. La 0,55 m brațele nu ajung în cutii (pereții lor urcă la "
-                            "nivelul benzii), iar la 0,95 m ciclul se încheie, dar anvelopa "
-                            "brațelor cuprinde capul camerei de inspecție")
+                            "m. La 0,55 m brațul 2 nu poate trece cu antebrațul peste banda 2 ca "
+                            "să ridice piesa (`arm2_link3↔belt_out`, 106 mm eroare), iar la "
+                            "0,95 m ciclul se încheie, dar camera fixă cade în anvelopa brațelor")
     parser.add_argument("--belts", action=argparse.BooleanOptionalAction, default=True,
                        help="în viewer, benzile sunt pornite (implicit); `--no-belts` le oprește, "
                             "ca scena să stea pe loc")

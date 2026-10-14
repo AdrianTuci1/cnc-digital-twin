@@ -74,9 +74,11 @@ simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py \
 `--check` iese cu cod 1 dacă vreo verificare cade, ca să poată fi folosit ca poartă, iar `--demo`
 iese cu cod 1 dacă vreo oprire a ciclului nu ajunge la punct ori dacă o verigă a brațului atinge
 celula. Restul opțiunilor: `--steps`, `--samples` (configurații de braț eșantionate la degajarea
-camerei), `--seed`, `--defect`, `--blank-shape`, `--blank-x`/`--blank-y`, `--blank-yaw-deg`,
-`--part-yaw-deg`, `--part-x`/`--part-y`, `--camera-z`, `--base-z` (cota piedestalului brațelor,
-pentru măsurători), `--demo-settle` (câți pași se așteaptă la fiecare oprire), `--shots [DIR]`,
+camerei), `--seed`, `--defect`, `--family` (familia de piese: alege piesa, blocul brut,
+compartimentul din raft și cota de lucru), `--blank-shape`, `--blank-x`/`--blank-y`,
+`--blank-yaw-deg`, `--part-yaw-deg`, `--part-x`/`--part-y`, `--camera-z`, `--base-z` (cota
+piedestalului brațelor, pentru măsurători), `--demo-settle` (câți pași se așteaptă la fiecare
+oprire), `--shots [DIR]`,
 `--width`, `--height`, iar pentru viewer `--belts`/`--no-belts` și `--speed`. La pozițiile cerute
 explicit, cota care lipsește rămâne cea din plan: `--blank-x 0.6` mută piesa pe banda 1, fără să
 ceară și `--blank-y`.
@@ -121,15 +123,16 @@ scrie propriile poziții nominale, fiindcă ale modelului copil se importă și 
 
 ## Ce verifică `--check`
 
-Cifrele de referință, la sămânța implicită 7: `nq/nv/nu = 32/30/16`, 33 de corpuri, 207 geome, zero
+Cifrele de referință, la sămânța implicită 7: `nq/nv/nu = 32/30/16`, 33 de corpuri, 214 geome, zero
 avertismente MuJoCo. Piesele se așază pe benzi cu 0,1 mm derivă, iar yaw-ul cerut se citește înapoi
 din scenă (comparat pe cerc, deci 348,5° și −11,5° sunt același unghi).
 
 Țintele de prindere, măsurate **în spațiu** de la baza brațului, față de raza de 0,855 m din plan:
 brațul 1 ajunge la 0,758 m (preluare bandă 1), 0,760 m (mașină) și 0,776 m (așezare bandă 2);
-brațul 2 la 0,541 m (preluare bandă 2), 0,769 m (cutia de piese bune) și 0,789 m (cutia de rebut).
-Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md` spune explicit că o țintă poate părea
-la îndemână în desen și să fie prea sus — verificarea de aici este cea în spațiu.
+brațul 2 la 0,541 m (preluare bandă 2) și între 0,478 m (compartimentul 4) și 0,614 m
+(compartimentul 1) la raft. Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md` spune
+explicit că o țintă poate părea la îndemână în desen și să fie prea sus — verificarea de aici este
+cea în spațiu.
 
 Se mai verifică trei lucruri la camera de inspecție: degajarea față de ambele brațe (poziția
 nominală plus `--samples` configurații eșantionate, prag 0,02 m), încadrarea piesei — distanța,
@@ -142,7 +145,8 @@ niciun braț nu atinge un element al celulei la poziția nominală. Autocontacte
 `--demo` este partea care se vede: piesele sunt aduse întâi la liniile de preluare
 (`bring_parts_to_pickup`, cu benzile pornite), apoi fiecare braț își parcurge punctele, în ordinea
 din `moves.ROUTES` — brațul 1 ia blocul de pe banda 1, îl duce în universal și lasă roata pe banda
-2, iar brațul 2 preia roata și o așază în cutia verdictului. La fiecare oprire se tipăresc eroarea
+2, iar brațul 2 preia roata și o așază în compartimentul familiei ei, pe raft (`--family` alege
+familia, deci și compartimentul). La fiecare oprire se tipăresc eroarea
 rămasă (poziție și rotire a sculei), cea mai mare abatere de pe drum, câți pași a durat, contactele
 și, la sfârșit, unde au ajuns piesele. Iese cu cod 1 dacă o oprire nu ajunge la punct ori dacă o
 **verigă** a brațului atinge celula; atingerea falcilor se tipărește fără să fie eșec, fiindcă
@@ -171,13 +175,18 @@ Două lecții de drum, amândouă măsurate:
    traiectorie, deci intră în carcasă. Măsurat: fără punctul de trecere scula rămânea cu 880 mm de
    țintă și mâna pe mașină, cu el eroarea maximă a ciclului este 17,7 mm.
 
-La cota documentată a piedestalului, 0,55 m, ciclul **cade**: pereții cutiilor urcă până la nivelul
-benzii, iar antebrațul trece prin ei (`arm2_link3↔belt_out`, 106 mm eroare la preluarea de pe banda
-2, 41 mm la `bin_ok`). La 0,95 m trece: 17,7 mm eroare maximă, nicio verigă atinsă, 53,9 s
-simulate. Cota asta ridică însă brațele peste anvelopa camerei de inspecție, deci `make mj-check`
-cade, iar cele două cerințe nu pot coexista — alegerea este scrisă în `docs/11-geaman-mujoco.md`
-§2 și §10. De aceea `make mj-demo` rulează implicit la 0,95 m, ca măsurătoare, iar
-`make mj-demo MJ_BASE_Z=0.55` arată rularea care cade.
+La cota documentată a piedestalului, 0,55 m, ciclul **cade**: ca să ridice piesa de pe banda 2,
+brațul 2 trebuie să treacă cu antebrațul peste platformă, iar acolo platforma este deasupra lui
+(`arm2_link3↔belt_out`, 106 mm eroare la punctul de deasupra). La 0,95 m trece: 17,7 mm eroare
+maximă, nicio verigă atinsă, 56,8 s simulate. Cota asta ridică însă brațele peste anvelopa camerei
+fixe, deci `make mj-check` cade la 0,95 m, iar cele două cerințe nu pot coexista — alegerea este
+scrisă în `docs/11-geaman-mujoco.md` §2 și §10. De aceea `make mj-demo` rulează implicit la
+0,95 m, ca măsurătoare, iar `make mj-demo MJ_BASE_Z=0.55` arată rularea care cade.
+
+Raftul, pe rând: la 0,95 m, toate cele cinci compartimente se ating cu eroare sub 6 mm (`--family`
+alege familia), iar la 0,55 m, cota documentată, aceleași compartimente se ating cu 1,2–5,5 mm. Deci
+mutarea cutiilor în raft a scos exact piedica pe care o puneau cutiile adânci; ce a rămas la 0,55 m
+este banda 2 în sine, nu sortarea.
 
 **Ce lipsește: prinderea.** Mâna Panda se deschide 83 mm, blocul brut are 104 mm și universalul
 110 mm, deci falcile nu pot cuprinde piesa — de aceea o ating razant pe toată cursa. Celula reală
@@ -277,6 +286,24 @@ rezultatul mașinării, nu piesa de intrare. Poziția și rotația fiecăreia su
 prindere să rămână în raza brațului. Yaw-ul se citește înapoi din scenă, fiindcă este eticheta care
 va însoți cadrul de inspecție.
 
+## Raftul pe familii
+
+Cutiile de piese bune și de rebut au fost înlocuite cu un **raft cu cinci compartimente**, câte
+unul pentru fiecare familie de piese din generator (`docs/10-dataset-piese.md`), plus o **ladă de
+rebut** sub capătul de vest al benzii 2. Motivul nu este estetic: cutiile aveau pereți până la
+nivelul benzii, iar antebrațul brațului 2 trecea prin ei. Raftul are blatul la 0,85 m, despărțitoare
+de 50 mm și buze scurte la capete, iar buzunarele se deschid spre braț, deci piesa se lasă de sus.
+
+Ordinea compartimentelor, de la vest la est, este ordinea familiilor din generator —
+`wheel_100`, `flange_72`, `bushing_68`, `wheel_60`, `pinion_56` — și un test o verifică, ca planul,
+scena și clasificatorul să nu se despartă. Lățimea unui compartiment este 144 mm, deci cea mai mare
+piesă (Ø104) are circa 20 mm joc de fiecare parte. Codurile citite de pe raft sunt amânate
+deliberat (`docs/10-dataset-piese.md`).
+
+Lada de rebut are marginea la 0,62 m, sub nivelul benzii, și **fără perete la est**, chiar sub
+capătul de vest al benzii: piesa neconformă nu are punct de lucru, rămâne pe bandă până la capătul
+ei și cade în ladă. Un perete chiar acolo ar prinde-o și ar ține-o afară.
+
 ## Stare cunoscută
 
 La sămânța 7, `view.py --check` este **verde**: scena se compilează fără avertismente, țintele cad
@@ -284,11 +311,11 @@ La sămânța 7, `view.py --check` este **verde**: scena se compilează fără a
 0,052 m de brațe pe configurațiile eșantionate. Transportul pe benzi merge: amândouă piesele ajung
 la linia de oprire a benzii și se opresc 13 mm peste ea, fără să cadă din geometrie.
 
-`view.py --demo` este **verde la 0,95 m** (`make mj-demo`): 17,7 mm eroare maximă pe cele 15
-opriri, nicio verigă a brațelor atinsă, 53,9 s simulate, iar amândouă piesele rămân pe benzile lor.
-La 0,55 m, cota documentată, ciclul **cade** cu 5 constatări, fiindcă antebrațul nu intră în cutii,
-ale căror pereți urcă până la nivelul benzii (`make mj-demo MJ_BASE_Z=0.55`). Cifrele ciclului și
-calea lui sunt în secțiunea „Brațele" de mai sus.
+`view.py --demo` este **verde la 0,95 m** (`make mj-demo`): 17,7 mm eroare maximă pe cele 16
+opriri, nicio verigă a brațelor atinsă, 56,8 s simulate, iar amândouă piesele rămân pe benzile lor.
+La 0,55 m, cota documentată, ciclul **cade** cu 4 constatări, toate la preluarea de pe banda 2:
+antebrațul brațului 2 nu are loc peste platformă (`make mj-demo MJ_BASE_Z=0.55`). Cifrele ciclului
+și calea lui sunt în secțiunea „Brațele" de mai sus.
 
 Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
 
@@ -298,9 +325,10 @@ Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
 2. **Stările mașinii CNC și `run.py`.** `IDLE`/`LOADING`/`CUTTING`/`UNLOADING`/`INSPECTING`, sesiunea
    cu durată, sămânță, scenariu și ieșire nu sunt scrise, deci criteriul „o sesiune de 10 minute
    simulează un ciclu complet" nu se poate dovedi încă.
-3. **Decizia asupra cotei piedestalului** (0,55 m cu cutiile mutate, ori 0,95 m cu camera de
-   inspecție mutată), care blochează legarea uzurii de fizică: poziția camerei este și ea o mărime
-   din telemetrie. Vezi `docs/11-geaman-mujoco.md` §2 și §10.
+3. **Decizia asupra cotei piedestalului** (0,55 m, unde antebrațul brațului 2 nu are loc peste
+   banda 2, ori 0,95 m, unde camera fixă cade în anvelopa brațelor), care blochează legarea uzurii
+   de fizică: poziția camerei este și ea o mărime din telemetrie. Vezi `docs/11-geaman-mujoco.md`
+   §2 și §10.
 4. **Mișcarea laterală a pieselor pe bandă nu e măsurată la impact.** Într-o cursă lungă, o piesă
    poate aluneca spre șină; de verificat când intră brațele, fiindcă de acolo vine poziția de
    prindere.

@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from cncdt.cnc_cell.parts import gear
 from cncdt_mj import REPO_ROOT, belt, checks, layout, moves, part
 
 MUJOCO_DIR = REPO_ROOT / "simulation" / "mujoco"
@@ -247,6 +248,78 @@ def test_fiecare_tinta_cade_in_raza_bratului() -> None:
         name = str(item["name"])
         assert layout.reach_ok(name), (
             f"{name}: {layout.target_distance(name):.3f} m peste raza {layout.ARM_REACH_M} m")
+
+
+# ---------------------------------------------------------------- raftul pe familii
+
+
+def test_ordinea_compartimentelor_este_ordinea_familiilor() -> None:
+    """Planul, generatorul și scena folosesc aceeași ordine a familiilor."""
+    assert layout.RACK_FAMILIES == tuple(item.name for item in gear.FAMILIES)
+    for index, family in enumerate(gear.FAMILIES):
+        name = layout.rack_target(family.name)
+        item = layout.target(name)
+        assert item["key"] == "arm2", f"{name} nu aparține brațului care sortează"
+        assert layout.target_z(name) == pytest.approx(layout.RACK_SHELF_Z)
+        # Compartimentele se înșiră de la vest la est, în ordinea din plan.
+        if index:
+            assert float(item["x"]) > float(layout.target(layout.rack_target(
+                gear.FAMILIES[index - 1].name))["x"])
+    with pytest.raises(KeyError):
+        layout.rack_target("familie_inexistenta")
+
+
+def test_raftul_sta_la_nivelul_benzii_cu_despartitoare_scurte() -> None:
+    """Blatul la nivelul benzii, despărțitoarele cât un buzunar, picioarele până la pardoseală."""
+    geometry = layout.rack_geometry()
+    assert geometry["rack_slab_z"] + geometry["rack_slab_hz"] == pytest.approx(
+        layout.RACK_SHELF_Z)
+    assert layout.RACK_SHELF_Z == pytest.approx(layout.BELT_SURFACE_Z)
+    # Despărțitoarele ies din blat doar cât să țină piesa; nu ajung la înălțimea la care
+    # antebrațul brațului ar intra în ele, deci nu repetă problema cutiilor adânci.
+    divider_top = geometry["rack_div_z"] + geometry["rack_div_hz"]
+    assert divider_top - layout.RACK_SHELF_Z == pytest.approx(0.05)
+    # Picioarele coboară exact la pardoseală și se opresc sub blat.
+    assert geometry["rack_leg_dz"] - geometry["rack_leg_hz"] == pytest.approx(0.0)
+    assert geometry["rack_leg_dz"] + geometry["rack_leg_hz"] == pytest.approx(
+        geometry["rack_slab_z"] - geometry["rack_slab_hz"])
+
+
+def test_fiecare_compartiment_incape_cea_mai_mare_piesa() -> None:
+    """Lățimea unui compartiment, din plan, cu joc față de cea mai mare piesă a generatorului."""
+    geometry = layout.rack_geometry()
+    width = 2 * geometry["rack_hx"] / int(layout.RACK["compartments"])
+    for item in gear.FAMILIES:
+        diameter = 2 * item.nominal.outer_radius * part.MESH_SCALE
+        assert width - diameter > 0.02, (
+            f"{item.name}: Ø{diameter * 1000:.0f} mm într-un compartiment de "
+            f"{width * 1000:.0f} mm")
+
+
+def test_sablonul_are_un_despartitor_mai_mult_decat_compartimentele() -> None:
+    """Numărul despărțitoarelor din scenă iese din numărul compartimentelor din plan."""
+    template = _read(MUJOCO_DIR / "scene" / "cell.xml")
+    indices = re.findall(r'name="rack_divider_(\d+)"', template)
+    geometry = layout.scene_geometry()
+    assert len(indices) == int(layout.RACK["compartments"]) + 1
+    for index in indices:
+        assert f"rack_div_dx_{index}" in geometry
+        assert f"neg_rack_div_dx_{index}" not in geometry, "o despărțitoare nu are simetrică"
+
+
+def test_lada_de_rebut_sta_sub_capatul_de_vest_al_benzii_2() -> None:
+    """Lada e la capătul benzii, lată cât ea, cu marginea sub nivelul benzii."""
+    geometry = layout.scrap_bin_geometry()
+    rim = geometry["scrap_bin_wall_z"] + geometry["scrap_bin_wall_hz"]
+    assert rim == pytest.approx(layout.SCRAP_BIN_RIM_Z)
+    assert layout.SCRAP_BIN_RIM_Z < layout.BELT_SURFACE_Z - 0.2, (
+        "marginea lăzii prea aproape de bandă: piesa s-ar sprijini pe perete")
+    belt_x0, _, belt_y0, belt_y1 = layout.belt_bounds(layout.BELT_OUT)
+    east = geometry["scrap_bin_cx"] + geometry["scrap_bin_hx"]
+    assert 0.0 < belt_x0 - east < 0.1, (
+        "gura lăzii trebuie să fie chiar sub capătul de vest al benzii")
+    assert geometry["scrap_bin_cy"] - geometry["scrap_bin_hy"] <= belt_y0
+    assert geometry["scrap_bin_cy"] + geometry["scrap_bin_hy"] >= belt_y1
 
 
 # ---------------------------------------------------------------- benzile

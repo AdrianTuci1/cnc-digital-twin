@@ -7,7 +7,7 @@ planul și scena nu se pot contrazice. Înălțimile ``Z`` vin din `docs/11-geam
 aparțin; testul din `tests/unit/test_mujoco_scene.py` verifică exact potrivirea.
 
 Modulul nu importă MuJoCo (ADR 0012), deci se poate testa în `.venv`-ul proiectului. Tot ce ține
-de geometria sculei — cât de groasă e platforma benzii, cât de groasă e perechea cutiei — se
+de geometria sculei — cât de groasă e platforma benzii, cât de subțire e blatul raftului — se
 calculează tot aici, ca `scene/cell.xml` să nu conțină niciun număr care vine din plan.
 """
 
@@ -34,12 +34,18 @@ CELL_DEPTH_M = float(cell_layout.CELL_H)
 BELT_IN: Mapping[str, Any] = cell_layout.BELT_IN
 BELT_OUT: Mapping[str, Any] = cell_layout.BELT_OUT
 MACHINE: Mapping[str, Any] = cell_layout.CNC
-BIN_ACCEPTED: Mapping[str, Any] = cell_layout.BIN_OK
-BIN_TRASH: Mapping[str, Any] = cell_layout.BIN_NG
+RACK: Mapping[str, Any] = cell_layout.RACK
+SCRAP_BIN: Mapping[str, Any] = cell_layout.SCRAP_BIN
 ARMS: tuple[Mapping[str, Any], ...] = tuple(cell_layout.ARMS)
 CAMERAS: tuple[Mapping[str, Any], ...] = tuple(cell_layout.CAMERAS)
 TARGETS: tuple[Mapping[str, Any], ...] = tuple(cell_layout.TARGETS)
 FLOW: tuple[tuple[float, float], ...] = tuple(cell_layout.FLOW)
+
+#: Compartimentul fiecărei familii: numele familiei de piese -> numele țintei de prindere.
+RACK_TARGETS: Mapping[str, str] = dict(cell_layout.RACK_TARGETS)
+
+#: Familiile, în ordinea compartimentelor din plan, de la vest la est.
+RACK_FAMILIES: tuple[str, ...] = tuple(cell_layout.RACK_FAMILIES)
 
 #: Raza de atingere a brațului, în plan, din tabelul de coordonate.
 ARM_REACH_M = float(ARMS[0]["reach"])
@@ -63,15 +69,21 @@ BELT_SURFACE_Z = 0.85
 MACHINE_TABLE_Z = 0.75
 #: Capacul de protecție: `docs/11-geaman-mujoco.md` §2.
 MACHINE_COVER_Z = 1.90
-#: Marginea de sus a cutiilor: `docs/11-geaman-mujoco.md` §2. Stă la nivelul suprafeței benzii,
-#: ca piesa să treacă din bandă în cutie fără să urce. Cota este și limita de atingere a
-#: brațului 2 — vârful se ridică peste baza lui (0,55 m) —, deci punctele de așezare din cutii
-#: stau lipite de pereții de sud și de est (`docs/diagrams/cell_layout.py`).
-BIN_RIM_Z = BELT_SURFACE_Z
+#: Podeaua raftului, adică suprafața pe care stau piesele din compartimente:
+#: `docs/11-geaman-mujoco.md` §2. Stă la nivelul suprafeței benzii, ca piesa să treacă din bandă
+#: pe raft fără să urce ori să coboare, iar brațul să coboare pe ea la fel ca pe bandă. De aici
+#: vine și câștigul față de cutii: un raft deschis, cu despărțitoare scurte, nu are pereți de
+#: 0,85 m în care să intre antebrațul.
+RACK_SHELF_Z = BELT_SURFACE_Z
+#: Marginea lăzii de rebut, sub capătul de vest al benzii 2: `docs/11-geaman-mujoco.md` §2. Cota
+#: stă sub nivelul benzii, ca piesa care cade de la capătul benzii să treacă peste margine.
+SCRAP_BIN_RIM_Z = 0.62
 #: Baza brațelor, pe piedestal: `docs/11-geaman-mujoco.md` §2. Cota este cea din document, iar
-#: `view.py --base-z` o ridică pentru măsurători: la 0,55 m brațele nu ajung în cutii, fiindcă
-#: pereții lor urcă până la 0,85 m (nivelul benzii), iar la 0,95 m ciclul se încheie, dar anvelopa
-#: brațelor cuprinde capul camerei de inspecție. Amândouă măsurătorile sunt în `README.md`.
+#: `view.py --base-z` o ridică pentru măsurători. La 0,55 m brațele nu ajungeau în cutiile adânci
+#: de dinainte, fiindcă pereții lor urcau până la 0,85 m (nivelul benzii), iar la 0,95 m ciclul se
+#: încheia, dar anvelopa brațelor cuprindea capul camerei de inspecție. Raftul deschis mută
+#: problema: nu mai are pereți înalți, deci cota se remăsoară cu `make mj-demo`, iar cifrele
+#: rămase din măsurătoarea veche sunt în `README.md`.
 ARM_BASE_Z = 0.55
 #: Înălțimea documentată a camerelor, orientate în jos: `docs/11-geaman-mujoco.md` §2.
 #: Camera de inspecție a calității este singura excepție, deliberată: vezi mai jos
@@ -115,8 +127,8 @@ DOCUMENTED_HEIGHTS: tuple[DocumentedHeight, ...] = (
     DocumentedHeight("belt_surface", BELT_SURFACE_Z, "benz", "suprafețele de lucru ale benzilor"),
     DocumentedHeight("machine_table", MACHINE_TABLE_Z, "mașin", "masa mașinii"),
     DocumentedHeight("machine_cover", MACHINE_COVER_Z, "capac", "capacul de protecție"),
-    DocumentedHeight("bin_rim", BIN_RIM_Z, "marginea",
-                     "cutiile pe podea, cu marginea la nivelul suprafeței benzii 2"),
+    DocumentedHeight("rack_shelf", RACK_SHELF_Z, "raft", "podeaua raftului pe familii"),
+    DocumentedHeight("scrap_bin_rim", SCRAP_BIN_RIM_Z, "lăz", "marginea lăzii de rebut"),
     DocumentedHeight("arm_base", ARM_BASE_Z, "piedestal", "baza brațelor pe piedestal"),
     DocumentedHeight("camera", CAMERA_Z, "camer", "camerele"),
 )
@@ -150,8 +162,20 @@ MACHINE_ROOF_HALF_Z = 0.025
 MACHINE_CHUCK_RADIUS = 0.055
 MACHINE_CHUCK_HALF_Z = 0.04
 
-BIN_WALL_HALF_THICKNESS = 0.01
-BIN_FLOOR_HALF_Z = 0.01
+#: Raftul pe familii: un blat subțire, despărțitoare scurte și patru picioare. Numărul
+#: despărțitoarelor iese din plan (unul mai mult decât compartimentele), iar blatul stă la
+#: :data:`RACK_SHELF_Z`. Buzunarele se deschid spre nord, adică spre brațul 2, deci raftul nu are
+#: pereți decât scurți, cât să prindă piesa la așezare.
+RACK_SLAB_HALF_Z = 0.015
+RACK_DIVIDER_HALF_XY = 0.005
+RACK_DIVIDER_HALF_Z = 0.025
+RACK_LIP_HALF_Y = 0.005
+RACK_LEG_HALF_XY = 0.02
+RACK_LEG_INSET = 0.05
+
+#: Lada de rebut: podea și trei pereți, cu latura de est deschisă, sub capătul de vest al benzii 2.
+SCRAP_BIN_WALL_HALF_THICKNESS = 0.01
+SCRAP_BIN_FLOOR_HALF_Z = 0.025
 
 #: Baza brațului are „0,25 Ø" în tabelul de coordonate (`cell_layout.py:386`).
 ARM_PEDESTAL_RADIUS = 0.125
@@ -212,19 +236,32 @@ def targets_of(key: str) -> tuple[Mapping[str, Any], ...]:
     return tuple(item for item in TARGETS if item["key"] == key)
 
 
+def rack_target(family: str) -> str:
+    """Numele țintei de prindere a compartimentului familiei date.
+
+    Compartimentul fiecărei familii este o țintă ca oricare alta, fiindcă acolo ajunge piesa:
+    planul le desenează, iar brațul 2 le deservește pe toate cinci.
+    """
+    try:
+        return RACK_TARGETS[family]
+    except KeyError:
+        raise KeyError(f"familie fără compartiment în raft: {family}") from None
+
+
 def target_z(name: str) -> float:
     """Cota punctului de prindere, din înălțimile documentate.
 
     Planul dă doar desenul de sus, deci cota fiecărei ținte o fixează scena: benzile se prind de
-    pe suprafața lor de lucru, cutiile la marginea de sus (`docs/11-geaman-mujoco.md` §2), iar
-    dispozitivul mașinii la înălțimea universalului, pe masa mașinii.
+    pe suprafața lor de lucru, compartimentele raftului de pe podeaua lui
+    (`docs/11-geaman-mujoco.md` §2), iar dispozitivul mașinii la înălțimea universalului, pe masa
+    mașinii.
     """
     if name in ("belt1_pick", "belt2_drop", "belt2_pick"):
         return BELT_SURFACE_Z
     if name == "cnc_chuck":
         return MACHINE_TABLE_Z + MACHINE_CHUCK_HALF_Z
-    if name in ("bin_ok", "bin_ng"):
-        return BIN_RIM_Z
+    if name in RACK_TARGETS.values():
+        return RACK_SHELF_Z
     raise KeyError(f"țintă fără cotă cunoscută: {name}")
 
 
@@ -247,11 +284,6 @@ def target_distance(name: str) -> float:
 def reach_ok(name: str) -> bool:
     """Dacă ținta cade în sfera de atingere a brațului, măsurată în spațiu."""
     return target_distance(name) <= ARM_REACH_M
-
-
-def bin_items() -> tuple[tuple[str, Mapping[str, Any]], ...]:
-    """Cutiile, cu cheile lor de scenă."""
-    return (("bin_ok", BIN_ACCEPTED), ("bin_ng", BIN_TRASH))
 
 
 class PartPlacement(NamedTuple):
@@ -378,25 +410,69 @@ def machine_geometry() -> dict[str, float]:
     }
 
 
-def bin_geometry(key: str, item: Mapping[str, Any]) -> dict[str, float]:
-    """O cutie deschisă, cu marginea sus la :data:`BIN_RIM_Z`."""
-    cx, cy = center(item)
-    hx, hy = float(item["w"]) / 2, float(item["h"]) / 2
-    wall_hz = (BIN_RIM_Z - 2 * BIN_FLOOR_HALF_Z) / 2
+def rack_geometry() -> dict[str, float]:
+    """Raftul pe familii: blatul, despărțitoarele, buzele de la capete și picioarele.
+
+    Despărțitoarele ies din plan: ``compartments + 1`` muchii, una la fiecare margine de
+    compartiment, fiindcă numărul compartimentelor stă într-un singur loc, în plan. Blatul are
+    fața de sus la :data:`RACK_SHELF_Z`, iar buzele de la capete sunt scurte, cât să țină piesa
+    pe blat fără să stea în calea falcilor.
+    """
+    cx, cy = center(RACK)
+    hx, hy = float(RACK["w"]) / 2, float(RACK["h"]) / 2
+    slab_hz = RACK_SLAB_HALF_Z
+    slab_z = RACK_SHELF_Z - slab_hz
+    leg_top = slab_z - slab_hz
+    leg_hz = leg_top / 2
+    values: dict[str, float] = {
+        "rack_cx": cx,
+        "rack_cy": cy,
+        "rack_hx": hx,
+        "rack_hy": hy,
+        "rack_slab_hz": slab_hz,
+        "rack_slab_z": slab_z,
+        "rack_div_hxy": RACK_DIVIDER_HALF_XY,
+        "rack_div_hz": RACK_DIVIDER_HALF_Z,
+        "rack_div_z": RACK_SHELF_Z + RACK_DIVIDER_HALF_Z,
+        "rack_lip_hy": RACK_LIP_HALF_Y,
+        "rack_lip_dy": hy - RACK_LIP_HALF_Y,
+        "rack_leg_hxy": RACK_LEG_HALF_XY,
+        "rack_leg_hz": leg_hz,
+        "rack_leg_dz": leg_hz,
+        "rack_leg_dx": hx - RACK_LEG_INSET,
+        "rack_leg_dy": hy - RACK_LEG_INSET,
+    }
+    compartments = int(RACK["compartments"])
+    for index in range(compartments + 1):
+        values[f"rack_div_dx_{index}"] = -hx + 2 * hx * index / compartments
+    return values
+
+
+def scrap_bin_geometry() -> dict[str, float]:
+    """Lada de rebut: podea și trei pereți, cu marginea sus la :data:`SCRAP_BIN_RIM_Z`.
+
+    Latura de est rămâne deschisă: piesa cade de la capătul de vest al benzii 2, iar un perete
+    chiar sub capătul benzii ar prinde-o și ar ține-o afară din ladă.
+    """
+    cx, cy = center(SCRAP_BIN)
+    hx, hy = float(SCRAP_BIN["w"]) / 2, float(SCRAP_BIN["h"]) / 2
+    half_thickness = SCRAP_BIN_WALL_HALF_THICKNESS
+    floor_hz = SCRAP_BIN_FLOOR_HALF_Z
+    wall_hz = (SCRAP_BIN_RIM_Z - 2 * floor_hz) / 2
     return {
-        f"{key}_cx": cx,
-        f"{key}_cy": cy,
-        f"{key}_hx": hx,
-        f"{key}_hy": hy,
-        f"{key}_wall_dx": hx - BIN_WALL_HALF_THICKNESS,
-        f"{key}_wall_dy": hy - BIN_WALL_HALF_THICKNESS,
-        f"{key}_wall_hy_long": hy - 2 * BIN_WALL_HALF_THICKNESS,
-        f"{key}_wall_hx_long": hx - 2 * BIN_WALL_HALF_THICKNESS,
-        "bin_floor_hz": BIN_FLOOR_HALF_Z,
-        "bin_floor_z": BIN_FLOOR_HALF_Z,
-        "bin_wall_hxy": BIN_WALL_HALF_THICKNESS,
-        "bin_wall_hz": wall_hz,
-        "bin_wall_z": 2 * BIN_FLOOR_HALF_Z + wall_hz,
+        "scrap_bin_cx": cx,
+        "scrap_bin_cy": cy,
+        "scrap_bin_hx": hx,
+        "scrap_bin_hy": hy,
+        "scrap_bin_wall_dx": hx - half_thickness,
+        "scrap_bin_wall_dy": hy - half_thickness,
+        "scrap_bin_wall_hy_long": hy - 2 * half_thickness,
+        "scrap_bin_wall_hx_long": hx - 2 * half_thickness,
+        "scrap_bin_floor_hz": floor_hz,
+        "scrap_bin_floor_z": floor_hz,
+        "scrap_bin_wall_hxy": half_thickness,
+        "scrap_bin_wall_hz": wall_hz,
+        "scrap_bin_wall_z": 2 * floor_hz + wall_hz,
     }
 
 
@@ -519,8 +595,8 @@ def scene_geometry(camera_z: float | None = None) -> dict[str, float]:
     values.update(belt_geometry("belt_in", BELT_IN))
     values.update(belt_geometry("belt_out", BELT_OUT))
     values.update(machine_geometry())
-    for key, item in bin_items():
-        values.update(bin_geometry(key, item))
+    values.update(rack_geometry())
+    values.update(scrap_bin_geometry())
     values.update(camera_geometry(camera_z))
     for item in ARMS:
         values.update(arm_geometry(item["key"]))

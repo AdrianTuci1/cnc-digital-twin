@@ -36,8 +36,8 @@
     <material name="table_mat" rgba="0.42 0.47 0.53 1"/>
     <material name="chuck_mat" rgba="0.30 0.33 0.37 1"/>
     <material name="cover_mat" rgba="0.72 0.80 0.88 0.35"/>
-    <material name="bin_ok_mat" rgba="0.36 0.62 0.33 1"/>
-    <material name="bin_ng_mat" rgba="0.70 0.28 0.28 1"/>
+    <material name="rack_mat" rgba="0.42 0.66 0.38 1"/>
+    <material name="scrap_mat" rgba="0.70 0.28 0.28 1"/>
     <material name="camera_mat" rgba="0.45 0.25 0.62 1"/>
     <material name="marker_mat" rgba="0.85 0.78 0.35 1"/>
     <!-- Blocul brut și piesa mașinată ies în metal deschis: contrast pe banda închisă, ca piesa să
@@ -133,32 +133,56 @@
             pos="0 0 {cnc_roof_z}" material="cover_mat"/>
     </body>
 
-    <!-- Cutiile stau pe podea, lipite de latura nordică a benzii 2, adică dincolo de bandă față de
-         brațul 2. Marginea de sus la 0,35 m. -->
-    <body name="bin_ok" pos="{bin_ok_cx} {bin_ok_cy} 0">
-      <geom name="bin_ok_floor" type="box" size="{bin_ok_hx} {bin_ok_hy} {bin_floor_hz}"
-            pos="0 0 {bin_floor_z}" material="bin_ok_mat"/>
-      <geom name="bin_ok_wall_south" type="box" size="{bin_ok_wall_hx_long} {bin_wall_hxy} {bin_wall_hz}"
-            pos="0 {neg_bin_ok_wall_dy} {bin_wall_z}" material="bin_ok_mat"/>
-      <geom name="bin_ok_wall_north" type="box" size="{bin_ok_wall_hx_long} {bin_wall_hxy} {bin_wall_hz}"
-            pos="0 {bin_ok_wall_dy} {bin_wall_z}" material="bin_ok_mat"/>
-      <geom name="bin_ok_wall_west" type="box" size="{bin_wall_hxy} {bin_ok_wall_hy_long} {bin_wall_hz}"
-            pos="{neg_bin_ok_wall_dx} 0 {bin_wall_z}" material="bin_ok_mat"/>
-      <geom name="bin_ok_wall_east" type="box" size="{bin_wall_hxy} {bin_ok_wall_hy_long} {bin_wall_hz}"
-            pos="{bin_ok_wall_dx} 0 {bin_wall_z}" material="bin_ok_mat"/>
+    <!-- Raftul pe familii: un blat la nivelul suprafeței benzii (0,85 m), cu despărțitoare scurte
+         între compartimente și buze la capete, pe patru picioare. Are un compartiment pentru
+         fiecare familie de piese, în ordinea din plan (`docs/diagrams/cell_layout.py`), iar
+         numărul despărțitoarelor iese din numărul compartimentelor: una la fiecare margine.
+         Buzunarele se deschid spre nord, adică spre brațul 2, care lasă piesa de sus; de aceea nu
+         există pereți înalți în care să intre antebrațul. Cine așază o piesă o lasă pe blat. -->
+    <body name="rack" pos="{rack_cx} {rack_cy} 0">
+      <geom name="rack_slab" type="box" size="{rack_hx} {rack_hy} {rack_slab_hz}"
+            pos="0 0 {rack_slab_z}" material="rack_mat"/>
+      <geom name="rack_divider_0" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
+            pos="{rack_div_dx_0} 0 {rack_div_z}" material="rack_mat"/>
+      <geom name="rack_divider_1" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
+            pos="{rack_div_dx_1} 0 {rack_div_z}" material="rack_mat"/>
+      <geom name="rack_divider_2" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
+            pos="{rack_div_dx_2} 0 {rack_div_z}" material="rack_mat"/>
+      <geom name="rack_divider_3" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
+            pos="{rack_div_dx_3} 0 {rack_div_z}" material="rack_mat"/>
+      <geom name="rack_divider_4" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
+            pos="{rack_div_dx_4} 0 {rack_div_z}" material="rack_mat"/>
+      <geom name="rack_divider_5" type="box" size="{rack_div_hxy} {rack_hy} {rack_div_hz}"
+            pos="{rack_div_dx_5} 0 {rack_div_z}" material="rack_mat"/>
+      <geom name="rack_lip_north" type="box" size="{rack_hx} {rack_lip_hy} {rack_div_hz}"
+            pos="0 {rack_lip_dy} {rack_div_z}" material="rack_mat"/>
+      <geom name="rack_lip_south" type="box" size="{rack_hx} {rack_lip_hy} {rack_div_hz}"
+            pos="0 {neg_rack_lip_dy} {rack_div_z}" material="rack_mat"/>
+      <geom name="rack_leg_sw" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
+            pos="{neg_rack_leg_dx} {neg_rack_leg_dy} {rack_leg_dz}" material="frame_mat"/>
+      <geom name="rack_leg_se" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
+            pos="{rack_leg_dx} {neg_rack_leg_dy} {rack_leg_dz}" material="frame_mat"/>
+      <geom name="rack_leg_nw" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
+            pos="{neg_rack_leg_dx} {rack_leg_dy} {rack_leg_dz}" material="frame_mat"/>
+      <geom name="rack_leg_ne" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
+            pos="{rack_leg_dx} {rack_leg_dy} {rack_leg_dz}" material="frame_mat"/>
     </body>
 
-    <body name="bin_ng" pos="{bin_ng_cx} {bin_ng_cy} 0">
-      <geom name="bin_ng_floor" type="box" size="{bin_ng_hx} {bin_ng_hy} {bin_floor_hz}"
-            pos="0 0 {bin_floor_z}" material="bin_ng_mat"/>
-      <geom name="bin_ng_wall_south" type="box" size="{bin_ng_wall_hx_long} {bin_wall_hxy} {bin_wall_hz}"
-            pos="0 {neg_bin_ng_wall_dy} {bin_wall_z}" material="bin_ng_mat"/>
-      <geom name="bin_ng_wall_north" type="box" size="{bin_ng_wall_hx_long} {bin_wall_hxy} {bin_wall_hz}"
-            pos="0 {bin_ng_wall_dy} {bin_wall_z}" material="bin_ng_mat"/>
-      <geom name="bin_ng_wall_west" type="box" size="{bin_wall_hxy} {bin_ng_wall_hy_long} {bin_wall_hz}"
-            pos="{neg_bin_ng_wall_dx} 0 {bin_wall_z}" material="bin_ng_mat"/>
-      <geom name="bin_ng_wall_east" type="box" size="{bin_wall_hxy} {bin_ng_wall_hy_long} {bin_wall_hz}"
-            pos="{bin_ng_wall_dx} 0 {bin_wall_z}" material="bin_ng_mat"/>
+    <!-- Lada de rebut, sub capătul de vest al benzii 2: podea și trei pereți, cu latura de est
+         deschisă. Piesa neconformă rămâne pe bandă, trece de linia de oprire a brațului 2 și cade
+         de la capătul benzii în ladă; un perete chiar sub capătul benzii ar prinde-o. -->
+    <body name="scrap_bin" pos="{scrap_bin_cx} {scrap_bin_cy} 0">
+      <geom name="scrap_bin_floor" type="box" size="{scrap_bin_hx} {scrap_bin_hy} {scrap_bin_floor_hz}"
+            pos="0 0 {scrap_bin_floor_z}" material="scrap_mat"/>
+      <geom name="scrap_bin_wall_north" type="box"
+            size="{scrap_bin_wall_hx_long} {scrap_bin_wall_hxy} {scrap_bin_wall_hz}"
+            pos="0 {scrap_bin_wall_dy} {scrap_bin_wall_z}" material="scrap_mat"/>
+      <geom name="scrap_bin_wall_south" type="box"
+            size="{scrap_bin_wall_hx_long} {scrap_bin_wall_hxy} {scrap_bin_wall_hz}"
+            pos="0 {neg_scrap_bin_wall_dy} {scrap_bin_wall_z}" material="scrap_mat"/>
+      <geom name="scrap_bin_wall_west" type="box"
+            size="{scrap_bin_wall_hxy} {scrap_bin_wall_hy_long} {scrap_bin_wall_hz}"
+            pos="{neg_scrap_bin_wall_dx} 0 {scrap_bin_wall_z}" material="scrap_mat"/>
     </body>
 
     <!-- Camera de inspecție a calității: consola se prinde de colțul sud-vest al mașinii și se

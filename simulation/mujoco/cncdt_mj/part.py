@@ -32,7 +32,13 @@ EXTENSION_DIR = REPO_ROOT / "simulation" / "extensions" / "cncdt.cnc_cell"
 if str(EXTENSION_DIR) not in sys.path:
     sys.path.insert(0, str(EXTENSION_DIR))
 
-from cncdt.cnc_cell.parts.gear import GearParams, PartVariant, build_variant  # noqa: E402
+from cncdt.cnc_cell.parts.gear import (  # noqa: E402
+    FAMILIES,
+    GearParams,
+    PartVariant,
+    build_variant,
+    family_of,
+)
 
 #: Sămânța implicită a piesei din scenă: aceeași sămânță dă mereu aceeași roată.
 DEFAULT_SEED = 7
@@ -40,24 +46,18 @@ DEFAULT_SEED = 7
 #: Geometria generatorului este în milimetri; MuJoCo lucrează în metri.
 MESH_SCALE = 0.001
 
-#: Piesa nominală a generatorului, folosită doar ca referință de dimensionare a blocului brut.
+#: Piesa de referință a generatorului, folosită ca reper de dimensionare a blocului brut.
 NOMINAL_GEAR = GearParams()
 
-#: Blocul brut: un disc coerent cu roata generată, cu adaos de prelucrare. Semifabricatul are
-#: 52 mm rază și 18 mm grosime, adică exact cât se ia în CNC din roata de 50 mm x 15 mm.
-BLANK_RADIUS_MM = 52.0
-BLANK_THICKNESS_MM = 18.0
+#: Adaosul de prelucrare: cât este semifabricatul mai mare decât piesa care iese din el, pe rază
+#: și pe grosime. Se aplică familiei alese, nu unei singure piese: blocul brut al fiecărei
+#: familii are diametrul și grosimea piesei ei, plus adaosul de aici.
+ALLOWANCE_RADIUS_MM = 2.0
+ALLOWANCE_THICKNESS_MM = 3.0
 
-#: Adaosul de prelucrare, derivat din cele două dimensiuni de mai sus.
-ALLOWANCE_RADIUS_MM = BLANK_RADIUS_MM - NOMINAL_GEAR.outer_radius
-ALLOWANCE_THICKNESS_MM = BLANK_THICKNESS_MM - NOMINAL_GEAR.thickness
-
-#: Raza nominală a materialului care merge pe fiecare bandă, în metri: blocul brut intră pe banda
-#: 1, roata mașinată iese pe banda 2. Limitează așezarea pieselor la amprenta benzii.
-BELT_PART_RADIUS_M: Mapping[str, float] = {
-    "belt_in": BLANK_RADIUS_MM * MESH_SCALE,
-    "belt_out": NOMINAL_GEAR.outer_radius * MESH_SCALE,
-}
+#: Blocul brut al piesei de referință: 52 mm rază și 18 mm grosime.
+BLANK_RADIUS_MM = NOMINAL_GEAR.outer_radius + ALLOWANCE_RADIUS_MM
+BLANK_THICKNESS_MM = NOMINAL_GEAR.thickness + ALLOWANCE_THICKNESS_MM
 
 #: Împrăștierea poziției blocului pe bandă și urma de siguranță până la marginea benzii.
 BLANK_JITTER_M = 0.03
@@ -71,6 +71,16 @@ BLANK_SHAPES = ("cylinder", "box")
 #: pe ``Z``, deci „culcat" este identitatea; constanta există ca schimbarea de orientare să fie
 #: o singură linie, dacă fluxul cere vreodată piesa pe cant.
 PART_TILT_QUAT = (1.0, 0.0, 0.0, 0.0)
+
+
+def family(name: str | None = None):
+    """Familia de piese cu care lucrează scena. Fără nume, familia de referință."""
+    return family_of(name)
+
+
+def family_names() -> tuple[str, ...]:
+    """Numele familiilor, în ordinea din generator — aceeași cu ordinea compartimentelor."""
+    return tuple(item.name for item in FAMILIES)
 
 
 @dataclass(frozen=True)
@@ -108,9 +118,14 @@ class BlankStock:
         }
 
 
-def load_variant(seed: int = DEFAULT_SEED, defect: str | None = None) -> PartVariant:
-    """Piesa mașinată, exact cum o dă generatorul procedural existent."""
-    return build_variant(seed, defect)
+def load_variant(seed: int = DEFAULT_SEED, defect: str | None = None,
+                 family_name: str | None = None) -> PartVariant:
+    """Piesa mașinată, exact cum o dă generatorul procedural existent.
+
+    ``family_name`` alege familia de piese: fără el, scena lucrează pe piesa de referință, ca
+    rezultatele de dinainte de familii să se reproducă exact.
+    """
+    return build_variant(seed, defect, family_name)
 
 
 def scaled_geometry(variant: PartVariant) -> tuple[np.ndarray, np.ndarray]:
@@ -128,11 +143,43 @@ def rest_z_m(variant: PartVariant, surface_z: float) -> float:
     return float(surface_z + vertices[:, 2].max())
 
 
-def blank_stock(shape: str = "cylinder", radius_mm: float = BLANK_RADIUS_MM,
-                thickness_mm: float = BLANK_THICKNESS_MM) -> BlankStock:
-    """Blocul brut: discul (ori cutia) care intră în CNC, cu adaos de prelucrare."""
-    return BlankStock(shape=shape, radius_m=radius_mm * MESH_SCALE,
-                      half_height_m=thickness_mm * MESH_SCALE / 2)
+def blank_radius_mm(family_name: str | None = None) -> float:
+    """Raza semifabricatului familiei: raza piesei plus adaosul de prelucrare."""
+    return family(family_name).nominal.outer_radius + ALLOWANCE_RADIUS_MM
+
+
+def blank_thickness_mm(family_name: str | None = None) -> float:
+    """Grosimea semifabricatului familiei: grosimea piesei plus adaosul de prelucrare."""
+    return family(family_name).nominal.thickness + ALLOWANCE_THICKNESS_MM
+
+
+def gear_half_thickness_m(family_name: str | None = None) -> float:
+    """Jumătatea grosimii piesei mașinate, în metri."""
+    return family(family_name).nominal.thickness * MESH_SCALE / 2
+
+
+def blank_half_thickness_m(family_name: str | None = None) -> float:
+    """Jumătatea grosimii semifabricatului, în metri."""
+    return blank_thickness_mm(family_name) * MESH_SCALE / 2
+
+
+def belt_part_radius_m(key: str, family_name: str | None = None) -> float:
+    """Raza materialului care merge pe o bandă, în metri.
+
+    Blocul brut intră pe banda 1, piesa mașinată iese pe banda 2; raza limitează așezarea la
+    amprenta benzii, deci depinde de familia care circulă.
+    """
+    if key == "belt_in":
+        return blank_radius_mm(family_name) * MESH_SCALE
+    if key == "belt_out":
+        return family(family_name).nominal.outer_radius * MESH_SCALE
+    raise KeyError(f"bandă fără material cunoscut: {key}")
+
+
+def blank_stock(shape: str = "cylinder", family_name: str | None = None) -> BlankStock:
+    """Blocul brut al familiei: discul (ori cutia) care intră în CNC, cu adaos de prelucrare."""
+    return BlankStock(shape=shape, radius_m=blank_radius_mm(family_name) * MESH_SCALE,
+                      half_height_m=blank_thickness_mm(family_name) * MESH_SCALE / 2)
 
 
 def random_xy(seed: int, nominal_xy: tuple[float, float],
@@ -245,6 +292,7 @@ def describe(variant: PartVariant) -> Mapping[str, Any]:
     return {
         "part_id": variant.part_id,
         "seed": variant.seed,
+        "family": variant.family,
         "defect": variant.defect,
         "verdict": variant.verdict,
     }

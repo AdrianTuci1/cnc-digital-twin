@@ -193,10 +193,12 @@ MJ_DIR     := simulation/mujoco
 MJ_PY      := $(ROOT)/$(MJ_DIR)/.venv/bin/python
 MJ_SAMPLES ?= 200
 # Cota piedestalului brațelor pentru `make mj-demo`. Cota documentată este 0,55 m, dar acolo
-# ciclul nu se încheie: pereții cutiilor urcă până la nivelul benzii, iar antebrațul rămâne blocat
-# în ei. La 0,95 m ciclul se încheie cu eroarea maximă de 18 mm, însă anvelopa brațelor cuprinde
-# capul camerei de inspecție, deci `make mj-check` cade: cele două cote nu pot coexista, iar
-# alegerea este în README-ul geamănului. `make mj-demo MJ_BASE_Z=0.55` arată rularea care cade.
+# ciclul nu se încheie: ca să ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul
+# peste platformă, iar la 0,55 m platforma este deasupra lui (`arm2_link3↔belt_out`, 106 mm
+# eroare). La 0,95 m ciclul se încheie cu 17,7 mm eroare maximă, însă anvelopa brațelor cuprinde
+# capul camerei fixe, deci `make mj-check` cade la cota asta: cele două cote nu pot coexista, iar
+# alegerea este în README-ul geamănului și în `docs/11-geaman-mujoco.md` §10.
+# `make mj-demo MJ_BASE_Z=0.55` arată rularea care cade.
 MJ_BASE_Z  ?= 0.95
 
 .PHONY: mj-venv mj-check mj-render mj-demo mj-test

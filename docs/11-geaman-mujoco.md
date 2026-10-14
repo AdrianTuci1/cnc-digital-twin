@@ -54,15 +54,16 @@ benzii o dă exclusiv forța exterioară.
 | Bandă 1 (alimentare) | cutie (platformă cu frecare mică și prioritară, șine cu frecare mare), fără opritor: piesa se așază în amonte și banda o împinge până la linia de oprire din plan | viteză de suprafață, alunecare, număr de piese | forță tangențială per pas, aplicată prin `data.xfrc_applied` corpurilor în contact, cu limita `mu * N` |
 | Braț 1, deservirea mașinii | Franka Emika Panda (7 DoF + griper) din `mujoco-menagerie`; preia piesa de pe banda 1, o încarcă în CNC, apoi o descarcă și o așază pe banda 2 | efort/curent pe articulații, forță de strângere, contact cu piesa | `position`/`motor` pe articulații, actuator pe degetele griperului |
 | Mașină CNC, 3 axe | 3 articulații prismatice (X, Y, Z) + corp de ax + piesă prinsă; stările din contract, fără așchiere | vibrație RMS și vârf, sarcină ax, temperatură, avans | profil de sarcină și vibrație aplicat ca forță pe corpul axului, în funcție de stare și uzură |
-| Braț 2 (sortare) | același model Panda, pe latura sudică a benzii 2, cu cutiile dincolo de bandă | ca la brațul 1 | ca la brațul 1 |
+| Braț 2 (sortare) | același model Panda, pe latura sudică a benzii 2, cu raftul de partea cealaltă | ca la brațul 1 | ca la brațul 1 |
 | Bandă 2 (evacuare) | ca banda 1, cu un singur sens de mers, spre vest, și linia ei de oprire la ținta de preluare a brațului 2 | viteza, numărul de piese | ca la banda 1 |
-| Cutiile Accepted / Trash | două cutii (geoms) alăturate, pe latura nordică a benzii 2, adică dincolo de bandă față de braț, cu marginea de sus la nivelul suprafeței benzii; cutia de rebut e mai îngustă, fiindcă umărul brațului 1 lucrează deasupra ei + pistă de numărare pe piese | numărul de piese pe cutie | — |
+| Raft pe familii | un blat de 0,72 × 0,28 m cu fața de sus la nivelul suprafeței benzii, despărțit în cinci compartimente, câte unul pentru fiecare familie de piese din generator; buzunarele se deschid spre brațul 2, iar piesa se lasă de sus, pe blat + piste de numărare pe compartiment | numărul de piese pe compartiment | — |
+| Ladă rebut | o ladă pe podea, sub capătul de vest al benzii 2, cu trei pereți scurți și latura de est deschisă; piesa neconformă rămâne pe bandă, trece de linia de oprire a brațului 2 și cade de la capătul benzii | numărul de rebuturi | — |
 | Camere | o cameră fixă de inspecție a calității, deasupra benzii 2, înainte de brațul 2 (rolul `sorting` din `cnc.qa.snapshot.v1.json`: verdictul ei decide ruta), plus câte o cameră pe flanșa fiecărui braț, pentru prindere | cadru RGB offscreen + scor de calitate | — |
 
 Stările mașinii CNC sunt exact enumerația din `cnc.telemetry.v1.json`: `IDLE`, `LOADING`,
 `CUTTING`, `UNLOADING`, `INSPECTING`. Ciclul complet — bandă 1 → braț 1 → CNC → braț 1 →
-bandă 2 (inspecție) → braț 2 → cutie — produce `cycle_id` și `part_id` cu aceleași formate
-(`cyc-000001`, `part-000001`).
+bandă 2 (inspecție) → braț 2 → compartimentul familiei — produce `cycle_id` și `part_id` cu
+aceleași formate (`cyc-000001`, `part-000001`).
 
 Randarea camerei se face cu `mujoco.Renderer`. Pentru sesiunile în care interesează doar
 telemetria, randarea se oprește complet, iar degradarea imaginii se aplică doar cadrelor cerute
@@ -98,8 +99,8 @@ defectul.
 Celula are 6,0 × 4,0 m, cu originea (0, 0) în colțul sud-vest, **+X spre est** și **+Y spre
 nord**. Gridul are celule de 0,5 m: **coloanele A–L** spre est, **rândurile 1–8** spre nord, deci
 fiecare element are o referință scurtă — brațul 1 stă în `F6`, mașina ocupă `G6–J8`, banda 2 în
-`B4–J5`, brațul 2 în `F4`, cutiile în `E5–E6` și `F5–F6`, iar axul optic al camerei de inspecție
-în `G5`, cu consola prinsă în colțul `G5` al mașinii.
+`B4–J5`, brațul 2 în `F4`, raftul pe familii în `E3–F3`, lada de rebut în `A4–B5`, iar axul optic
+al camerei fixe în `G5`, cu consola prinsă în colțul `G5` al mașinii.
 Conversia la lumea MuJoCo este identitatea: planul `(x, y)` devine lumea
 `(x, y)`, cu +Z în sus, deci scena preia cifrele ca atare.
 
@@ -116,47 +117,55 @@ ca planul și scena să nu se poată contrazice.
 | Bandă 2 (evacuare, un singur sens) | (2,70, 2,00) | 3,8 × 0,4 | B4–J5 |
 | Braț 2 (Panda #2) | (2,70, 1,55) | bază 0,25 Ø | F4 |
 | Cameră pe brațul 2 (flanșă) | (2,45, 1,72) | punct | E4 |
-| Cutie piese bune (Accepted) | (2,30, 2,40) | 0,4 × 0,4 | E5–E6 |
-| Cutie rebut (Trash) | (2,65, 2,40) | 0,3 × 0,4 | F5–F6 |
-| Cameră de inspecție a calității (consolă pe mașină) | (3,05, 2,00) | ax optic, cadru 0,18 m | G5 |
+| Raft pe familii (5 compartimente) | (2,60, 1,18) | 0,7 × 0,3 | E3–F3 |
+| Ladă rebut | (0,45, 2,00) | 0,6 × 0,4 | A4–B5 |
+| Cameră fixă de proces (consolă pe mașină) | (3,05, 2,00) | ax optic, cadru 0,18 m | G5 |
 
 Fiecare țintă de prindere cade în raza de 0,855 m a brațului care o deservește, măsurată în plan:
 
 | Braț | Țintă | Distanță în plan (m) | În raza de 0,855 m |
 | --- | --- | --- | --- |
 | Braț 1 | preluare de pe banda 1 | 0,70 | da |
-| Braț 1 | încărcare/descărcare CNC | 0,78 | da |
-| Braț 1 | așezare pe banda 2 | 0,79 | da |
+| Braț 1 | încărcare/descărcare CNC | 0,72 | da |
+| Braț 1 | așezare pe banda 2 | 0,72 | da |
 | Braț 2 | preluare de pe banda 2 | 0,45 | da |
-| Braț 2 | piesă bună în cutie | 0,78 | da |
-| Braț 2 | rebut în cutie | 0,73 | da |
+| Braț 2 | compartimentul 1 (wheel_100) | 0,54 | da |
+| Braț 2 | compartimentul 2 (flange_72) | 0,44 | da |
+| Braț 2 | compartimentul 3 (bushing_68) | 0,38 | da |
+| Braț 2 | compartimentul 4 (wheel_60) | 0,37 | da |
+| Braț 2 | compartimentul 5 (pinion_56) | 0,42 | da |
 
 Fluxul materialului, desenat punctat pe plan: banda 1 intră din `A7` spre est și lasă **blocul
 brut** — un disc de metal, nu piesa finită — la capătul ei, în `F7`; brațul 1 îl ridică și îl
 încarcă în mașină pe fața vestică. Abia după ce piesa este poziționată în dispozitiv intră
-generatorul procedural: geometria de pe masa mașinii devine roata dințată cu clasa ei de defect,
-iar eticheta iese din același `GearParams` care a produs geometria, deci nu se pot desincroniza.
-După ce mașina termină, brațul 1 o descarcă tot el și o așază pe banda 2, în `G5`, la o rotație
-aleatoare. Banda 2 merge într-un singur sens, spre vest, iar pe drum piesa trece pe sub camera de
-inspecție a calității, al cărei ax optic stă peste bandă în `G5`: verdictul e gata înainte ca
-piesa să ajungă la brațul 2, aflat pe latura sudică a benzii, în `F4`, și care o ridică din `F5`.
-Verdictul hotărăște cutia — `E5–E6` pentru piese
-bune, `F5–F6` pentru rebut —, iar cutiile stau dincolo de bandă, pe latura nordică, cu marginea de
-sus la nivelul suprafeței benzii, ca piesa să treacă din bandă în cutie fără să urce. Brațul 2
-ridică și lasă piesa în același sector, spre nord, deci întoarcerea dintre ținta de preluare și
-cele două cutii scade la circa 43°, față de 180° cât ar fi cu cutiile de aceeași parte cu brațul.
-Pistonul de rejecție din scena Isaac Sim nu se dublează aici: clasificarea o face brațul 2, din
-verdictul camerei.
+generatorul procedural: geometria de pe masa mașinii devine roata dințată a familiei, cu clasa ei
+de defect, iar eticheta iese din același `GearParams` care a produs geometria, deci nu se pot
+desincroniza. După ce mașina termină, brațul 1 o descarcă tot el și o așază pe banda 2, în `G5`,
+la o rotație aleatoare. Banda 2 merge într-un singur sens, spre vest, iar pe drum piesa trece pe
+sub camera fixă de proces, al cărei ax optic stă peste bandă în `G5`. Brațul 2, aflat pe latura
+sudică a benzii, în `F4`, o ridică din `F5` și o lasă în compartimentul familiei ei, pe raftul din
+`E3–F3`, cu podeaua la 0,85 m, adică la nivelul suprafeței benzii.
 
-Ridicarea cutiilor la nivelul benzii nu vine gratis, și s-a măsurat în scenă. Cota le aduce până
-la umărul brațului 1, care lucrează deasupra capătului de est al fâșiei, iar gura de 0,85 m urcă
-peste baza brațului 2, deci raza de atingere de 0,855 m se strânge, în planul gurii, la un cerc de
-0,80 m. Cu ampuantele de 0,40 × 0,40 din plan, pereții cutiei de rebut intrau 45 mm în verigile
-brațului 1, iar punctele de așezare cădeau la 0,879 m de baza brațului 2. Cutia de rebut s-a
-îngustat deci la 0,30 m și s-a mutat 0,20 m spre vest, iar punctele de așezare stau cât mai
-aproape de braț în cutia lor — la cutia de piese bune lângă colțul de sud-est, la cea de rebut
-chiar la nord de axul brațului. Verificat pe corpurile scenei: golul dintre brațul 1 și cutii este
-+14 mm, iar brațul 2 ajunge la 0,837 m (piese bune) și 0,789 m (rebut).
+Raftul înlocuiește cutiile adânci de dinainte, și înlocuirea rezolvă o măsurătoare, nu doar o
+preferință. Cutiile aveau pereți care urcau până la 0,85 m, nivelul benzii, iar antebrațul brațului
+2 trecea prin ei: la cota documentată a piedestalului, 0,55 m, punctele de așezare rămâneau la
+41 mm, respectiv 106 mm eroare. Un raft deschis, cu despărțitoare de 50 mm și cu latura de nord
+liberă, nu opune nimic antebrațului, iar cele cinci compartimente cad între 0,37 m și 0,54 m de
+baza brațului 2 — mai comod decât cutiile, care ajungeau la 0,78 m. Compartimentul cel mai lat are
+0,144 m, deci cea mai mare piesă, Ø104, are circa 20 mm joc de fiecare parte.
+
+Fiecare compartiment ține o familie de piese, în ordinea din plan (`docs/diagrams/cell_layout.py`)
+și din generator (`cnc_cell/parts/gear.py`): `wheel_100`, `flange_72`, `bushing_68`, `wheel_60`,
+`pinion_56`. Un test verifică potrivirea celor două ordini, ca raftul să nu ajungă să adune
+familiile în altă ordine decât le învață clasificatorul. Codurile citite de pe raft sunt amânate
+deliberat: vezi `docs/10-dataset-piese.md`.
+
+Rebutul are o cale fără braț, ca în plan: piesa neconformă rămâne pe bandă, trece de linia de
+oprire a brațului 2 și cade de la capătul de vest al benzii 2 în lada din `A4–B5`. Marginea lăzii
+stă la 0,62 m, sub nivelul benzii, ca piesa să nu se sprijine pe perete, iar latura de est nu are
+perete deloc: e chiar sub capătul benzii, iar un perete acolo ar prinde piesa. Pistonul de
+rejecție din scena Isaac Sim nu se dublează aici — banda duce rebutul până la capăt, fără ca
+vreun braț să-l atingă.
 
 Rotația aleatoare de pe banda 2 nu este un detaliu de fizică, ci o decizie despre dataset: dă
 clasificatorului de calitate aceeași piesă din unghiuri diferite, iar defectele din catalog sunt
@@ -165,36 +174,36 @@ așezării se loghează însă împreună cu cadrul și cu eticheta, altfel nu s
 partiție de evaluare pe unghiuri nevăzute și nu se poate distinge invarianța la rotire de noroc.
 
 Înălțimile propuse, pentru când se scrie MJCF-ul: suprafețele de lucru ale benzilor la 0,85 m,
-masa mașinii la 0,75 m, capacul de protecție la 1,90 m, cutiile pe podea cu marginea la 0,85 m,
-adică la nivelul suprafeței benzii 2, baza brațelor pe piedestal la 0,55 m, camerele la 2,20 m,
+masa mașinii la 0,75 m, capacul de protecție la 1,90 m, podeaua raftului pe familii la 0,85 m,
+adică la nivelul suprafeței benzii 2, marginea lăzii de rebut la 0,62 m, adică sub nivelul benzii,
+ca piesa să treacă peste ea, baza brațelor pe piedestal la 0,55 m, camerele la 2,20 m,
 orientate în jos — cu o excepție, camera de inspecție a calității, al cărei cap optic stă la
 1,70 m, adică 0,85 m deasupra benzii 2, pe o consolă care se așază pe capacul mașinii. Culoarele
 libere: 0,60 m între capătul benzii 1 și fața vestică a mașinii, 0,45 m între marginea nordică a
 benzii 2 și fața sudică a mașinii (brațul 1 lucrează pe deasupra benzii, nu prin culoar), 0,25 m
-între marginea sudică a benzii 2 și axul brațului 2, adică 0,13 m până la piedestalul lui. Brațul
-1 are 0,78 m până la axul mașinii și 0,79 m până la locul de așezare pe banda 2, iar brațul 2 are
-0,45 m până la punctul de preluare, 0,78 m până la cutia de piese bune și 0,73 m până la cea de
-rebut. Ambele brațe lucrează pe deasupra benzilor, nu prin culoarele dintre ele; distanța mică
-dintre axul brațului 2 și banda 2 se verifică la montaj, în scenă, nu din plan.
+între marginea sudică a benzii 2 și axul brațului 2, adică 0,13 m până la piedestalul lui, iar de
+acolo 0,37 m până la raft. Brațul 1 are 0,72 m până la axul mașinii și 0,72 m până la locul de
+așezare pe banda 2, iar brațul 2 are 0,45 m până la punctul de preluare și între 0,37 m și 0,54 m
+până la compartimentele raftului. Ambele brațe lucrează pe deasupra benzilor, nu prin culoarele
+dintre ele; distanța mică dintre axul brațului 2 și banda 2 se verifică la montaj, în scenă, nu
+din plan.
 
 Ce nu spune planul: înălțimile relative dintre brațe și ținte (raza de 0,855 m este proiectată în
 plan, deci o țintă poate părea la îndemână și să fie prea sus) și geometria interioară a mașinii.
-Amândouă se verifică abia în scenă, la faza 2. La cota de acum, cutia de rebut intră în anvelopa
-brațului 1: golul măsurat la poziția nominală este de 14 mm, deci când brațele primesc cinematică,
-pozițiile lor trebuie să ocolească fâșia cutiilor. Verificarea din scenă prinde o atingere, nu și
-o traiectorie care trece razant pe deasupra.
+Amândouă se verifică abia în scenă, la faza 2. Verificarea din scenă prinde o atingere, nu și o
+traiectorie care trece razant pe deasupra.
 
-Piedestalul brațelor este însă cota care nu se poate decide din plan, iar scena a măsurat-o: la
-0,55 m brațele ajung la toate punctele **mai puțin cutiile**, fiindcă pereții lor urcă până la
-0,85 m — nivelul benzii —, iar antebrațul trece prin ei (`arm2_link3↔bin_ng`), cu 41 mm eroare
-rămasă la `bin_ok` și 106 mm la preluarea de pe banda 2. La 0,95 m, adică deasupra benzilor, ciclul
-se încheie la 17,7 mm eroare maximă și fără nicio verigă atinsă, iar amândouă piesele rămân pe
-benzile lor; în schimb anvelopa brațelor cuprinde capul camerei de inspecție, care stă la 1,70 m
-chiar deasupra axei benzii 2, între punctele de lucru ale amândurora
-(`arm2_link6↔camera_quality_body`). Cele două nu încap împreună: ori camera de inspecție se mută
-într-un loc la care brațele nu ajung — ceea ce cere ca piesa să fie inspectată mai la vest, deci și
-punctul de preluare al brațului 2 să se mute —, ori piedestalul rămâne la 0,55 m și cutiile se mută
-de partea brațului 2, mai jos decât antebrațul. Cota din document rămâne 0,55 m până se decide
+Piedestalul brațelor este cota care nu se poate decide din plan, iar scena o măsoară. Cutiile
+adânci de dinainte dădeau sentința „0,55 m nu se poate": pereții lor urcau până la 0,85 m, iar
+antebrațul trecea prin ei (`arm2_link3↔bin_ng`), cu 41 mm eroare rămasă la cutia de piese bune.
+Raftul deschis scoate exact acea piedică: la 0,55 m, toate cele cinci compartimente se ating cu
+1,2–5,5 mm eroare, iar falcile doar se sprijină pe blat. Nu scoate însă piedica de la preluare: ca
+să ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar la
+0,55 m platforma este deasupra lui — măsurat, `arm2_link3↔belt_out` la punctul de deasupra, cu
+106 mm eroare rămasă. La 0,95 m ciclul se încheie la 17,7 mm eroare maximă, fără nicio verigă
+atinsă, iar compartimentele raftului se ating cu sub 6 mm; în schimb anvelopa brațelor cuprinde
+capul camerei fixe, care stă la 1,70 m chiar deasupra axei benzii 2 (gol minim eșantionat: −35 mm
+față de brațul 1, −22 mm față de brațul 2). Cota documentată rămâne 0,55 m până se decide
 (secțiunea 10), iar `make mj-demo MJ_BASE_Z=0.95` rulează ciclul cu brațele ridicate, pentru
 măsurători.
 
@@ -447,7 +456,11 @@ atinge contractele publicate.
    detecția nesupervizată.
 4. **Paralelizare pe GPU (MJX sau MuJoCo Warp)** — se decide când timpul de generare devine
    limita reală a antrenării.
-5. **Cota piedestalului brațelor, față de camera de inspecție** — latura de 0,85 m a cutiilor cere
-   brațele la 0,95 m, iar camera de inspecție la 1,70 m cade atunci în anvelopa lor. Se decide
-   împreună cu mutarea punctului de inspecție și a cutiilor (secțiunea 2), înainte de a lega uzura
-   de fizică: poziția camerei este și ea o mărime din telemetrie.
+5. **Cota piedestalului brațelor** — raftul a scos piedica pe care o puneau cutiile (la 0,55 m,
+   toate cele cinci compartimente se ating cu 1,2–5,5 mm eroare), dar a rămas banda 2: ca să ridice
+   piesa de pe ea, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar la 0,55 m
+   platforma este deasupra lui (`arm2_link3↔belt_out`, 106 mm eroare). La 0,95 m ciclul se încheie
+   la 17,7 mm eroare maximă, iar compartimentele se ating cu sub 6 mm; în schimb camera fixă de la
+   1,70 m cade în anvelopa brațelor (−35 mm față de brațul 1, −22 mm față de brațul 2, la
+   eșantionare). Cota se decide împreună cu locul camerei fixe, înainte de a lega uzura de fizică:
+   poziția camerei este și ea o mărime din telemetrie.
