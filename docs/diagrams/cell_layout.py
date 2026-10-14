@@ -8,11 +8,12 @@ merge într-un singur sens spre vest. Brațul 2 stă la marginea sudică a benzi
 de partea cealaltă a benzii, pe latura nordică: brațul ridică piesa de pe bandă și o lasă în
 cutia potrivită fără să se întoarcă, fiindcă ambele ținte cad în același sector, spre nord.
 Camera de inspecție a calității este separată de brațe și privește banda 2 înainte de brațul 2,
-ca verdictul să fie gata când piesa ajunge la el; fiecare braț are în plus camera lui, pe flanșă,
-pentru prindere.
+ca verdictul să fie gata când piesa ajunge la el: axul ei optic stă peste bandă, iar capul
+atârnă de o consolă prinsă de mașină, pe deasupra anvelopei brațelor. Fiecare braț are în plus
+camera lui, pe flanșă, pentru prindere.
 
 Coordonatele de mai jos sunt singura sursă de adevăr pentru așezarea în spațiu: când se scrie
-scena MJCF, `simulation/mujoco/scene/layout.py` preia aceleași valori. Gridul are coloane A-L
+scena MJCF, `simulation/mujoco/cncdt_mj/layout.py` preia aceleași valori. Gridul are coloane A-L
 spre est (0,5 m fiecare) și rânduri 1-8 spre nord, cu originea în colțul sud-vest al celulei.
 Conversia la lumea MuJoCo este identitatea: planul (x, y) devine lumea (x, y), cu +Z în sus.
 
@@ -67,12 +68,17 @@ ARMS = [
          wrist_camera=(2.45, 1.72)),
 ]
 
-# Camera de inspecție a calității: singura cameră fixă, separată de brațe. Stă pe banda 2,
-# între locul unde brațul 1 așază piesa (x=3,4) și locul de unde o ridică brațul 2 (x=2,7),
-# deci verdictul e gata înainte ca piesa să ajungă la brațul 2.
+# Camera de inspecție a calității: singura cameră fixă, separată de brațe. Axul ei optic stă
+# deasupra axei benzii 2, la mijlocul distanței dintre locul unde brațul 1 așază piesa (x=3,4)
+# și locul de unde o ridică brațul 2 (x=2,7), deci verdictul e gata înainte ca piesa să ajungă
+# la brațul 2. Capul optic atârnă, la 0,85 m peste bandă, de o consolă prinsă de colțul sud-vest
+# al mașinii: brațele lucrează deasupra benzii, până la ~1,60 m, iar consola trece pe deasupra
+# lor. Punctul din desen este axul optic, iar „mount_at" este prinderea consolei; „zone" este
+# urma cadrului la nivelul benzii (cadru de 0,18 m pentru o piesă de 104 mm).
 CAMERAS = [
-    dict(name="camera_quality", x=3.2, y=1.55, zone=0.35, size=0.10,
-         label="Cameră inspecție calitate", label_at=(3.62, 1.4), anchor="start"),
+    dict(name="camera_quality", x=3.05, y=2.0, zone=0.09, size=0.10, mount_at=(CNC["x"], CNC["y"]),
+         label="Cameră inspecție calitate (consolă pe mașină)", label_at=(3.85, 1.3),
+         anchor="start"),
 ]
 
 # Ținte de prindere: punctele pe care brațele trebuie să le atingă.
@@ -267,10 +273,14 @@ def build_svg() -> str:
     svg.append('<circle cx="%.1f" cy="%.1f" r="3" fill="#555"/>' % (px(0.25), py(0.25)))
     svg.append(text(px(0.25) - 6, py(0.25) + 14, "0,0", 11, "end", "#555"))
 
-    # Camera de inspecție a calității: singura cameră fixă, separată de brațe.
+    # Camera de inspecție a calității: axul optic peste banda 2, capul optic pe o consolă prinsă
+    # de colțul mașinii; urma din plan este axul, nu corpul camerei.
     for cam in CAMERAS:
         fill, stroke = COLORS["camera"]
         d = cam["size"] * SCALE
+        mx, my = cam["mount_at"]
+        svg.append(line(px(mx), py(my), px(cam["x"]), py(cam["y"]), stroke, 1.6))
+        svg.append(rect(px(mx) - 4, py(my) - 4, 8, 8, fill, stroke, rx=1))
         svg.append('<circle cx="%.1f" cy="%.1f" r="%.1f" fill="none" stroke="%s" '
                    'stroke-width="1.2" stroke-dasharray="2 4" opacity="0.8"/>'
                    % (px(cam["x"]), py(cam["y"]), cam["zone"] * SCALE, stroke))
@@ -378,7 +388,7 @@ def coordinate_table() -> str:
         ("Cameră pe brațul 2 (flanșă)", arms["arm2"], "wrist"),
         ("Cutie piese bune (Accepted)", BIN_OK, "box"),
         ("Cutie rebut (Trash)", BIN_NG, "box"),
-        ("Cameră de inspecție a calității", CAMERAS[0], "punct"),
+        ("Cameră de inspecție a calității (consolă pe mașină)", CAMERAS[0], "camera"),
     ]
     for label, item, kind in items:
         if kind == "arm":
@@ -391,6 +401,9 @@ def coordinate_table() -> str:
             cx, cy = item["x"] + item["w"] / 2, item["y"] + item["h"] / 2
             span = grid_span(item["x"], item["y"], item["w"], item["h"]).replace("-", "–")
             size = ro("%.1f × %.1f" % (item["w"], item["h"]))
+        elif kind == "camera":
+            cx, cy = item["x"], item["y"]
+            span, size = grid_ref(cx, cy), ro("ax optic, cadru %.2f m" % (2 * item["zone"]))
         else:
             cx, cy = item["x"], item["y"]
             span, size = grid_ref(cx, cy), ro("punct, zonă %.2f Ø" % (2 * item["zone"]))

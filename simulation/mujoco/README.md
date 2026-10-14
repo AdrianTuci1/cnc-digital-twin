@@ -51,12 +51,14 @@ opțiunilor: `--steps`, `--samples` (configurații de braț eșantionate la dega
 | --- | --- |
 | `cncdt_mj/layout.py` | Așezarea în plan și înălțimile. Coordonatele `(x, y)` **nu** se transcriu: se importă din `docs/diagrams/cell_layout.py`, ca planul și scena să nu se poată contrazice. Înălțimile `Z` se scriu aici, cu fragmentul din documentație de care aparțin. **Fără MuJoCo.** |
 | `cncdt_mj/part.py` | Cele două stări ale materialului: blocul brut (disc cu adaos de prelucrare) și roata dințată din generator. Geometria iese în milimetri, în planul `XY`, cu grosimea pe `Z`; se scalează în metri. **Fără MuJoCo.** |
+| `cncdt_mj/checks.py` | Regulile verificării care lucrează pe nume de corpuri și pe cifre, nu pe starea motorului (de pildă care contacte ale unui braț sunt normale). **Fără MuJoCo.** |
 | `cncdt_mj/scene.py` | Compunerea scenei: `scene/cell.xml` plus cele două brațe atașate programatic. Singurul modul care importă `mujoco`. |
 | `scene/cell.xml` | Șablonul celulei. Cifrele nu stau în el: se pun prin substituție, din `layout.scene_geometry()`. |
 | `view.py` | Cele trei moduri: `--check`, `--render`, `--view`. |
 
-Consecința practică a împărțirii: `layout` și `part` se importă din `.venv`-ul proiectului, unde
-`mujoco` nu există (ADR 0012), iar tot ce atinge motorul se validează rulând `view.py --check`.
+Consecința practică a împărțirii: `layout`, `part` și `checks` se importă din `.venv`-ul
+proiectului, unde `mujoco` nu există (ADR 0012), iar tot ce atinge motorul se validează rulând
+`view.py --check`.
 
 ### De ce scena se compune în Python, nu în MJCF
 
@@ -69,9 +71,9 @@ scrie propriile poziții nominale, fiindcă ale modelului copil se importă și 
 
 ## Ce verifică `--check`
 
-Cifrele de referință, la sămânța implicită 7: `nq/nv/nu = 32/30/16`, 33 de corpuri, 208 geome, zero
+Cifrele de referință, la sămânța implicită 7: `nq/nv/nu = 32/30/16`, 33 de corpuri, 207 geome, zero
 avertismente MuJoCo. Piesele se așază pe benzi cu 0,1 mm derivă, iar yaw-ul cerut se citește înapoi
-din scenă.
+din scenă (comparat pe cerc, deci 348,5° și −11,5° sunt același unghi).
 
 Țintele de prindere, măsurate **în spațiu** de la baza brațului, față de raza de 0,855 m din plan:
 brațul 1 ajunge la 0,758 m (preluare bandă 1), 0,671 m (mașină) și 0,846 m (așezare bandă 2);
@@ -79,21 +81,44 @@ brațul 2 la 0,541 m (preluare bandă 2) și 0,850 m (fiecare cutie). Planul mă
 `docs/11-geaman-mujoco.md` spune explicit că o țintă poate părea la îndemână în desen și să fie
 prea sus — verificarea de aici este cea în spațiu.
 
-Se mai verifică degajarea camerei de inspecție față de ambele brațe (poziția nominală plus
-`--samples` configurații eșantionate) și faptul că niciun braț nu atinge un element al celulei.
+Se mai verifică trei lucruri la camera de inspecție: degajarea față de ambele brațe (poziția
+nominală plus `--samples` configurații eșantionate, prag 0,02 m), încadrarea piesei — distanța,
+abaterea de la ax și diametrul aparent în pixeli, față de pragul de 3,0 px/mm — și faptul că
+niciun braț nu atinge un element al celulei la poziția nominală. Autocontactele unui braț
+(`arm1_hand↔arm1_link5`) sunt normale și se ignoră.
 
 ## Camera de inspecție
 
-Camera stă la **0,25 m deasupra suprafeței benzii 2**, adică `Z ≈ 1,10 m` în lume, și randează la
-**640×480** cu **30° pe verticală**. Acoperă 179 × 134 mm la nivelul benzii, adică **3,6 px/mm** pe
-piesă: roata de 104 mm intră pe ~58% din lățimea cadrului. Cota este parametru (`--camera-z`, ori
-`layout.inspection_camera_z()`), nu o constantă comună cu celelalte camere, iar intrinsics-urile se
-calculează din geometrie, în `layout.inspection_camera_intrinsics()`, nu se afirmă.
+Camera stă la **0,85 m deasupra suprafeței benzii 2**, adică `Z = 1,70 m` în lume, și randează la
+**640×480** cu **9° pe verticală**. Acoperă 178 × 134 mm la nivelul benzii, adică **3,6 px/mm** pe
+piesă: roata de 104 mm intră pe ~55% din lățimea cadrului (362 px în `--check`, ~355 px în
+`renders/inspection.png`). Cota este parametru (`--camera-z`, ori `layout.inspection_camera_z()`),
+nu o constantă comună cu celelalte camere, iar intrinsics-urile se calculează din geometrie, în
+`layout.inspection_camera_intrinsics()`, nu se afirmă.
 
-De ce nu la 2,20 m ca restul camerelor: acolo piesa de ~104 mm ajunge la vreo 10 pixeli, iar cel
-mai mic defect din catalog — o gaură dezaxată cu 2,5 mm — ar cădea sub un pixel, deci nicio clasă
-de defect nu ar fi separabilă. La 0,25 m, un dinte ciobit de 4 mm iese pe ~14 pixeli și dezaxarea
-de 2,5 mm pe ~9.
+**De ce nu la 2,20 m ca restul camerelor**: acolo piesa de ~104 mm ajunge la vreo 10 pixeli, iar
+cel mai mic defect din catalog — o gaură dezaxată cu 2,5 mm — ar cădea sub un pixel, deci nicio
+clasă de defect nu ar fi separabilă. La 0,85 m, un dinte ciobit de 4 mm iese pe ~14 pixeli și
+dezaxarea de 2,5 mm pe ~9.
+
+**De ce nu mai jos**: anvelopa brațelor deasupra benzii 2 urcă până la ~1,60 m, măsurat în scenă pe
+plaja articulațiilor (eșantionare uniformă, 2000 de configurații). Un cap optic la 0,25 m peste
+bandă, cum spunea prima variantă, intra în ea: 0,012 m față de brațul 1 și −0,078 m față de
+brațul 2, adică suprapunere. Capul a urcat peste anvelopă, iar obiectivul s-a îngustat de la 30° la
+9° ca acoperirea — deci rezoluția pe piesă — să rămână aceeași.
+
+**Cum stă**: consola camerei se prinde de colțul sud-vest al mașinii CNC și se așază pe capacul ei,
+la 1,90 m; de capătul ei atârnă capul optic pe o tijă subțire, până la 1,70 m. Anvelopa brațelor
+rămâne dedesubt: cea mai mică distanță măsurată este 0,138 m (brațul 1) și 0,052 m (brațul 2).
+Capul optic nu poate sta chiar în punctul camerei din plan: o cameră care privește în jos trebuie
+să fie deasupra subiectului ei, iar capul stă deasupra axei benzii 2, la mijlocul distanței dintre
+locul de așezare (x=3,4) și cel de preluare (x=2,7).
+
+**Axa de privire**: camerele MuJoCo privesc de-a lungul axei lor locale **−Z**, nu +Z (verificat cu
+o scenă de probă: două cutii, una deasupra și una dedesubt). Prima variantă întorcea camera cu
+`quat="0 1 0 0"`, ceea ce o făcea să privească spre cer; `renders/inspection.png` era numai cer și
+pământ. Acum orientarea este implicită („în jos"), iar `--check` verifică explicit că piesa intră
+în cadru, ca bug-ul să nu poată reveni tăcut.
 
 Ce **nu** rezolvă camera: 3,6 px/mm înseamnă că diferențele sub ~0,3 mm nu sunt măsurabile, iar
 uzura camerei (`docs/11-geaman-mujoco.md`, secțiunea 3) adaugă blur proporțional cu `1 - h_camera`
@@ -119,21 +144,22 @@ va însoți cadrul de inspecție.
 
 ## Stare cunoscută
 
-La sămânța 7, `view.py --check` **cade** cu patru constatări. Două sunt conflicte reale de
-geometrie, două sunt defecte ale verificării:
+La sămânța 7, `view.py --check` este **verde**: scena se compilează fără avertismente, țintele cad
+în raza brațelor, camera de inspecție are piesa în cadru la 3,6 px/mm și rămâne la cel puțin
+0,052 m de brațe pe configurațiile eșantionate. Cele patru constatări din runda precedentă s-au
+închis: suportul camerei a ieșit din anvelopa brațelor (consolă pe mașină, cap optic la 1,70 m),
+comparația de yaw se face pe cerc, regula de contact ignoră autocontactele brațului, iar orientarea
+camerei de inspecție a fost corectată (privea spre cer).
 
-1. **Camera de inspecție intră în calea brațelor.** Suportul ei stă la punctul din plan
-   `(3,20, 1,55)`, care este în raza brațului 2, iar consola duce capul optic spre nord, deasupra
-   benzii. La poziția nominală distanțele sunt 0,500 m (brațul 1) și 0,265 m (brațul 2), dar pe
-   cele 200 de configurații eșantionate coboară la 0,012 m, respectiv −0,078 m (suprapunere), sub
-   pragul de 0,02 m. De reparat înainte de a folosi scena pentru date.
-2. **Yaw-ul nu se compară cu wrap.** Verificarea declară că `blank_01` nu se citește înapoi, dar
-   348,5° cerut și −11,5° citit sunt același unghi: comparația din `view.py::check` trebuie făcută
-   modulo 360.
-3. **Regula „un braț atinge un element al celulei” este prea largă.** Prinde autocontactele
-   brațului (`arm1_hand↔arm1_link5`), care sunt normale; trebuie să se uite doar la contactele
-   dintre un braț și geomele celulei.
-4. **`tests/unit/test_mujoco_scene.py` nu există încă.** El trebuie să verifice, în `.venv`-ul
-   proiectului, că `layout` și `part` se importă fără `mujoco` și că înălțimile din
-   `layout.DOCUMENTED_HEIGHTS` se potrivesc cu propozițiile din `docs/11-geaman-mujoco.md`; partea
-   care atinge scena se sare cu `pytest.importorskip("mujoco")`.
+Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
+
+1. **`tests/unit/test_mujoco_scene.py` nu există încă.** El trebuie să verifice, în `.venv`-ul
+   proiectului, că `layout`, `part` și `checks` se importă fără `mujoco`, că înălțimile din
+   `layout.DOCUMENTED_HEIGHTS` se potrivesc cu propozițiile din `docs/11-geaman-mujoco.md` și că
+   regula de contact a brațelor face ce spune; partea care atinge scena se sare cu
+   `pytest.importorskip("mujoco")`.
+2. **Nicio țintă Makefile pentru venv-ul geamănului.** `--check` și `--render` se rulează astăzi
+   scriind calea venviului de mână; ar merita `make mj-check` / `make mj-render`.
+3. **Faza 2 nu e terminată.** Din ea există scena, dar lipsesc `belt.py`, `cell.py` și `run.py`,
+   deci ciclul complet (bandă 1 → braț 1 → CNC → braț 1 → bandă 2 → braț 2 → cutie) și criteriul
+   „o sesiune de 10 minute fără piese pierdute în geometrie" nu se pot verifica încă.

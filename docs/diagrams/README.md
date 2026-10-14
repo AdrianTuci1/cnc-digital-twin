@@ -104,7 +104,8 @@ conversia la lumea MuJoCo este identitatea: planul `(x, y)` devine lumea `(x, y)
 Celula măsoară 6,0 × 4,0 m și este tăiată în celule de 0,5 m, cu **coloanele A–L** spre est și
 **rândurile 1–8** spre nord, așa cum se vede pe marginile desenului. Un element se numește pe
 scurt după celula lui: brațul 1 stă în **F6**, mașina ocupă **G5–J7**, banda 2 în **B4–J5**,
-brațul 2 în **F4**, cutiile în **E5–E6** și **F5–G6**, camera de inspecție în **G4**.
+brațul 2 în **F4**, cutiile în **E5–E6** și **F5–G6**, axul optic al camerei de inspecție în
+**G5**, cu consola ei prinsă de colțul de sud-vest al mașinii.
 
 Tabelul de coordonate și verificarea razei de atingere se tipăresc cu `--table`; el este cel
 lipit în `docs/11-geaman-mujoco.md`, deci nu se transcriu cifre manual. Când se mută o

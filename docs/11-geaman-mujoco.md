@@ -6,8 +6,10 @@ Plan de implementare pentru al doilea geamăn al celulei CNC. Decizia arhitectur
 
 Stare: faza 0 (documentația) s-a terminat, iar din faza 2 există scena MJCF din
 `simulation/mujoco/`, cu piesa generată, cele două brațe și camera de inspecție. Verificarea ei,
-`view.py --check`, este **încă în roșu** pe patru constatări, trecute în README-ul geamănului:
-suportul camerei intră în raza brațelor, iar două reguli de verificare sunt prea largi.
+`view.py --check`, este **verde**: țintele cad în raza brațelor, camera de inspecție are piesa în
+cadru la 3,6 px/mm și rămâne la peste 5 cm de brațe pe configurațiile eșantionate. Din faza 2
+lipsesc `belt.py`, `cell.py` și `run.py`, iar testele geamănului și țintele Makefile sunt încă de
+scris; starea amănunțită stă în `simulation/mujoco/README.md`.
 Uzura, telemetria, detectorul, interfața de control și randarea degradată sunt deocamdată doar
 pe hârtie.
 
@@ -62,18 +64,21 @@ fără fereastră, pe CPU, în afara Kit.
 
 **Rezoluția nu poate rămâne la implicitul de 160×120.** Diferența cea mai grosieră de rezolvat
 este adâncimea unui dinte ciobit, `chip_depth = 4 mm`, iar cea mai fină este dezaxarea radială a
-unei găuri, 2,5 mm. Ca fiecare să treacă de câțiva pixeli, piesa de ~100 mm trebuie
-să ocupe câteva sute de pixeli, ceea ce cere simultan o rezoluție mai mare **și** o cameră
-aproape. Cu camera la 2,20 m, adică la ~1,35 m deasupra piesei, un obiectiv normal acoperă ~1,5 m
-din cadru: piesa ajunge la vreo 10 pixeli, iar defectul sub un pixel, deci nicio clasă din
-catalogul de defecte nu ar fi separabilă. De aceea camera de inspecție stă la 0,25 m deasupra
-suprafeței benzii 2 și randează la 640×480, cu 30° pe verticală: acoperă 179 × 134 mm la nivelul
-benzii, adică ~3,6 px/mm pe piesă — destul ca un dinte ciobit de 4 mm să iasă pe ~14 pixeli și o
-gaură dezaxată cu 2,5 mm pe ~9. Sub ~0,3 mm nu se mai măsoară nimic, iar blurul din secțiunea 3
-se adaugă peste. Înălțimea camerelor este
-parametru, nu o constantă comună, iar intrinsics-urile camerei de inspecție — înălțime, câmp
-vizual, rezoluție — se scriu în `simulation/mujoco/README.md`, împreună cu ce poate și ce nu
-poate rezolva. Legătura cu uzura: degradarea camerei din secțiunea 3 aplică blur proporțional cu
+unei găuri, 2,5 mm. Ca fiecare să treacă de câțiva pixeli, piesa de ~100 mm trebuie să ocupe
+câteva sute de pixeli, adică ~3,6 px/mm. Cu camera la 2,20 m, cât prevede documentul pentru
+celelalte camere, un obiectiv normal acoperă ~1,5 m din cadru: piesa ajunge la vreo 10 pixeli,
+iar defectul sub un pixel, deci nicio clasă din catalogul de defecte nu ar fi separabilă. De
+aceea acoperirea este fixată, iar distanța și obiectivul se aleg împreună: camera de inspecție
+randează la 640×480, cu **9° pe verticală**, de la **0,85 m** deasupra suprafeței benzii 2, deci
+acoperă 178 × 134 mm la nivelul benzii — destul ca un dinte ciobit de 4 mm să iasă pe ~14 pixeli
+și o gaură dezaxată cu 2,5 mm pe ~9. Sub ~0,3 mm nu se mai măsoară nimic, iar blurul din
+secțiunea 3 se adaugă peste.
+
+De ce nu mai jos: deasupra benzii 2 anvelopa brațelor urcă până la ~1,60 m, măsurat în scenă pe
+plaja articulațiilor, iar capul optic stă deasupra ei, la 1,70 m, pe o consolă prinsă de mașină.
+Înălțimea camerelor este parametru, nu o constantă comună, iar intrinsics-urile camerei de
+inspecție — înălțime, câmp vizual, rezoluție — se scriu în `simulation/mujoco/README.md`,
+împreună cu ce poate și ce nu poate rezolva. Legătura cu uzura: degradarea camerei din secțiunea 3 aplică blur proporțional cu
 `1 - h_camera`, deci o cameră proiectată exact la limita de rezoluție pierde piesa, nu doar
 defectul.
 
@@ -84,7 +89,8 @@ defectul.
 Celula are 6,0 × 4,0 m, cu originea (0, 0) în colțul sud-vest, **+X spre est** și **+Y spre
 nord**. Gridul are celule de 0,5 m: **coloanele A–L** spre est, **rândurile 1–8** spre nord, deci
 fiecare element are o referință scurtă — brațul 1 stă în `F6`, mașina ocupă `G5–J7`, banda 2 în
-`B4–J5`, brațul 2 în `F4`, cutiile în `E5–E6` și `F5–G6`, iar camera de inspecție în `G4`.
+`B4–J5`, brațul 2 în `F4`, cutiile în `E5–E6` și `F5–G6`, iar axul optic al camerei de inspecție
+în `G5`, cu consola prinsă în colțul `G5` al mașinii.
 Conversia la lumea MuJoCo este identitatea: planul `(x, y)` devine lumea
 `(x, y)`, cu +Z în sus, deci scena preia cifrele ca atare.
 
@@ -103,7 +109,7 @@ ca planul și scena să nu se poată contrazice.
 | Cameră pe brațul 2 (flanșă) | (2,45, 1,72) | punct | E4 |
 | Cutie piese bune (Accepted) | (2,30, 2,40) | 0,4 × 0,4 | E5–E6 |
 | Cutie rebut (Trash) | (2,90, 2,40) | 0,4 × 0,4 | F5–G6 |
-| Cameră de inspecție a calității | (3,20, 1,55) | punct, zonă 0,70 Ø | G4 |
+| Cameră de inspecție a calității (consolă pe mașină) | (3,05, 2,00) | ax optic, cadru 0,18 m | G5 |
 
 Fiecare țintă de prindere cade în raza de 0,855 m a brațului care o deservește, măsurată în plan:
 
@@ -122,9 +128,9 @@ brut** — un disc de metal, nu piesa finită — la capătul ei, în `F7`; bra�
 generatorul procedural: geometria de pe masa mașinii devine roata dințată cu clasa ei de defect,
 iar eticheta iese din același `GearParams` care a produs geometria, deci nu se pot desincroniza.
 După ce mașina termină, brațul 1 o descarcă tot el și o așază pe banda 2, în `G5`, la o rotație
-aleatoare. Banda 2 merge într-un singur sens, spre vest, iar pe drum piesa trece prin dreptul
-camerei de inspecție a calității (`G4`), care stă deasupra ei: verdictul e gata înainte ca piesa
-să ajungă la brațul 2, aflat pe latura sudică a benzii, în `F4`, și care o ridică din `F5`.
+aleatoare. Banda 2 merge într-un singur sens, spre vest, iar pe drum piesa trece pe sub camera de
+inspecție a calității, al cărei ax optic stă peste bandă în `G5`: verdictul e gata înainte ca
+piesa să ajungă la brațul 2, aflat pe latura sudică a benzii, în `F4`, și care o ridică din `F5`.
 Verdictul hotărăște cutia — `E5–E6` pentru piese
 bune, `F5–G6` pentru rebut —, iar cutiile stau dincolo de bandă, pe latura nordică. Brațul 2
 ridică și lasă piesa în același sector, spre nord, deci întoarcerea dintre ținta de preluare și
@@ -141,8 +147,9 @@ partiție de evaluare pe unghiuri nevăzute și nu se poate distinge invarianța
 Înălțimile propuse, pentru când se scrie MJCF-ul: suprafețele de lucru ale benzilor la 0,85 m,
 masa mașinii la 0,75 m, capacul de protecție la 1,90 m, cutiile pe podea cu marginea la 0,35 m,
 baza brațelor pe piedestal la 0,55 m, camerele la 2,20 m, orientate în jos — cu o excepție,
-camera de inspecție a calității, care coboară la 0,25 m deasupra benzii 2, din motivul numeric
-din secțiunea 2. Culoarele libere: 0,60 m între capătul benzii 1 și fața vestică a mașinii,
+camera de inspecție a calității, al cărei cap optic stă la 1,70 m, adică 0,85 m deasupra benzii 2,
+pe o consolă care se așază pe capacul mașinii. Culoarele libere: 0,60 m între capătul benzii 1 și
+fața vestică a mașinii,
 0,20 m între marginea nordică a benzii 2 și fața sudică a mașinii (brațul 1 lucrează pe deasupra
 benzii, nu prin culoar), 0,25 m între marginea sudică a benzii 2 și axul brațului 2, adică
 0,13 m până la piedestalul lui. Brațul 1 are 0,63 m până la axul mașinii și 0,79 m până la locul
@@ -305,6 +312,7 @@ simulation/mujoco/          # există
     __init__.py             # căile pachetului
     layout.py               # așezarea în plan (din docs/diagrams/cell_layout.py) și înălțimile; fără MuJoCo
     part.py                 # blocul brut și piesa din generatorul procedural; fără MuJoCo
+    checks.py               # regulile verificării pe nume de corpuri (contacte normale); fără MuJoCo
     scene.py                # compunerea: cell.xml plus cele două brațe; singurul care importă mujoco
 ```
 
@@ -352,10 +360,11 @@ importă din `.venv`-ul proiectului, unde `mujoco` nu există.
 | 5 | `control.py` + degradarea camerei | injectarea și reparația din REPL se văd în telemetrie în aceeași fereastră; cadrul de cameră degradat păstrează piesa detectabilă până la `h` critic |
 | 6 | (opțional) SageMaker RCF + card de model | antrenare din ferestrele exportate, card în `ml/models/`, cost justificat în PR |
 
-Starea de azi: din faza 2 există partea de scenă — `layout.py`, `part.py`, `scene.py`,
-`scene/cell.xml` și `view.py`, verificate cu `view.py --check` — dar **criteriul nu este atins**:
-verificarea este roșie pe degajarea camerei față de brațe, iar „fără piese pierdute în geometrie"
-nu se poate dovedi până nu trece. `belt.py`, `cell.py` și `run.py` lipsesc.
+Starea de azi: din faza 2 există partea de scenă — `layout.py`, `part.py`, `checks.py`, `scene.py`,
+`scene/cell.xml` și `view.py`, verificate cu `view.py --check`, care este verde — dar **criteriul
+nu este atins**: `belt.py`, `cell.py` și `run.py` lipsesc, deci ciclul complet și „fără piese
+pierdute în geometrie" nu se pot dovedi. Testele geamănului (`tests/unit/test_mujoco_scene.py`) sunt
+și ele de scris.
 
 Fiecare fază se poate opri fără să lase ceva rupt: faza 1 nu are dependențe de MuJoCo, faza 2 nu
 atinge contractele publicate.
