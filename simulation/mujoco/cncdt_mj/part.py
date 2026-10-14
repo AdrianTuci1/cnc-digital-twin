@@ -53,8 +53,7 @@ ALLOWANCE_RADIUS_MM = BLANK_RADIUS_MM - NOMINAL_GEAR.outer_radius
 ALLOWANCE_THICKNESS_MM = BLANK_THICKNESS_MM - NOMINAL_GEAR.thickness
 
 #: Raza nominală a materialului care merge pe fiecare bandă, în metri: blocul brut intră pe banda
-#: 1, roata mașinată iese pe banda 2. Opritoarele de la capătul cursei se așază din ea
-#: (`layout.belt_stopper_geometry`), iar punctul de oprire iese la ținta de preluare.
+#: 1, roata mașinată iese pe banda 2. Limitează așezarea pieselor la amprenta benzii.
 BELT_PART_RADIUS_M: Mapping[str, float] = {
     "belt_in": BLANK_RADIUS_MM * MESH_SCALE,
     "belt_out": NOMINAL_GEAR.outer_radius * MESH_SCALE,
@@ -174,18 +173,19 @@ def on_belt_xy(x: float, y: float, bounds: tuple[float, float, float, float],
 def stopped_xy(seed: int, stop_x: float, nominal_y: float,
                bounds: tuple[float, float, float, float], radius_m: float,
                jitter_m: float = BLANK_JITTER_M, stream: str = "stopped") -> tuple[float, float]:
-    """Poziția unei piese oprite de opritorul benzii: cota din lungul benzii este fixă.
+    """Poziția de așezare a unei piese la linia de oprire a benzii: cota din lungul ei e fixă.
 
-    Odată ce piesa ajunge la opritor, împrăștierea din lungul benzii dispare: acolo o ține
-    peretele, nu frecarea. Ce rămâne aleator este cota laterală, iar rotația se trage separat
-    (:func:`random_yaw_deg`). Poziția rămâne limitată la amprenta benzii, ca piesa să stea
-    întreagă pe ea.
+    Linia este cea până la care banda mai împinge piesa (`belt.Belt.reached_stop`), iar acolo piesa
+    cade în dreptul țintei de preluare. Cota din lungul benzii rămâne fixă fiindcă banda ar aduce
+    oricum piesa la aceeași linie; împrăștierea se păstrează numai pe lat, plus rotația, care se
+    trage separat (:func:`random_yaw_deg`). Poziția rămâne limitată la amprenta benzii, ca piesa să
+    stea întreagă pe ea.
     """
     x0, x1, y0, y1 = bounds
     limit = radius_m + BLANK_EDGE_MARGIN_M
     if not (x0 + limit <= stop_x <= x1 - limit):
         raise ValueError(
-            f"opritorul de la {stop_x:.3f} m lasă piesa peste capătul benzii {bounds}")
+            f"linia de oprire de la {stop_x:.3f} m lasă piesa peste capătul benzii {bounds}")
     rng = random.Random(f"{seed}:{stream}:y")
     y = nominal_y + rng.uniform(-jitter_m, jitter_m)
     return (stop_x, min(max(y, y0 + limit), y1 - limit))

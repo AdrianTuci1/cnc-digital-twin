@@ -53,7 +53,11 @@ BELT_IN = dict(name="infeed_conveyor", kind="belt", x=0.4, y=3.1, w=2.4, h=0.4, 
                caption="Bandă 1: alimentare", caption_at=(1.6, 3.86))
 BELT_OUT = dict(name="outfeed_conveyor", kind="belt", x=0.8, y=1.8, w=3.8, h=0.4, direction=-1,
                 caption="Bandă 2: evacuare, un singur sens", caption_at=(4.0, 1.68))
-CNC = dict(name="cnc_3axis", kind="cnc", x=3.4, y=2.4, w=1.4, h=1.0)
+# Mașina stă la 0,45 m de banda 2, nu la 0,20 m cât dădea prima variantă: brațul 1 lucrează
+# între ele, la încărcare și la descărcare. Cota e limita de sus a mutării, fiindcă universalul
+# călătorește cu masa: la +0,30 m ar ajunge la 0,849 m de baza brațului 1, adică 6 mm sub raza de
+# 0,855 m, iar la +0,35 m ar ieși din ea.
+CNC = dict(name="cnc_3axis", kind="cnc", x=3.4, y=2.65, w=1.4, h=1.0)
 # Cutiile stau lipite de latura nordică a benzii 2, adică dincolo de bandă față de brațul 2, cu
 # marginea de sus la nivelul suprafeței benzii, ca piesa să treacă din bandă în cutie fără să
 # urce. Cota le ridică până la umărul brațului 1, care lucrează deasupra capătului de est al
@@ -90,7 +94,7 @@ CAMERAS = [
 # Ținte de prindere: punctele pe care brațele trebuie să le atingă.
 TARGETS = [
     dict(name="belt1_pick", key="arm1", x=2.7, y=3.3, label="preluare de pe banda 1"),
-    dict(name="cnc_chuck", key="arm1", x=3.5, y=2.95, label="încărcare/descărcare CNC"),
+    dict(name="cnc_chuck", key="arm1", x=3.5, y=3.2, label="încărcare/descărcare CNC"),
     dict(name="belt2_drop", key="arm1", x=3.4, y=2.0, label="așezare pe banda 2"),
     dict(name="belt2_pick", key="arm2", x=2.7, y=2.0, label="preluare de pe banda 2"),
     # Punctul de așezare din fiecare cutie este locul cel mai apropiat de axul brațului 2 care

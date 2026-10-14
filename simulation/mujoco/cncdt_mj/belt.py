@@ -6,9 +6,10 @@ benzi, viteza de suprafață, forța de antrenare cu limita de frecare — iar t
 proiectului o pot verifica fără motor (ADR 0012).
 
 Direcțiile vin din `docs/11-geaman-mujoco.md` §2: banda 1 alimentează spre est, banda 2 evacuază
-spre vest, cu un singur sens de mers. Cine oprește piesa la capătul cursei este opritorul fizic
-din `scene/cell.xml`, nu o condiție din cod: o condiție s-ar putea dezlipi de geometrie, un perete
-nu.
+spre vest, cu un singur sens de mers. Cine oprește piesa la capătul cursei este chiar banda: își
+scoate forța de îndată ce piesa a ajuns la linia de oprire a benzii (:meth:`Belt.reached_stop`).
+Celula reală nu are opritor, iar brațul prinde un disc, deci cota din lungul benzii nu trebuie să
+fie exactă: după linie piesa alunecă singură până se oprește din frecare.
 
 Forța de frecare are limita lui Coulomb, ``|F| <= mu * N``; peste ea contactul alunecă, iar piesa
 rămâne în urmă — exact ce trebuie să se vadă în date când banda se uzează.
@@ -90,12 +91,20 @@ class Belt:
         return force
 
     def stop_x(self) -> float:
-        """Unde se oprește centrul unei piese pe banda asta, când o atinge opritorul.
+        """Cota din lungul benzii până la care banda mai împinge piesa.
 
-        Cota vine din `layout`, care o calculează din ținta de preluare și din așezarea
-        opritorului: o singură sursă pentru desen și pentru transport.
+        Vine din `layout`, care o ia din ținta de preluare: o singură sursă pentru desen, pentru
+        transport și pentru raport.
         """
         return layout.belt_stop_x(self.key)
+
+    def reached_stop(self, x: float) -> bool:
+        """Dacă o piesă aflată la cota ``x`` a ajuns la linia de oprire.
+
+        Cota se măsoară pe axa de mers a benzii (amândouă merg de-a lungul lui ``X``), iar semnul
+        direcției o preface în „a ajuns ori a trecut": banda 1 împinge spre est, banda 2 spre vest.
+        """
+        return self.direction[0] * (x - self.stop_x()) >= 0.0
 
 
 def belts() -> tuple[Belt, ...]:

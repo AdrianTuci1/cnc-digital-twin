@@ -25,7 +25,7 @@ if str(DIAGRAMS_DIR) not in sys.path:
 
 import cell_layout  # noqa: E402  (importul cere calea de mai sus)
 
-from . import part  # noqa: E402  (rămâne pur: `part` nu atinge motorul de fizică)
+
 
 CELL_WIDTH_M = float(cell_layout.CELL_W)
 CELL_DEPTH_M = float(cell_layout.CELL_H)
@@ -129,15 +129,6 @@ BELT_RAIL_HALF_Z = 0.03
 BELT_RAIL_GAP = 0.005
 BELT_LEG_HALF_XY = 0.025
 BELT_LEG_INSET = 0.15
-
-#: Opritorul de la capătul cursei fiecărei benzi: un perete subțire, cât canalul dintre șine, pe
-#: care piesa se oprește. Fără el, piesa ar cădea de la capătul benzii, iar locul de preluare ar
-#: depinde de frecare.
-STOPPER_HALF_THICKNESS = 0.008
-STOPPER_HALF_HEIGHT = 0.025
-#: Urma de siguranță dintre piesa oprită și perete, plus urma dintre perete și șine.
-STOPPER_EDGE_CLEARANCE = 0.004
-STOPPER_SIDE_CLEARANCE = 0.003
 
 MACHINE_TABLE_HALF_Z = 0.025
 MACHINE_TABLE_OVERHANG = 0.02
@@ -276,17 +267,17 @@ STATE_MACHINED = "machined"
 def part_placements() -> tuple[PartPlacement, ...]:
     """Cele două stări ale materialului, în locurile lor nominale din plan.
 
-    Blocul brut stă pe banda 1, lipit de opritorul de la capătul cursei: cota din lungul benzii o
-    fixează opritorul (`belt_stop_x`), iar ce rămâne aleator este cota laterală și rotația. Piesa
-    mașinată stă pe banda 2, exact sub camera de inspecție, fiindcă acolo verdictul de calitate are
-    un subiect în cadru, iar poziția rămâne în raza brațului 2.
+    Blocul brut stă pe banda 1, la linia ei de oprire (`belt_stop_x`): acolo ajunge piesa
+    transportată, iar ce rămâne aleator este cota laterală și rotația. Piesa mașinată stă pe
+    banda 2, exact sub camera de inspecție, fiindcă acolo verdictul de calitate are un subiect în
+    cadru, iar poziția rămâne în raza brațului 2.
     """
     pick = target("belt1_pick")
     camera_plan = CAMERAS[0]
     return (
         PartPlacement("blank_01", STATE_BLANK, belt_stop_x("belt_in"), float(pick["y"]),
                       BELT_SURFACE_Z, belt_bounds(BELT_IN),
-                      'oprită de opritor, în dreptul țintei „' + str(pick["label"]) + '" din plan'),
+                      'adusă de bandă până la ținta „' + str(pick["label"]) + '" din plan'),
         PartPlacement("part_01", STATE_MACHINED, float(camera_plan["x"]), center(BELT_OUT)[1],
                       BELT_SURFACE_Z, belt_bounds(BELT_OUT),
                       "banda 2, sub camera de inspecție"),
@@ -324,41 +315,15 @@ def belt_geometry(key: str, item: Mapping[str, Any]) -> dict[str, float]:
 
 
 def belt_stop_x(key: str) -> float:
-    """Unde se oprește centrul unei piese pe banda dată, când o atinge opritorul.
+    """Linia de oprire a unei benzi: cota din lungul benzii de unde nu mai împinge piesa.
 
-    Opritorul se așază din ținta de preluare, cu o rază de piesă plus urma de siguranță înaintea
-    ei, deci centrul iese cu urma de siguranță după țintă. `cncdt_mj/belt.py` cheamă funcția
-    asta, ca poziția de oprire să aibă o singură sursă.
+    Banda nu are opritor fizic, fiindcă nici celula reală nu are nevoie de unul: brațul prinde
+    un disc, iar cota din lungul benzii nu trebuie să fie exactă. Banda transportă până la ținta
+    de preluare, iar de acolo piesa alunecă singură până se oprește. Fără perete, piesa nu mai
+    poate fi oprită de geometrie, deci regula stă într-un singur loc: aici, în plan, plus
+    :meth:`cncdt_mj.belt.Belt.reached_stop`, care o folosește la fiecare pas.
     """
-    return (float(target(BELT_STOP_TARGETS[key])["x"])
-            + BELT_DIRECTIONS[key][0] * STOPPER_EDGE_CLEARANCE)
-
-
-def belt_stopper_geometry(key: str, item: Mapping[str, Any], radius_m: float) -> dict[str, float]:
-    """Opritorul unei benzi: peretele de la capătul cursei, în dreptul țintei de preluare.
-
-    Fața din amonte a peretelui stă la o rază de piesă plus urma de siguranță înaintea țintei, ca
-    piesa oprită de el să ajungă exact în ținta de preluare (`cncdt_mj/belt.py` calculează
-    poziția ei). Peretele intră în canalul dintre șine, cu o urmă mică până la ele.
-
-    Raza o dă `part.BELT_PART_RADIUS_M`: pe fiecare bandă merge alt material, iar cine știe ce
-    material este acela este `cncdt_mj/part.py`.
-    """
-    direction = BELT_DIRECTIONS[key][0]
-    cx, _ = center(item)
-    face_x = float(target(BELT_STOP_TARGETS[key])["x"]) + direction * (
-        radius_m + STOPPER_EDGE_CLEARANCE)
-    half_width = (float(item["h"]) / 2 - BELT_RAIL_GAP - 2 * BELT_RAIL_HALF_Y
-                  - STOPPER_SIDE_CLEARANCE)
-    if half_width <= 0:
-        raise ValueError(f"banda {key} este prea îngustă pentru un opritor între șine")
-    return {
-        f"{key}_stopper_dx": face_x + direction * STOPPER_HALF_THICKNESS - cx,
-        f"{key}_stopper_z": BELT_SLAB_HALF_Z + STOPPER_HALF_HEIGHT,
-        f"{key}_stopper_hy": half_width,
-        "belt_stopper_hx": STOPPER_HALF_THICKNESS,
-        "belt_stopper_hz": STOPPER_HALF_HEIGHT,
-    }
+    return float(target(BELT_STOP_TARGETS[key])["x"])
 
 
 def machine_geometry() -> dict[str, float]:
@@ -541,8 +506,6 @@ def scene_geometry(camera_z: float | None = None) -> dict[str, float]:
     values.update(cell_geometry())
     values.update(belt_geometry("belt_in", BELT_IN))
     values.update(belt_geometry("belt_out", BELT_OUT))
-    for key, item in (("belt_in", BELT_IN), ("belt_out", BELT_OUT)):
-        values.update(belt_stopper_geometry(key, item, part.BELT_PART_RADIUS_M[key]))
     values.update(machine_geometry())
     for key, item in bin_items():
         values.update(bin_geometry(key, item))

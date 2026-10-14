@@ -198,7 +198,7 @@ def test_celor_doua_stari_de_material_li_se_stie_locul() -> None:
     machined = placements[layout.STATE_MACHINED]
     pick = layout.target("belt1_pick")
     assert blank.x == pytest.approx(belt.belt("belt_in").stop_x()), (
-        "blocul brut stă lipit de opritor, adică în dreptul țintei de preluare")
+        "blocul brut stă la linia de oprire a benzii 1, adică în dreptul țintei de preluare")
     assert blank.y == pytest.approx(float(pick["y"]))
     assert blank.surface_z == layout.BELT_SURFACE_Z
     assert machined.x == pytest.approx(float(layout.CAMERAS[0]["x"]))
@@ -207,7 +207,7 @@ def test_celor_doua_stari_de_material_li_se_stie_locul() -> None:
 
 
 def test_piesa_oprita_sta_fix_pe_sensul_benzii() -> None:
-    """La opritor, cota din lungul benzii nu mai e aleatoare: o ține peretele."""
+    """La linia de oprire, cota din lungul benzii nu mai e aleatoare: acolo o aduce banda."""
     place = next(item for item in layout.part_placements() if item.state == layout.STATE_BLANK)
     item = belt.belt("belt_in")
     radius = part.blank_stock().radius_m
@@ -221,7 +221,7 @@ def test_piesa_oprita_sta_fix_pe_sensul_benzii() -> None:
     # Lateral, două semințe diferite pot da cote diferite; în lungul benzii, niciodată.
     other = part.stopped_xy(part.DEFAULT_SEED + 1, stop, place.y, place.bounds, radius)
     assert other[0] == stop
-    # Un opritor care lasă piesa peste capătul benzii este refuzat, nu strecurat.
+    # O linie de oprire care lasă piesa peste capătul benzii este refuzată, nu strecurată.
     with pytest.raises(ValueError):
         part.stopped_xy(part.DEFAULT_SEED, x1, place.y, place.bounds, radius)
 
@@ -313,8 +313,8 @@ def test_punctul_de_pe_banda_se_recunoaste() -> None:
     assert belt.belt_at(1.60, 3.30 - 0.25) is None, "între benzi nu e bandă"
 
 
-def test_opritorul_opreste_piesa_in_tinta_din_plan() -> None:
-    """Piesa oprită de perete stă exact în dreptul țintei de preluare, pe bandă."""
+def test_linia_de_oprire_este_tinta_din_plan() -> None:
+    """Linia până la care banda mai împinge piesa este chiar ținta de preluare, pe amândouă."""
     cases = (
         # Banda 1: piesa intră pe la capătul vestic și e dusă spre est.
         ("belt_in", part.blank_stock().radius_m, belt.belt("belt_in").footprint[0]),
@@ -322,24 +322,30 @@ def test_opritorul_opreste_piesa_in_tinta_din_plan() -> None:
         ("belt_out", part.NOMINAL_GEAR.outer_radius * part.MESH_SCALE,
          float(layout.target("belt2_drop")["x"])),
     )
-    geometry = layout.scene_geometry()
     for key, radius, entry_x in cases:
         item = belt.belt(key)
         stop = item.stop_x()
-        target_x = float(layout.target(layout.BELT_STOP_TARGETS[key])["x"])
-        assert stop == pytest.approx(target_x + item.direction[0] * layout.STOPPER_EDGE_CLEARANCE)
+        assert stop == pytest.approx(float(layout.target(layout.BELT_STOP_TARGETS[key])["x"]))
         x0, x1, _, _ = item.footprint
         assert x0 + radius < stop < x1 - radius, (
             f"{key}: piesa oprită la {stop:.3f} m ar atârna peste capătul benzii")
-        # Fața din amonte a peretelui din scenă este exact unde ajunge marginea piesei oprite.
-        wall_cx = layout.center((layout.BELT_IN if key == "belt_in" else layout.BELT_OUT))[0] \
-            + geometry[f"{key}_stopper_dx"]
-        wall_face = wall_cx - item.direction[0] * geometry["belt_stopper_hx"]
-        assert wall_face == pytest.approx(stop + item.direction[0] * radius)
-        assert geometry[f"{key}_stopper_z"] > layout.BELT_SLAB_HALF_Z, "opritorul stă pe bandă"
-        # Piesa intră în amonte de opritor, iar forța benzii o împinge spre el.
+        # Piesa intră în amonte de linie, iar forța benzii o împinge spre ea.
         assert (entry_x - stop) * item.direction[0] < 0, f"{key}: intrarea nu e în amonte"
         assert math.copysign(1.0, item.drag_force(1.0, (0.0, 0.0))[0]) == item.direction[0]
+
+
+def test_banda_nu_mai_impinge_piesa_dupa_linia_de_oprire() -> None:
+    """Dincolo de linie banda își scoate forța; în amonte de ea, o aplică."""
+    for key in ("belt_in", "belt_out"):
+        item = belt.belt(key)
+        stop = item.stop_x()
+        upstream = stop - 0.05 * item.direction[0]
+        downstream = stop + 0.05 * item.direction[0]
+        assert not item.reached_stop(upstream), (
+            f"{key}: piesa din amonte mai are de mers, deci banda o împinge")
+        assert item.reached_stop(stop), f"{key}: piesa ajunsă la linie nu mai e împinsă"
+        assert item.reached_stop(downstream), (
+            f"{key}: piesa trecută de linie nu mai e împinsă")
 
 
 # ---------------------------------------------------------------- yaw-ul și contactele

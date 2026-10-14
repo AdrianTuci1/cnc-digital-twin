@@ -6,6 +6,8 @@ cine e în contact cu banda, ce viteză are piesa, ce forță se scrie în `data
 
 Forța se aplică **numai** piesei care atinge platforma benzii (`*_slab`): o piesă aruncată de braț
 peste bandă nu este transportată până nu o atinge, iar una ridicată de braț nu mai este împinsă.
+Se oprește la linia benzii (``belt.stop_x()``): de acolo piesa alunecă singură până o oprește
+frecarea, fiindcă banda nu are opritor fizic.
 
 Modulul importă `mujoco`, ca `scene.py`; restul pachetului rămâne pur (ADR 0012).
 """
@@ -75,15 +77,26 @@ def apply_belt_forces(model: mujoco.MjModel, data: mujoco.MjData, speed_scale: f
                       parts: tuple[str, ...] | None = None) -> dict[str, tuple[float, float]]:
     """Scrie în `data.xfrc_applied` forța pe care o pune fiecare bandă pe piesa de pe ea.
 
-    Întoarce forțele aplicate, pentru raportare și pentru teste. Componenta verticală rămâne a
-    contactului: banda trage tangențial, nu ridică.
+    Forța se scrie pentru fiecare piesă, cu zero acolo unde nu e cazul: `mj_step` **nu** golește
+    `xfrc_applied`, deci o piesă ridicată de braț ori ajunsă la linia de oprire a benzii ar rămâne
+    cu forța de la pasul dinainte. Componenta verticală rămâne a contactului: banda trage
+    tangențial, nu ridică.
+
+    Întoarce forțele scrise, ca ``{corp: (Fx, Fy)}``, pentru raportare și pentru teste.
     """
+    names = part_bodies(model) if parts is None else parts
+    carrying = carried_parts(model, data, names)
     applied: dict[str, tuple[float, float]] = {}
-    for body, key in carried_parts(model, data, parts).items():
+    for body in names:
         identifier = _body_id(model, body)
-        item = belt.belt(key)
-        mass = float(model.body_mass[identifier])
-        force = item.drag_force(mass, part_velocity(model, data, body), speed_scale=speed_scale)
+        key = carrying.get(body)
+        force = (0.0, 0.0)
+        if key is not None:
+            item = belt.belt(key)
+            if not item.reached_stop(float(data.xpos[identifier][0])):
+                mass = float(model.body_mass[identifier])
+                force = item.drag_force(mass, part_velocity(model, data, body),
+                                        speed_scale=speed_scale)
         np.copyto(data.xfrc_applied[identifier, :2], np.asarray(force))
         applied[body] = force
     return applied
@@ -93,8 +106,8 @@ def transport(model: mujoco.MjModel, data: mujoco.MjData, steps: int, speed_scal
               parts: tuple[str, ...] | None = None) -> None:
     """Rulează pașii cu benzile pornite: forța se rescrie la fiecare pas, apoi se face pasul.
 
-    `data.xfrc_applied` se golește la fiecare pas de `mj_step`, deci forța nu se poate scrie o
-    dată pentru toată cursa.
+    `mj_step` nu golește `data.xfrc_applied`, deci forța se scrie la fiecare pas: o dată pentru
+    toată cursa ar rămâne aplicată și după ce piesa ajunge la linia de oprire ori e ridicată de braț.
     """
     for _ in range(steps):
         apply_belt_forces(model, data, speed_scale, parts)

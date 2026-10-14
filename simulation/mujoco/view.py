@@ -248,7 +248,7 @@ def check(args: argparse.Namespace) -> int:
 def transport_line(model: mujoco.MjModel, data: mujoco.MjData,
                    parts: tuple[str, ...]) -> str:
     """O linie cu ce se întâmplă acum: ce piesă e pe ce bandă, cu ce viteză și cât mai are până
-    la opritor.
+    la linia de oprire.
 
     Viewer-ul își are peisajul propriu, dar transportul se citește mai bine din cifre: linia se
     tipărește în terminal la fiecare `REPORT_PERIOD_S` secunde de timp simulat. Distanța rămasă
@@ -267,7 +267,7 @@ def transport_line(model: mujoco.MjModel, data: mujoco.MjData,
         item = belt.belt(key)
         remaining = (item.stop_x() - x) * item.direction[0]
         cells.append(f"{body}: ({x:.3f}, {y:.3f}) v={speed:.3f} m/s pe {key}, "
-                     f"mai are {remaining:+.3f} m până la opritor")
+                     f"mai are {remaining:+.3f} m până la linia de oprire")
     return f"t={data.time:6.2f} s | " + " | ".join(cells)
 
 
@@ -289,7 +289,7 @@ def view(args: argparse.Namespace) -> int:
         print(f"  {message}")
     parts = cell.part_bodies(model)
     if args.belts:
-        print(f"Benzile sunt pornite la {belt.BELT_SURFACE_SPEED_MPS:.3f} m/s; opritoarele stau la "
+        print(f"Benzile sunt pornite la {belt.BELT_SURFACE_SPEED_MPS:.3f} m/s; își scot forța la "
               f"{layout.belt_stop_x('belt_in'):.3f} m (banda 1) și "
               f"{layout.belt_stop_x('belt_out'):.3f} m (banda 2).")
     else:

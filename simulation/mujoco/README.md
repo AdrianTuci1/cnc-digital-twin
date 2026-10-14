@@ -53,8 +53,8 @@ $MUJOCO simulation/mujoco/view.py --render --camera camera_quality
 simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view
 
 # Aceeași fereastră, cu amândouă piesele lăsate mai în amonte și în reluare lentă, ca transportul
-# până la opritoare să se vadă (altfel piesa mașinată pornește chiar sub cameră, iar cea brută
-# chiar la opritor).
+# până la liniile de oprire să se vadă (altfel piesa mașinată pornește chiar sub cameră, iar cea
+# brută chiar la linia benzii 1).
 simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py \
     --view --speed 0.5 --blank-x 0.6 --part-x 4.4
 ```
@@ -67,8 +67,8 @@ opțiunilor: `--steps`, `--samples` (configurații de braț eșantionate la dega
 din plan: `--blank-x 0.6` mută piesa pe banda 1, fără să ceară și `--blank-y`.
 
 Viewer-ul rulează în ritm real și tipărește în terminal, la fiecare secundă simulată, ce piesă e pe
-ce bandă, cu ce viteză și cât mai are până la opritor. `--speed 0` scoate ritmul real, ca sesiunea
-să alerge cât poate.
+ce bandă, cu ce viteză și cât mai are până la linia de oprire. `--speed 0` scoate ritmul real, ca
+sesiunea să alerge cât poate.
 
 Suita proiectului (`make test`) rulează fără `mujoco` și include partea pură a testelor
 geamănului, `tests/unit/test_mujoco_scene.py`; testul care atinge scena se sare acolo și se
@@ -79,7 +79,7 @@ rulează cu `make mj-test`, din venv-ul care are motorul.
 | Fișier | Ce conține |
 | --- | --- |
 | `cncdt_mj/layout.py` | Așezarea în plan și înălțimile. Coordonatele `(x, y)` **nu** se transcriu: se importă din `docs/diagrams/cell_layout.py`, ca planul și scena să nu se poată contrazice. Înălțimile `Z` se scriu aici, cu fragmentul din documentație de care aparțin. **Fără MuJoCo.** |
-| `cncdt_mj/part.py` | Cele două stări ale materialului: blocul brut (disc cu adaos de prelucrare) și roata dințată din generator. Geometria iese în milimetri, în planul `XY`, cu grosimea pe `Z`; se scalează în metri. Aici stau și pozițiile de așezare: `stopped_xy` pentru piesa oprită de opritor, `on_belt_xy` pentru una cerută explicit. **Fără MuJoCo.** |
+| `cncdt_mj/part.py` | Cele două stări ale materialului: blocul brut (disc cu adaos de prelucrare) și roata dințată din generator. Geometria iese în milimetri, în planul `XY`, cu grosimea pe `Z`; se scalează în metri. Aici stau și pozițiile de așezare: `stopped_xy` pentru piesa așezată la linia de oprire a benzii, `on_belt_xy` pentru una cerută explicit. **Fără MuJoCo.** |
 | `cncdt_mj/belt.py` | Benzile: direcția fiecărei benzi, viteza de suprafață și forța de antrenare cu limita de frecare Coulomb. **Fără MuJoCo.** |
 | `cncdt_mj/checks.py` | Regulile verificării care lucrează pe nume de corpuri și pe cifre, nu pe starea motorului (de pildă care contacte ale unui braț sunt normale), plus pragurile verificării, împărțite cu `view.py`. **Fără MuJoCo.** |
 | `cncdt_mj/scene.py` | Compunerea scenei: `scene/cell.xml` plus cele două brațe atașate programatic. Unul dintre cele două module care importă `mujoco`. |
@@ -109,7 +109,7 @@ avertismente MuJoCo. Piesele se așază pe benzi cu 0,1 mm derivă, iar yaw-ul c
 din scenă (comparat pe cerc, deci 348,5° și −11,5° sunt același unghi).
 
 Țintele de prindere, măsurate **în spațiu** de la baza brațului, față de raza de 0,855 m din plan:
-brațul 1 ajunge la 0,758 m (preluare bandă 1), 0,671 m (mașină) și 0,846 m (așezare bandă 2);
+brațul 1 ajunge la 0,758 m (preluare bandă 1), 0,814 m (mașină) și 0,846 m (așezare bandă 2);
 brațul 2 la 0,541 m (preluare bandă 2), 0,837 m (cutia de piese bune) și 0,789 m (cutia de rebut).
 Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md` spune explicit că o țintă poate părea
 la îndemână în desen și să fie prea sus — verificarea de aici este cea în spațiu.
@@ -143,7 +143,8 @@ urcat peste anvelopă, iar obiectivul s-a îngustat de la 30° la 9° ca acoperi
 piesă — să rămână aceeași.
 
 **Cum stă**: consola camerei se prinde de colțul sud-vest al mașinii CNC și se așază pe capacul ei,
-la 1,90 m; de capătul ei atârnă capul optic pe o tijă subțire, până la 1,70 m. Anvelopa brațelor
+la 1,90 m; de capătul ei atârnă capul optic pe o tijă subțire, până la 1,70 m. Are 0,79 m, fiindcă
+prinderea călătorește cu masa mașinii, iar axul optic stă peste banda 2. Anvelopa brațelor
 rămâne dedesubt: cea mai mică distanță măsurată este 0,138 m (brațul 1) și 0,052 m (brațul 2) la
 eșantionarea implicită a verificării, 200 de configurații; la 2000 de configurații coboară la
 0,057 m și 0,034 m, tot peste pragul de 0,02 m. Capul optic nu poate sta chiar în punctul camerei
@@ -164,7 +165,7 @@ defectele se rafînează, se schimbă întâi distanța ori rezoluția, nu clasi
 
 Camerele de prindere stau pe flanșa fiecărui braț, cu 60° pe verticală; ele nu au rol de inspecție.
 
-## Benzile: forță în cod, opritor în geometrie
+## Benzile: forță în cod, linie de oprire în plan
 
 MuJoCo nu are bandă transportoare nativă, așa că transportul se împarte în două: forța care
 târăște piesa o calculează `belt.py` (pur), iar `cell.py` o scrie la fiecare pas în
@@ -174,9 +175,12 @@ dintre viteza de suprafață (0,12 m/s) și viteza piesei, dar limitată de frec
 locul unde intră uzura benzii, care scade viteza reală cu până la 8% (`docs/11-geaman-mujoco.md`
 §3b); deocamdată nimeni nu îl cheamă cu altceva decât 1.
 
-**Cine oprește piesa este un perete, nu o condiție din cod**: fiecare bandă are în scenă un geom de
-opritor la capătul cursei, iar `layout.belt_stop_x` calculează cota lui din ținta de preluare, cu o
-urmă de siguranță după ea. O condiție în cod s-ar putea dezlipi de geometrie, un perete nu.
+**Cine oprește piesa este banda însăși**: nu există geom de opritor, fiindcă nici celula reală nu
+are nevoie de unul. `layout.belt_stop_x` dă cota din lungul benzii până la care banda mai împinge
+piesa — chiar ținta de preluare — iar `belt.Belt.reached_stop` o întrebuințează la fiecare pas: de
+acolo piesa primește forță zero și alunecă singură, până o oprește frecarea. Brațul prinde un disc,
+deci cota din lungul benzii nu trebuie să fie exactă, iar cât anume alunecă peste linie se măsoară
+în scenă, nu se presupune.
 
 **Capcana care a costat o rundă de măsurători**: dacă platforma benzii are frecare mare, frecarea
 statică dintre piesă și platformă anulează forța aplicată — piesa stă pe loc, deși codul o împinge.
@@ -187,9 +191,10 @@ mare, ca să țină piesa în canal. O piesă atinge platforma abia după primul
 transport din viewer poate să o arate încă „în afara benzii".
 
 Măsurat cu amândouă piesele lăsate în amonte (`--blank-x 0.6 --part-x 4.4`): amândouă merg cu
-0,111–0,112 m/s, adică viteza de suprafață, și se opresc cu viteza zero exact la opritoare — 2,704 m
-pe banda 1, 2,696 m pe banda 2. O cursă de 600 s simulate, cu 300 000 de pași, se termină în 18 s
-de ceas real (16 400 de pași pe secundă).
+0,111–0,112 m/s, adică viteza de suprafață, și se opresc 13 mm peste linie — blocul la 2,713 m pe
+banda 1, piesa mașinată la 2,687 m pe banda 2 — fiindcă atâta le trebuie ca să piardă 0,12 m/s la
+frecarea benzii (`v² / (2 * mu * g)`). De acolo nu se mai mișcă. O cursă de 600 s simulate, cu
+300 000 de pași, se termină în 21 s de ceas real (14 400 de pași pe secundă).
 
 ## Materialul: două stări, amândouă în scenă
 
@@ -214,7 +219,7 @@ La sămânța 7, `view.py --check` este **verde**: scena se compilează fără a
 închis: suportul camerei a ieșit din anvelopa brațelor (consolă pe mașină, cap optic la 1,70 m),
 comparația de yaw se face pe cerc, regula de contact ignoră autocontactele brațului, iar orientarea
 camerei de inspecție a fost corectată (privea spre cer). Transportul pe benzi merge: amândouă
-piesele ajung la opritoare cu viteza zero, fără să cadă din geometrie.
+piesele ajung la linia de oprire a benzii și se opresc 13 mm peste ea, fără să cadă din geometrie.
 
 Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
 
@@ -227,7 +232,7 @@ Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
    poate aluneca spre șină; de verificat când intră brațele, fiindcă de acolo vine poziția de
    prindere.
 
-Închis în runda de față: transportul pe benzi (`belt.py`, `cell.py`), opritoarele fizice din scenă
-și viewer-ul cu benzile pornite, plus testele geamănului (`tests/unit/test_mujoco_scene.py`, cu
-partea pură în `make test` și cea care atinge motorul în `make mj-test`) și țintele Makefile pentru
-venv-ul geamănului.
+Închis în runda de față: transportul pe benzi (`belt.py`, `cell.py`), oprirea fără perete fizic
+(banda își scoate forța la linia din plan) și viewer-ul cu benzile pornite, plus testele geamănului
+(`tests/unit/test_mujoco_scene.py`, cu partea pură în `make test` și cea care atinge motorul în
+`make mj-test`) și țintele Makefile pentru venv-ul geamănului.
