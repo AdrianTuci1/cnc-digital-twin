@@ -5,17 +5,20 @@ Plan de implementare pentru al doilea geamăn al celulei CNC. Decizia arhitectur
 **ce** se construiește, în ce ordine și cum se verifică.
 
 Stare: faza 0 (documentația) s-a terminat, iar din faza 2 există scena MJCF din
-`simulation/mujoco/`, cu piesa generată, cele două brațe, camera de inspecție și raftul pe familii,
-plus transportul pe benzi (`belt.py`, `cell.py`) cu linie de oprire în plan. Verificarea scenei,
+`simulation/mujoco/`, cu piesa generată, cele două brațe, cele patru puncte de vedere și raftul pe
+familii, plus transportul pe benzi (`belt.py`, `cell.py`) cu linie de oprire în plan. Verificarea
+scenei,
 `view.py --check`, este **verde**: țintele cad în raza brațelor, camera de inspecție are piesa în
 cadru la 3,6 px/mm și rămâne la peste 10 cm de brațe pe 2000 de configurații eșantionate, iar
 amândouă piesele parcurg banda la viteza de suprafață și se opresc la 13 mm peste linia de oprire a
 benzii. `view.py --demo` rulează ciclul brațelor până la capăt pentru toate cele cinci familii
-(**verde**), cu eroarea maximă a sculei sub 18 mm și fără nicio verigă atinsă. Din faza 2 lipsesc
-prinderea, stările mașinii, colectarea datelor și `run.py`; testele geamănului și țintele Makefile
-sunt scrise. Starea amănunțită stă în `simulation/mujoco/README.md`.
-Uzura, telemetria, detectorul, interfața de control și randarea degradată sunt deocamdată doar
-pe hârtie.
+(**verde**), cu eroarea maximă a sculei sub 18 mm și fără nicio verigă atinsă. Colectarea datelor
+există: `make mj-record` scrie sesiuni întregi — telemetrie pe contract, metadatele cadrelor de
+inspecție, PNG-urile celor patru puncte de vedere și etichetele pieselor — pentru toate cele cinci
+familii (**verde**, cinci cadre pe ciclu). Din faza 2 lipsesc prinderea (falcile doar ating piesa)
+și stările de așchiere ale mașinii CNC: `CUTTING` nu are încă sursă, iar mărimile axului vin din
+scenariul sesiunii. Starea amănunțită stă în `simulation/mujoco/README.md`.
+Uzura, detectorul, interfața de control și randarea degradată sunt deocamdată doar pe hârtie.
 
 ## Cuprins
 
@@ -59,7 +62,7 @@ benzii o dă exclusiv forța exterioară.
 | Bandă 2 (evacuare) | ca banda 1, cu un singur sens de mers, spre vest, și linia ei de oprire la ținta de preluare a brațului 2 | viteza, numărul de piese | ca la banda 1 |
 | Raft pe familii | o scară de 0,50 × 0,50 m în coloana E, cu trei trepte care urcă spre vest, de la podeaua de 0,85 m — nivelul suprafeței benzii — până la 1,09 m, cu pasul de 0,12 m; fiecare treaptă are câte două locuri despărțite pe latura scurtă, deci șase locuri pentru cinci familii, iar piesa se lasă de sus, culcată, în locul familiei ei | numărul de piese pe loc | — |
 | Ladă rebut | o ladă pe podea, sub capătul de vest al benzii 2, cu trei pereți scurți și latura de est deschisă; piesa neconformă rămâne pe bandă, trece de linia de oprire a brațului 2 și cade de la capătul benzii | numărul de rebuturi | — |
-| Camere | o cameră fixă de inspecție a calității, deasupra benzii 2, înainte de brațul 2 (rolul `sorting` din `cnc.qa.snapshot.v1.json`: verdictul ei decide ruta), plus câte o cameră pe flanșa fiecărui braț, pentru prindere | cadru RGB offscreen + scor de calitate | — |
+| Camere | patru puncte de vedere: câte o cameră pe flanșa fiecărui braț, camera fixă de deasupra benzii 2 și camera liberă. Verdictul de calitate îl dă cadrul de pe flanșa brațului 2, care vede piesa ținută în falci — rolul `sorting` din `cnc.qa.snapshot.v1.json`; cadrul fix de deasupra benzii rămâne `inspection` | cadru RGB offscreen + scor de calitate | — |
 
 Stările mașinii CNC sunt exact enumerația din `cnc.telemetry.v1.json`: `IDLE`, `LOADING`,
 `CUTTING`, `UNLOADING`, `INSPECTING`. Ciclul complet — bandă 1 → braț 1 → CNC → braț 1 →
@@ -95,6 +98,23 @@ inspecție — înălțime, câmp vizual, rezoluție — se scriu în `simulatio
 împreună cu ce poate și ce nu poate rezolva. Legătura cu uzura: degradarea camerei din secțiunea 3 aplică blur proporțional cu
 `1 - h_camera`, deci o cameră proiectată exact la limita de rezoluție pierde piesa, nu doar
 defectul.
+
+**Camerele de pe flanșe.** Catalogul Menagerie al modelului Panda nu are cameră, deci celula o
+adaugă pe ultima verigă (`link7`), la 5 cm de flanșă, cu **60° pe verticală** și **640×480** —
+aceeași rezoluție ca a camerei fixe, ca două cadre să se poată pune unul peste altul. Obiectivul
+privește punctul de strângere, iar orientarea se calculează la compunerea scenei, nu se scrie de
+mână: așa cum vine din catalog, camera privea **înapoi**, spre cot, iar punctul de strângere cădea
+la −143 mm adâncime, adică în spatele obiectivului. Măsurat acum cu `view.py --check`: punctul de
+strângere e la 160 mm, abaterea față de axul optic e 0,0°, iar o piesă de 100 mm iese pe ~260 px
+din 640, adică ~2,6 px/mm. Pragul care prinde o montare greșită sau o cameră prea depărtată este
+`checks.MIN_WRIST_PART_PX = 150`.
+
+**Cele patru puncte de vedere** sunt registrul din `cncdt_mj/povs.py`, care este pur: nume de
+cameră, rezoluție, moment de captură și rol. Cadrul se ia la două feluri de momente — la un punct
+de lucru, după ce brațul s-a așezat pe poziția de jos, ori când piesa trece pe bandă prin dreptul
+camerei fixe. Pe ciclu ies cinci cadre: două de pe flanșa brațului 1 (blocul brut în falci și piesa
+în universal), unul de pe flanșa brațului 2 (verdictul), unul al camerei fixe (cadrul de proces al
+piesei mașinate) și unul general al celulei, cu piesa în locul familiei ei.
 
 ### Poziționarea în celulă: grid de 0,5 m
 
@@ -303,16 +323,57 @@ metadatele locale ale sesiunii, pentru că nu are nicio coloană în contract. D
 `telemetry/schemas/` și în `cncdt_ml/schema.py` — cele trei se schimbă împreună, altfel
 Firehose cade la conversia Parquet.
 
-Fișierele unei sesiuni:
+Fișierele unei sesiuni, așa cum le scrie `make mj-record` în `simulation/mujoco/runs/<familie>-<sămânță>/`:
 
 ```
-runs/<scenario>/<seed>/
-  samples.jsonl        # eșantioane brute, 10 Hz
-  windows.parquet      # ferestre de 60 s, coloanele din contract
-  events.csv           # etichete: momentul eșecurilor și al injectărilor
-  wear.csv             # traiectoria sănătății per componentă (diagnostic)
-  session.json         # parametrii, versiunea mujoco, sămânța, durata simulată
+runs/wheel_100-7/
+  samples.jsonl        # eșantioane brute, 10 Hz, exact câmpurile din cnc.telemetry.v1.json
+  snapshots.jsonl      # metadatele cadrelor de inspecție, exact câmpurile din cnc.qa.snapshot.v1.json
+  frames.jsonl         # indexul cadrelor: cale, punct de vedere, moment, eticheta piesei
+  readings.jsonl       # diagnostic: efort pe braț, forță de strângere, poziția piesei, contacte
+  frames/cyc-000001/   # PNG-urile, unul pe punct de vedere și moment
+  session.json         # parametrii, versiunea mujoco, sămânța, totalurile, etichetele ciclurilor
 ```
+
+`frames.jsonl` este datasetul de antrenare al vederii: fiecare rând leagă un PNG de familia,
+defectul și verdictul piesei din el, plus identificatorii de trasabilitate ai ciclului. Cadrele de
+inspecție apar în două locuri, fiindcă au două întrebuințări: în `snapshots.jsonl` intră doar cele
+două roluri din contract (`sorting` — flanșa brațului 2, `inspection` — camera fixă), exact ce s-ar
+publica pe MQTT și în bucketul de date, iar în `frames.jsonl` intră toate, inclusiv cele de
+prindere, care sunt pentru antrenare, nu pentru verdict. `readings.jsonl` ține mărimile care n-au
+coloană în contract, ca să nu se strecoare în eșantionul de pe hot path.
+
+Lipsesc încă `windows.parquet`, `events.csv` și `wear.csv`: ferestrele de 60 s au sens când
+există uzura care le face interesante, iar etichetele de evenimente și traiectoria sănătății vin
+cu `wear.py` (secțiunea 3, faza 1).
+
+### Cum ajunge același conținut pe calea live
+
+Ce scrie sesiunea local este exact ce s-ar publica: rândurile din `samples.jsonl` sunt sarcinile
+MQTT, cu `topic` inclus, iar metadatele din `snapshots.jsonl` sunt sidecar-ul care declanșează
+inspecția. Geamănul nu are încă publicator — `run.py` scrie fișiere —, iar legarea la IoT Core se
+face din aceleași trei piese ca la extensia Isaac Sim:
+
+- **Eșantioanele** pleacă pe `cncdt/<env>/cnc/<cell>/telemetry`, cu `paho-mqtt` peste mTLS, prin
+  `cnc_cell/telemetry/publisher.py`; aceeași clasă are transportul local în JSONL, deci o sesiune
+  fără rețea arată exact ca una live. Regula IoT Core selectează mesajul întreg, adaugă topicul și
+  marcajul de timp MQTT, iar Firehose îl convertește în Parquet (Snappy), partiționat pe oră, sub
+  `raw/telemetry/dt_year=.../dt_month=.../dt_day=.../dt_hour=.../`, cu microbatch de 60 s și
+  Lambda-ul de transformare în zbor (secțiunea 4 din `docs/01-architecture.md`).
+- **Cadrele de inspecție** devin pereche PNG + JSON în bucketul data lake, sub `raw/qa-snapshots/`:
+  scrierea fișierului JSON este chiar evenimentul care cheamă Lambda-ul de inspecție (notificarea
+  S3 filtrează pe `filter_prefix = "raw/qa-snapshots/"`), iar Lambda-ul citește fotografia cu cheia
+  din `image_key`, deci numele de fișier al geamănului (`<punct de vedere>-<moment>.png`) intră ca
+  atare. Verdictul se scrie în `curated/qa-verdicts/` și se publică pe
+  `cncdt/<env>/cnc/<cell>/qa-verdict`, de unde celula acționează pistonul de rejecție.
+- **Identitatea** dispozitivului vine din modulul `iot-ingestion` (lucrul `cnc-cell-01`, certificat
+  mTLS, politică), iar geamănul citește din mediu aceleași nume ca extensia: `CNCDT_ENVIRONMENT`,
+  `CNCDT_DEVICE_ID`, `CNCDT_CELL_ID`, `CNCDT_TELEMETRY_TOPIC`, `CNCDT_QA_PREFIX`.
+
+Două piese lipsesc, amândouă în afara geamănului: urcarea cadrelor în S3 și un publicator MQTT
+pentru eșantioane. Sunt subțiri — perechea PNG + JSON urcată sub `raw/qa-snapshots/`, respectiv un
+client `paho-mqtt` care trimite rândurile existente —, iar contractele sunt deja identice, deci
+fișierele sesiunii nu se schimbă când se scriu.
 
 ## 5. Detecția anomaliilor și timpul de anticipare
 
@@ -375,6 +436,8 @@ simulation/mujoco/          # există
   README.md                # instalare, comenzi, structură, intrinsics, stare cunoscută
   requirements.txt         # mujoco==3.15.0, mujoco-menagerie==2026.10.1, numpy, mapbox_earcut
   view.py                   # --check / --render / --demo / --view, peste scena compusă de cncdt_mj.scene
+  run.py                    # sesiunea de colectare: cicluri, telemetrie, cadre, fișierele sesiunii
+  runs/                     # sesiunile scrise de `make mj-record`; ignorate de git
   scene/cell.xml            # șablonul celulei; cifrele se pun prin substituție, nu stau în el
   cncdt_mj/
     __init__.py             # căile pachetului
@@ -383,27 +446,27 @@ simulation/mujoco/          # există
     belt.py                 # direcțiile benzilor, viteza de suprafață, forța cu limita de frecare; fără MuJoCo
     checks.py               # regulile verificării pe nume de corpuri (contacte normale); fără MuJoCo
     moves.py                # punctele de lucru ale fiecărui braț: ordine, apropiere, treceri; fără MuJoCo
+    povs.py                 # cele patru puncte de vedere: cameră, rezoluție, moment, rol; fără MuJoCo
+    telemetry.py            # eșantionul pe contract, metadatele cadrului, fișierele sesiunii; fără MuJoCo
     scene.py                # compunerea: cell.xml plus cele două brațe; importă mujoco
     cell.py                 # contactul cu banda, viteza piesei, forța scrisă în data.xfrc_applied; importă mujoco
     arms.py                 # cinematica inversă, urmărirea căii, strângerea; importă mujoco
+    sensors.py              # din MjData în mărimi de proces: efort, falci, piese, contacte; importă mujoco
+    camera.py               # randare offscreen (PNG scris de mână) și cadrele sesiunii; importă mujoco
 ```
 
 ```
 simulation/mujoco/cncdt_mj/  # de scris, în fazele 1-5
   wear.py                   # motorul de uzură (pur, numpy)
   faults.py                 # injectare bruscă, reparație, rată de uzură (pur)
-  telemetry.py              # eșantion brut + ferestre, pe contract (pur)
   detector.py               # RCF local + regula de alarmă (pur, numpy)
   report.py                 # preaviz, rată de detecție, alarme false (pur)
-  camera.py                 # randare offscreen + degradare
-  sensors.py                # din MjData în mărimi de proces
   cell.py                   # are transportul pe benzi și ciclul brațelor; lipsesc prinderea, stările mașinii și legarea uzurii de fizică
   control.py                # REPL, endpoint local, punte către viewer
-  run.py                    # punctul de intrare: sesiune, scenariu, sămânță, ieșire
 tests/unit/
   test_mujoco_scene.py      # există: layout/part/checks fără MuJoCo, înălțimile față de acest document, camera de inspecție; partea care atinge motorul se rulează cu `make mj-test`
+  test_mj_telemetry.py      # există: contractele eșantionului și ale cadrului, planul capturii, fișierele sesiunii
   test_mj_wear.py           # non-liniaritate, monotonie, mărginire, reproductibilitate
-  test_mj_telemetry.py      # conformitate cu contractul, ferestre, partiții
   test_mj_detector.py       # prag, alarmă susținută, preaviz pe episod sintetic
 ```
 
@@ -416,17 +479,19 @@ al doilea exemplar. Celula își scrie propriile poziții nominale, fiindcă cel
 se importă și s-ar ciocni între cele două brațe.
 
 Regula din `AGENTS.md` se respectă: identificatorii în engleză, comentariile de design în
-română, logica pură separată de cea care atinge motorul de fizică — `layout.py` și `part.py` se
-importă din `.venv`-ul proiectului, unde `mujoco` nu există.
+română, logica pură separată de cea care atinge motorul de fizică — `layout.py`, `part.py`,
+`belt.py`, `moves.py`, `checks.py`, `povs.py` și `telemetry.py` se importă din `.venv`-ul
+proiectului, unde `mujoco` nu există, iar `tests/unit/test_mujoco_scene.py` verifică exact ce
+module ating motorul: `scene.py`, `cell.py`, `arms.py`, `sensors.py`, `camera.py`.
 
 ## 8. Faze și criterii de acceptare
 
 | Fază | Ce se livrează | Criteriu de acceptare |
 | --- | --- | --- |
 | 0 | ADR 0012 + documentul de față | revizuite, fără cod |
-| 1 | `wear.py`, `telemetry.py`, `report.py` + teste pure | `pytest` verde fără MuJoCo instalat; uzura e monotonă, mărginită și se accelerează la sănătate mică; ferestrele au exact coloanele din contract |
-| 2 | `scene/cell.xml`, `belt.py`, `cell.py`, `run.py` | o sesiune de 10 minute simulează un ciclu complet (bandă 1 → braț 1 → CNC → braț 1 → bandă 2 → braț 2 → cutie) fără piese pierdute în geometrie; timpul de generare se măsoară și se notează în README |
-| 3 | scrierea sesiunii (JSONL, Parquet, events, wear) | aceeași sămânță produce fișiere identice; un test de paritate compară vectorii de caracteristici cu cei din scena Isaac Sim pe scenariu nominal |
+| 1 | `wear.py`, `faults.py`, `report.py` + teste pure | `pytest` verde fără MuJoCo instalat; uzura e monotonă, mărginită și se accelerează la sănătate mică; ferestrele au exact coloanele din contract |
+| 2 | `scene/cell.xml`, `belt.py`, `cell.py`, `povs.py`, `sensors.py`, `camera.py`, `run.py` | o sesiune de 10 minute simulează un ciclu complet (bandă 1 → braț 1 → CNC → braț 1 → bandă 2 → braț 2 → cutie) fără piese pierdute în geometrie; timpul de generare se măsoară și se notează în README |
+| 3 | scrierea sesiunii (JSONL cu eșantioane, cadre și metadate; apoi Parquet, events, wear) | aceeași sămânță produce fișiere identice; un test de paritate compară vectorii de caracteristici cu cei din scena Isaac Sim pe scenariu nominal |
 | 4 | `detector.py` + evaluare | tabelul de metrici din secțiunea 5, generat de o comandă, pe minimum 20 de episoade de eșec și 8 ore sănătoase |
 | 5 | `control.py` + degradarea camerei | injectarea și reparația din REPL se văd în telemetrie în aceeași fereastră; cadrul de cameră degradat păstrează piesa detectabilă până la `h` critic |
 | 6 | (opțional) SageMaker RCF + card de model | antrenare din ferestrele exportate, card în `ml/models/`, cost justificat în PR |
@@ -436,11 +501,18 @@ Starea de azi: din faza 2 există partea de scenă — `layout.py`, `part.py`, `
 plan și viewer cu benzile pornite) și **brațele în mișcare**: `moves.py` ține punctele de lucru ale
 fiecărui braț, iar `arms.py` le atinge cu cinematică inversă, urmărind linii drepte în spațiul
 sculei. `view.py --check` este verde, `view.py --demo` rulează ciclul și tipărește cifrele fiecărei
-opriri, iar testele geamănului, `tests/unit/test_mujoco_scene.py`, acoperă partea pură. Criteriul
-**nu este atins**: ciclul atinge punctele, dar nu prinde piesa (falcile doar o ating, fiindcă
-deschiderea mâinii Panda, 83 mm, este mai mică decât discul de 104 mm — prinderea se modelează ca
-legătură rigidă, ca în celula din Isaac Sim), lipsesc stările mașinii CNC și `run.py`, deci „fără
-piese pierdute în geometrie" nu se poate dovedi încă.
+opriri, iar testele geamănului acoperă partea pură (`tests/unit/test_mujoco_scene.py`) și
+contractele colectării (`tests/unit/test_mj_telemetry.py`).
+
+Din faza 3 există scrierea sesiunii: `make mj-record` parcurge un ciclu pe fiecare familie și scrie
+cele șase ieșiri (cinci cadre pe ciclu), iar `samples.jsonl` respectă întocmai contractul.
+Criteriul **nu este atins**: ciclul atinge punctele, dar nu prinde piesa (falcile doar o ating,
+fiindcă deschiderea mâinii Panda, 83 mm, este mai mică decât discul de 104 mm — prinderea se
+modelează ca legătură rigidă, ca în celula din Isaac Sim), lipsesc stările de așchiere ale mașinii
+CNC, iar un ciclu ține ~53 s simulați, deci „o sesiune de 10 minute" cere zeci de cicluri. Cadrul
+fix de proces se ia la începutul ciclului, fiindcă în geamăn piesa mașinată stă deja sub cameră
+când începe ciclul, iar banda o duce întâi la linia de preluare a brațului 2. Când prinderea
+există, ordinea devine cea reală: piesa ajunge sub cameră după ce brațul 1 o lasă pe bandă.
 
 Fiecare fază se poate opri fără să lase ceva rupt: faza 1 nu are dependențe de MuJoCo, faza 2 nu
 atinge contractele publicate.

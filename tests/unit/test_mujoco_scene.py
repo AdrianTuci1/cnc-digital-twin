@@ -637,11 +637,12 @@ def _imported_top_levels(source: str) -> set[str]:
 
 
 #: Modulele care ating motorul: se validează rulând `view.py --check`, din venv-ul geamănului.
-ENGINE_MODULES = ("scene.py", "cell.py", "arms.py")
+#: `camera.py` randează cadrele sesiunii, iar `sensors.py` citește mărimile din `MjData`.
+ENGINE_MODULES = ("scene.py", "cell.py", "arms.py", "camera.py", "sensors.py")
 
 
 def test_modulele_pure_nu_importa_motorul() -> None:
-    """`layout`, `part`, `belt` și `checks` se importă fără `mujoco`, deci merg testate în `.venv`."""
+    """`layout`, `part`, `belt`, `checks`, `povs` și `telemetry` se importă fără `mujoco`."""
     for path in sorted(PACKAGE_DIR.glob("*.py")):
         if path.name in ENGINE_MODULES:
             continue
@@ -687,7 +688,7 @@ def test_scena_se_compileaza_si_camera_vede_piesa() -> None:
     completă, cu eșantionarea implicită, rămâne `make mj-check`.
     """
     mujoco = pytest.importorskip("mujoco", reason="scena cere mujoco, din venv-ul geamănului")
-    from cncdt_mj import scene
+    from cncdt_mj import arms, scene
 
     model, metadata = scene.build_model()
     data = mujoco.MjData(model)
@@ -702,10 +703,19 @@ def test_scena_se_compileaza_si_camera_vede_piesa() -> None:
 
     machined = next(body for body, place in metadata["placements"].items()
                     if place["state"] == layout.STATE_MACHINED)
-    framing = scene.camera_framing(model, data, "camera_quality", machined,
-                                   layout.INSPECTION_CAMERA_FRAME[1])
+    framing = scene.camera_framing(model, data, "camera_quality", machined)
     assert framing["in_frame"]
     assert framing["px_per_mm"] >= checks.MIN_INSPECTION_PX_PER_MM
 
     prefixes = tuple(f"{prefix}_" for prefix, _ in scene.ARM_MOUNTS)
     assert checks.arm_foreign_contacts(scene.contact_pairs(model, data), prefixes) == []
+
+    # Camerele de pe flanșe privesc punctul de strângere, iar piesa ținută iese destul de mare în
+    # cadru ca verdictul să se poată da din ea (`checks.MIN_WRIST_PART_PX`).
+    diameter_mm = 2 * part.gear_radius_m(metadata["part"]["family"]) * 1000
+    for arm in arms.ARMS:
+        view = scene.camera_view(model, data, f"{arm}_wrist_camera",
+                                 arms.tool_point(model, data, arm))
+        assert view["in_frame"], f"camera de pe {arm} nu are punctul de strângere în cadru"
+        assert diameter_mm * float(view["px_per_mm"]) >= checks.MIN_WRIST_PART_PX, \
+            f"camera de pe {arm} vede prea departe piesa ținută"

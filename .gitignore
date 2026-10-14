@@ -65,6 +65,8 @@ simulation/logs/
 simulation/cache/
 # Cadrele din `view.py --demo --shots`: se refac dintr-o rulare, una la fiecare oprire a ciclului.
 simulation/mujoco/renders/demo/
+# Sesiunile de colectare din `make mj-record`: mii de cadre pe familie, se refac dintr-o rulare.
+simulation/mujoco/runs/
 !simulation/assets/.gitkeep
 !simulation/assets/**/.gitkeep
 

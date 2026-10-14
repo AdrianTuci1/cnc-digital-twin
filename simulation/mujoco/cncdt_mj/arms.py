@@ -246,7 +246,9 @@ def hand_pose(model: mujoco.MjModel, data: mujoco.MjData,
     """Poziția și orientarea flanșei, în sistemul lumii, citite din scenă."""
     identifier = _body_id(model, hand_body(arm))
     position = np.array(data.xpos[identifier], dtype=float)
-    quat = np.array([data.xquat[identifier][3], *data.xquat[identifier][:3]], dtype=float)
+    # `data.xquat` este deja în ordinea cerută de `mju_quat2Mat`, (w, x, y, z): reordonarea lui
+    # dădea o altă rotație, iar scula urmărea un punct care nu era cel de strângere.
+    quat = np.array(data.xquat[identifier], dtype=float)
     return position, quat
 
 

@@ -31,8 +31,10 @@ make mj-check    # poarta: compilează scena, măsoară, raportează; iese cu 1 
 make mj-test     # testele geamănului care ating motorul, din venv-ul lui
 make mj-render   # scrie renders/cell.png și renders/inspection.png
 make mj-demo     # rulează ciclul brațelor și tipărește cifrele fiecărei opriri
+make mj-record   # colectează sesiuni de antrenare, câte una pe familie, în runs/
 make mj-check MJ_SAMPLES=2000   # degajarea camerei, pe mai multe configurații de braț
 make mj-demo MJ_FAMILIES="wheel_100 pinion_56"   # doar familiile cerute, ca proba să fie scurtă
+make mj-record MJ_RECORD_CYCLES=20   # sesiune de antrenare: 20 de cicluri pe familie
 ```
 
 Fără Makefile, aceleași lucruri se scriu direct:
@@ -48,6 +50,11 @@ $MUJOCO simulation/mujoco/view.py --demo
 
 # Același ciclu, cu un PNG la fiecare oprire, în renders/demo/ (director generat, ignorat de git).
 $MUJOCO simulation/mujoco/view.py --demo --shots
+
+# Sesiunea de colectare: telemetrie, cadre, metadate și etichete, în runs/<familie>-<sămânță>/.
+$MUJOCO simulation/mujoco/run.py --cycles 2
+$MUJOCO simulation/mujoco/run.py --family pinion_56 --cycles 20 --out /tmp/sesiune
+$MUJOCO simulation/mujoco/run.py --cycles 5 --no-frames   # doar telemetrie, mult mai rapid
 
 # Un cadru al celulei, din camera liberă (implicit renders/cell.png).
 $MUJOCO simulation/mujoco/view.py --render
@@ -100,15 +107,22 @@ rulează cu `make mj-test`, din venv-ul care are motorul.
 | `cncdt_mj/belt.py` | Benzile: direcția fiecărei benzi, viteza de suprafață și forța de antrenare cu limita de frecare Coulomb. **Fără MuJoCo.** |
 | `cncdt_mj/checks.py` | Regulile verificării care lucrează pe nume de corpuri și pe cifre, nu pe starea motorului (de pildă care contacte ale unui braț sunt normale), plus pragurile verificării, împărțite cu `view.py`. **Fără MuJoCo.** |
 | `cncdt_mj/moves.py` | Mișcările: ce puncte deservește fiecare braț, în ce ordine, din ce parte vine scula, cu ce rotire și prin ce puncte de trecere. Cotele punctelor de lucru ies din înălțimile documentate. **Fără MuJoCo.** |
-| `cncdt_mj/scene.py` | Compunerea scenei: `scene/cell.xml` plus cele două brațe atașate programatic. Unul dintre cele trei module care importă `mujoco`. |
+| `cncdt_mj/povs.py` | Cele patru puncte de vedere din care se strânge datasetul: camera, rezoluția, momentul de captură (un punct de lucru ori cota de pe bandă) și rolul din contract. **Fără MuJoCo.** |
+| `cncdt_mj/telemetry.py` | Contractele: eșantionul brut cu exact câmpurile din `cnc.telemetry.v1.json`, metadatele cadrului de inspecție, etichetele sesiunii, plus un validator mic peste fișierele de schemă (fără dependența `jsonschema`). **Fără MuJoCo.** |
+| `cncdt_mj/scene.py` | Compunerea scenei: `scene/cell.xml` plus cele două brațe atașate programatic, cu camerele de pe flanșe. Unul dintre modulele care importă `mujoco`. |
 | `cncdt_mj/cell.py` | Celula în mișcare: cine e în contact cu banda, ce viteză are piesa, ce forță se scrie în `data.xfrc_applied`. Al doilea modul care importă `mujoco`. |
-| `cncdt_mj/arms.py` | Brațele: numele articulațiilor și ale actuatoarelor, lungimea sculei măsurată în scenă, cinematica inversă, urmărirea liniei dintre două puncte și strângerea. Al treilea modul care importă `mujoco`. |
+| `cncdt_mj/arms.py` | Brațele: numele articulațiilor și ale actuatoarelor, lungimea sculei măsurată în scenă, cinematica inversă, urmărirea liniei dintre două puncte și strângerea. Importă `mujoco`. |
+| `cncdt_mj/sensors.py` | Din starea motorului în mărimi de proces: efortul articulațiilor, forța falcilor, poziția și viteza pieselor, sarcina de contact. Importă `mujoco`. |
+| `cncdt_mj/camera.py` | Randarea offscreen: scrierea PNG fără dependențe externe, cadrele știute ale camerei libere și ținerea minte a randatoarelor. Importă `mujoco`. |
 | `scene/cell.xml` | Șablonul celulei. Cifrele nu stau în el: se pun prin substituție, din `layout.scene_geometry()`. |
 | `view.py` | Cele patru moduri: `--check`, `--render`, `--demo`, `--view`. |
+| `run.py` | Sesiunea de colectare: cicluri întregi, telemetrie, cadre, fișierele sesiunii și verificarea lor la sfârșit. |
 
-Consecința practică a împărțirii: `layout`, `part`, `belt`, `checks` și `moves` se importă din
+Consecința practică a împărțirii: `layout`, `part`, `belt`, `checks`, `moves`, `povs` și
+`telemetry` se importă din
 `.venv`-ul proiectului, unde `mujoco` nu există (ADR 0012), iar tot ce atinge motorul se validează
-rulând `view.py --check`. Lista modulelor de motor (`scene.py`, `cell.py`, `arms.py`) este scrisă
+rulând `view.py --check`. Lista modulelor de motor (`scene.py`, `cell.py`, `arms.py`, `camera.py`,
+`sensors.py`) este scrisă
 explicit în `tests/unit/test_mujoco_scene.py`: un modul nou care importă `mujoco` trebuie declarat
 acolo, altfel testul cade.
 
@@ -236,7 +250,55 @@ uzura camerei (`docs/11-geaman-mujoco.md`, secțiunea 3) adaugă blur proporțio
 peste ele. Cadrul este suficient pentru catalogul actual de defecte, nu pentru unul mai fin: dacă
 defectele se rafînează, se schimbă întâi distanța ori rezoluția, nu clasificatorul.
 
-Camerele de prindere stau pe flanșa fiecărui braț, cu 60° pe verticală; ele nu au rol de inspecție.
+Camerele de prindere stau pe flanșa fiecărui braț, cu 60° pe verticală, la 640×480 — aceeași
+rezoluție ca a camerei fixe, ca două cadre să se poată pune unul peste altul. Vezi secțiunea
+„Colectarea datelor de antrenare" pentru ce se vede în ele.
+
+## Colectarea datelor de antrenare
+
+`run.py` este pipeline-ul: parcurge cicluri întregi și scrie exact ce cere antrenarea. `make
+mj-record` îl cheamă o dată pe familie, iar sesiunile ajung în `runs/<familie>-<sămânță>/`
+(director generat, ignorat de git).
+
+```
+runs/wheel_100-7/
+  samples.jsonl        # eșantioane brute, 10 Hz: exact câmpurile din cnc.telemetry.v1.json
+  snapshots.jsonl      # metadatele cadrelor de inspecție: exact cnc.qa.snapshot.v1.json
+  frames.jsonl         # indexul cadrelor: cale, punct de vedere, moment, eticheta piesei
+  readings.jsonl       # diagnostic: efort pe braț, forță de strângere, poziția piesei, contacte
+  frames/cyc-000001/   # PNG-urile, unul pe punct de vedere și moment
+  session.json         # parametrii, versiunea MuJoCo, totalurile, etichetele ciclurilor
+```
+
+**Cele patru puncte de vedere** sunt registrul din `cncdt_mj/povs.py`, iar pe ciclu ies cinci
+cadre:
+
+| Punct de vedere | Cameră | Moment | Rol |
+| --- | --- | --- | --- |
+| `arm1_wrist` | pe flanșa brațului 1 | la preluarea blocului brut și în universal | — |
+| `arm2_wrist` | pe flanșa brațului 2 | la preluarea roții de pe banda 2 | `sorting` — verdictul de calitate |
+| `process` | fixă, deasupra benzii 2 | când piesa trece prin dreptul ei | `inspection` |
+| `cell` | liberă, cadru larg | când piesa ajunge în locul familiei | — |
+
+Verdictul care decide ruta este cadrul de pe **flanșa brațului 2**: el vede piesa ținută în falci,
+de aproape, la ~2,6 px/mm. Cadrul fix rămâne pentru comparație și pentru dataset, la 3,6 px/mm.
+Niciunul nu se dublează: cele două cadre cu rol intră în `snapshots.jsonl`, toate patru intră în
+`frames.jsonl`, alături de familie, defect și verdict.
+
+**Verificarea la sfârșitul sesiunii** validează fiecare eșantion și fiecare cadru de inspecție
+contra fișierelor de schemă, numără cadrele față de plan și tipărește dimensiunile; ieșirea este
+„Sesiune: verde" ori „Sesiune: CĂZUTĂ", cu codul de ieșire potrivit.
+
+**Determinism**: două rulări cu aceeași sămânță și același director de ieșire dau fișiere identice
+bit cu bit — eșantioane, metadate, indexul cadrelor, diagnosticul și toate PNG-urile (verificat cu
+`diff -r` pe două sesiuni de câte două cicluri). Singura cifră care diferă este timpul de ceas real
+din `session.json`.
+
+Ce se vede azi în cadre, cinstit: cadrul de proces se ia **la începutul ciclului**, fiindcă în
+geamăn piesa mașinată stă deja sub camera fixă când începe ciclul, iar banda o duce întâi la linia
+de preluare a brațului 2. Cadrul de pe flanșa brațului 1 arată falcile deasupra universalului gol,
+fiindcă prinderea nu este modelată. Amândouă se schimbă cu prinderea, nu cu randarea.
+
 
 ## Benzile: forță în cod, linie de oprire în plan
 
@@ -328,16 +390,24 @@ eroare maximă pe cele 80 de opriri — 16 pe fiecare dintre cele cinci familii 
 brațelor atinsă, 56,4 s simulate, iar amândouă piesele rămân pe benzile lor. Cifrele ciclului și
 calea lui sunt în secțiunea „Brațele" de mai sus.
 
+`make mj-record` este **verde** pe toate cele cinci familii, cu un ciclu fiecare: cinci cadre pe
+ciclu, 533–555 de eșantioane în contract pe sesiune, ~54 s simulați în ~2,4 s de ceas real (circa
+22 de ori mai repede decât ritmul real). Cadrul de proces, de pe flanșa brațului 2 și cel general
+se citesc cu ochiul; universul gol și poziția falcilor se schimbă când intră prinderea.
+
 Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
 
 1. **Prinderea piesei.** Falcile ating piesa fără să o cuprindă (mâna se deschide 83 mm, discul are
    104 mm): prinderea se modelează ca legătură rigidă, ca în celula din Isaac Sim, cu o egalitate
-   `weld` pornită prin `data.eq_active`. De ea atârnă și „fără piese pierdute în geometrie".
-2. **Stările mașinii CNC și `run.py`.** `IDLE`/`LOADING`/`CUTTING`/`UNLOADING`/`INSPECTING`, sesiunea
-   cu durată, sămânță, scenariu și ieșire nu sunt scrise, deci criteriul „o sesiune de 10 minute
-   simulează un ciclu complet" nu se poate dovedi încă.
-3. **Colectarea datelor de antrenare** — camerele, senzorii și verdictul, scrise ca eșantioane pe
-   contractul din `telemetry/schemas/`. Nu e scrisă.
+   `weld` pornită prin `data.eq_active`. De ea atârnă și „fără piese pierdute în geometrie", plus
+   ordinea reală a cadrului de proces (piesa ajunge sub cameră după ce brațul 1 o lasă pe bandă).
+2. **Stările de așchiere ale mașinii CNC.** `IDLE`, `LOADING`, `UNLOADING` și `INSPECTING` au
+   sursă în ciclul brațelor, iar `CUTTING` nu: scena nu are axele mașinii, deci sarcina axului,
+   vibrația, temperatura, avansul și uzura vin deocamdată din scenariul sesiunii
+   (`telemetry.MachineReading`), sub aceleași nume din contract.
+3. **Publicarea live.** `run.py` scrie fișiere; urcarea cadrelor sub `raw/qa-snapshots/` și
+   publicarea eșantioanelor pe MQTT se leagă în pasul următor. Contractele sunt identice, deci
+   nimic din fișierele sesiunii nu se schimbă atunci. Detalii: `docs/11-geaman-mujoco.md` §4.
 4. **Mișcarea laterală a pieselor pe bandă nu e măsurată la impact.** Într-o cursă lungă, o piesă
    poate aluneca spre șină; de verificat când intră brațele, fiindcă de acolo vine poziția de
    prindere.
@@ -346,3 +416,7 @@ Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
 `arms.py` (cinematica inversă, urmărirea liniei, lungimea sculei măsurată), `view.py --demo` cu
 cifrele fiecărei opriri și `make mj-demo` —, plus cele două lecții de cale (ridicarea după fiecare
 punct, trecerea pe la vest de mașină) și testele pure noi pentru treceri și pentru ordinea pașilor.
+Tot aici: camerele de pe flanșe (`scene.wrist_camera_quat`, orientarea calculată la compunere),
+pipeline-ul de colectare (`povs.py`, `sensors.py`, `camera.py`, `telemetry.py`, `run.py`) cu ținta
+`make mj-record`, verificat pe toate cele cinci familii, plus testele pure din
+`tests/unit/test_mj_telemetry.py`.

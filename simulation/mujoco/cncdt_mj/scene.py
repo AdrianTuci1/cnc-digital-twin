@@ -22,6 +22,7 @@ import mujoco_menagerie
 import numpy as np
 
 from . import MUJOCO_DIR
+from . import arms
 from . import belt
 from . import layout
 from . import part
@@ -36,6 +37,10 @@ CELL_XML = MUJOCO_DIR / "scene" / "cell.xml"
 ARM_MOUNTS: tuple[tuple[str, str], ...] = (("arm1", "arm1_mount"), ("arm2", "arm2_mount"))
 
 #: Camera de prindere de pe flanșa fiecărui braț: catalogul de modele nu o are, celula o adaugă.
+#: Poziția e în sistemul ultimei verigi (``link7``), iar orientarea se calculează la compunere, ca
+#: obiectivul să privească punctul de strângere. Așa cum vine din catalog — axele verigii, fără
+#: rotire — camera privea **înapoi**, spre cot: punctul de strângere cădea la −143 mm adâncime,
+#: adică în spatele obiectivului, iar cadrul arăta cotul. Măsurat cu `view.py --check`.
 WRIST_CAMERA_OFFSET = (0.0, 0.0, 0.05)
 WRIST_CAMERA_FOVY = 60.0
 
@@ -184,6 +189,48 @@ def _add_parts(spec: mujoco.MjSpec, variant: part.PartVariant, blank: part.Blank
                                meshname="machined_part_mesh", material="part_mat")
 
 
+def _body_id(model: mujoco.MjModel, name: str) -> int:
+    """Identificatorul unui corp, cu eroare care spune ce nume lipsește."""
+    identifier = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
+    if identifier < 0:
+        raise ValueError(f"corp inexistent în scenă: {name}")
+    return int(identifier)
+
+
+def wrist_camera_quat(model: mujoco.MjModel, arm: str,
+                      mount: tuple[float, float, float] = WRIST_CAMERA_OFFSET) -> np.ndarray:
+    """Orientarea camerei de pe flanșă, ca obiectivul să privească punctul de strângere.
+
+    Punctul de strângere se măsoară din geometria falcilor (`arms.tool_point`), nu se presupune:
+    de el atârnă distanța la care ajunge piesa în cadru, iar distanța se citește din montajul de
+    mai sus — 143 mm, cât să cuprindă roata de ~104 mm cu contextul falcilor.
+
+    Camerele MuJoCo privesc de-a lungul axei lor ``−Z``, iar „sus"-ul cadrului se ia din axa
+    sculei, proiectată perpendicular pe direcția de privire: imaginea stă la fel față de piesă
+    oricum ar fi orientat brațul, în loc să se răsucească o dată cu încheietura.
+    """
+    data = mujoco.MjData(model)
+    for side in (1, 2):
+        data.qpos[_joint_qpos(model, f"{arm}_finger_joint{side}")] = GRIPPER_OPEN
+    mujoco.mj_forward(model, data)
+    link = _body_id(model, f"{arm}_link7")
+    rotation = np.asarray(data.xmat[link], dtype=float).reshape(3, 3)
+    pinch = rotation.T @ (arms.tool_point(model, data, arm)
+                          - np.asarray(data.xpos[link], dtype=float))
+    back = np.asarray(mount, dtype=float) - pinch
+    z_axis = back / float(np.linalg.norm(back))
+    up = pinch - z_axis * float(pinch @ z_axis)
+    if float(np.linalg.norm(up)) < 1e-6:
+        up = np.array([0.0, 1.0, 0.0])
+    y_axis = up / float(np.linalg.norm(up))
+    x_axis = np.cross(y_axis, z_axis)
+    x_axis = x_axis / float(np.linalg.norm(x_axis))
+    y_axis = np.cross(z_axis, x_axis)
+    quat = np.zeros(4)
+    mujoco.mju_mat2Quat(quat, np.column_stack((x_axis, y_axis, z_axis)).ravel())
+    return quat
+
+
 def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
                blank_shape: str = part.BLANK_SHAPES[0],
                blank_xy: tuple[float, float] | None = None, blank_yaw_deg: float | None = None,
@@ -210,16 +257,20 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
     for prefix, mount in ARM_MOUNTS:
         child = mujoco.MjSpec.from_file(str(panda_dir / "panda.xml"))
         spec.attach(child, prefix=f"{prefix}_", frame=spec.body(mount).to_frame())
-        spec.body(f"{prefix}_link7").add_camera(name=f"{prefix}_wrist_camera",
-                                               pos=list(WRIST_CAMERA_OFFSET),
-                                               fovy=WRIST_CAMERA_FOVY)
 
     _add_parts(spec, variant, blank, places)
 
     # Keyframe-ul „nominal" al celulei. Ca să scriem vectorul în ordinea modelului, compilăm o
     # dată, citim adresele articulațiilor după nume, adăugăm keyframe-ul și compilăm din nou:
-    # compilarea e ieftină, iar ordinea este deterministică pentru același spec.
+    # compilarea e ieftină, iar ordinea este deterministică pentru același spec. Tot de prima
+    # compilare are nevoie și orientarea camerelor de pe flanșe, care se calculează din poziția
+    # măsurată a punctului de strângere.
     model = spec.compile()
+    for prefix, _ in ARM_MOUNTS:
+        spec.body(f"{prefix}_link7").add_camera(
+            name=f"{prefix}_wrist_camera", pos=list(WRIST_CAMERA_OFFSET),
+            quat=[float(value) for value in wrist_camera_quat(model, prefix)],
+            fovy=WRIST_CAMERA_FOVY)
     spec.add_key(name="nominal", qpos=nominal_qpos(model, places).tolist(),
                  ctrl=nominal_ctrl(model).tolist())
 
@@ -410,42 +461,54 @@ def _part_radius_m(model: mujoco.MjModel, geom: int) -> float:
     return float(model.geom_size[geom][0])
 
 
-def camera_framing(model: mujoco.MjModel, data: mujoco.MjData, camera: str, body: str,
-                   height_px: int) -> dict[str, float | bool]:
-    """Unde cade o piesă în cadrul unei camere: distanța, abaterea de la ax și diametrul în pixeli.
+def camera_view(model: mujoco.MjModel, data: mujoco.MjData, camera: str,
+                point: Any) -> dict[str, float | bool]:
+    """Unde cade un punct din scenă în cadrul unei camere: distanța, abaterea de la ax, câmpul.
 
     Camerele MuJoCo privesc de-a lungul axei lor locale −Z (verificat cu o scenă de probă), iar
     verificarea asta prinde exact capcana orientării: o cameră întoarsă pe dos trece de orice
-    măsurătoare de distanță, dar nu are piesa în cadru. Diametrul iese din silueta geomei
-    piesei, nu din vreo constantă transcrisă.
+    măsurătoare de distanță, dar nu are subiectul în față. Subiectul poate fi un corp (piesa
+    mașinată, pentru camera de inspecție) ori un punct (punctul de strângere, pentru camerele de pe
+    flanșe, care fotografiază piesa ținută în falci).
     """
     camera_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, camera)
-    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body)
-    if camera_id < 0 or body_id < 0:
-        raise ValueError(f"cameră ori corp inexistent în scenă: {camera} / {body}")
-    width_px, frame_height = layout.INSPECTION_CAMERA_FRAME
+    if camera_id < 0:
+        raise ValueError(f"cameră inexistentă în scenă: {camera}")
+    width_px, height_px = layout.INSPECTION_CAMERA_FRAME
     axes = data.cam_xmat[camera_id].reshape(3, 3)
-    offset = data.xpos[body_id] - data.cam_xpos[camera_id]
-    local = axes @ offset
+    offset = np.asarray(point, dtype=float) - data.cam_xpos[camera_id]
+    local = axes.T @ offset
     depth = -float(local[2])
     fovy = math.radians(float(model.cam_fovy[camera_id]))
-    fovx = 2 * math.atan(math.tan(fovy / 2) * width_px / frame_height)
+    fovx = 2 * math.atan(math.tan(fovy / 2) * width_px / height_px)
     angle_x = math.degrees(math.atan2(float(local[0]), depth))
     angle_y = math.degrees(math.atan2(float(local[1]), depth))
-    radius = _part_radius_m(model, int(model.body_geomadr[body_id]))
-    px_per_mm = height_px / (2 * depth * math.tan(fovy / 2)) / 1000 if depth > 0 else 0.0
     return {
         "distance_m": float(np.linalg.norm(offset)),
         "depth_m": depth,
         "angle_x_deg": angle_x,
         "angle_y_deg": angle_y,
-        "diameter_px": 2 * radius * px_per_mm * 1000,
-        "px_per_mm": px_per_mm,
+        "px_per_mm": height_px / (2 * depth * math.tan(fovy / 2)) / 1000 if depth > 0 else 0.0,
         "fovx_deg": math.degrees(fovx),
         "fovy_deg": math.degrees(fovy),
         "in_frame": (depth > 0 and abs(angle_x) <= math.degrees(fovx) / 2
                      and abs(angle_y) <= math.degrees(fovy) / 2),
     }
+
+
+def camera_framing(model: mujoco.MjModel, data: mujoco.MjData, camera: str,
+                   body: str) -> dict[str, float | bool]:
+    """Unde cade o piesă în cadrul unei camere: distanța, abaterea de la ax și diametrul în pixeli.
+
+    Diametrul iese din silueta geomei piesei, nu din vreo constantă transcrisă, iar restul din
+    :func:`camera_view`, care lucrează pe un punct oarecare.
+    """
+    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body)
+    if body_id < 0:
+        raise ValueError(f"corp inexistent în scenă: {body}")
+    view = camera_view(model, data, camera, data.xpos[body_id])
+    radius = _part_radius_m(model, int(model.body_geomadr[body_id]))
+    return {**view, "diameter_px": 2 * radius * float(view["px_per_mm"]) * 1000}
 
 
 def metrics(model: mujoco.MjModel, data: mujoco.MjData) -> dict[str, int]:

@@ -27,10 +27,8 @@ from __future__ import annotations
 import argparse
 import math
 import os
-import struct
 import sys
 import time
-import zlib
 from pathlib import Path
 
 import numpy as np
@@ -41,18 +39,10 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import arms, belt, cell, checks, layout, moves, part, scene  # noqa: E402
+from cncdt_mj import arms, belt, camera, cell, checks, layout, moves, part, scene  # noqa: E402
 
 #: Unde se scriu cadrele; directorul e comis, ca dovada vizuală să fie în repo.
 RENDERS_DIR = MUJOCO_DIR / "renders"
-
-#: Cadrul general al celulei, din camera liberă: centrul celulei, de sus și dinspre sud-est.
-FREE_CAMERA = {"lookat": (3.0, 2.0, 0.8), "distance": 8.5, "azimuth": 135.0, "elevation": -28.0}
-
-#: Cadrul apropiat al brațelor, pentru cadrele din `--demo --shots`: celula citită ca în plan —
-#: banda 1 sus, mașina în dreapta —, dar de aproape, ca să se vadă și falcile la piesa apucată.
-DEMO_CAMERA = {"lookat": (2.85, 2.55, 0.9), "distance": 4.6, "azimuth": 290.0,
-               "elevation": -24.0}
 
 #: Prefixele corpurilor brațelor, pentru regula de contact (`checks.arm_foreign_contacts`).
 ARM_PREFIXES = tuple(f"{prefix}_" for prefix, _ in scene.ARM_MOUNTS)
@@ -63,23 +53,6 @@ REPORT_PERIOD_S = 1.0
 # Pragurile verificării (`MIN_CAMERA_CLEARANCE_M`, `MIN_INSPECTION_PX_PER_MM`,
 # `YAW_TOLERANCE_DEG`, `MAX_SETTLE_DRIFT_M`) stau în `cncdt_mj/checks.py`: sunt reguli pure, iar
 # testele din `.venv`-ul proiectului le împart cu scriptul de față.
-
-
-def write_png(path: Path, image: np.ndarray) -> None:
-    """Scrie un PNG RGB fără nicio dependență externă (nici PIL, nici imageio nu sunt instalate)."""
-    height, width, channels = image.shape
-    if channels != 3:
-        raise ValueError(f"imaginea are {channels} canale, nu 3")
-    raw = b"".join(b"\x00" + image[row].tobytes() for row in range(height))
-
-    def chunk(tag: bytes, payload: bytes) -> bytes:
-        return (struct.pack(">I", len(payload)) + tag + payload
-                + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF))
-
-    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
-                     + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
 
 
 def build(args: argparse.Namespace) -> tuple[mujoco.MjModel, mujoco.MjData, dict, list[str]]:
@@ -142,32 +115,6 @@ def camera_arguments(args: argparse.Namespace) -> tuple[str | None, int, int]:
     return args.camera, args.width or width, args.height or height
 
 
-def configure_camera(camera: mujoco.MjvCamera, preset: dict = FREE_CAMERA) -> None:
-    """Așază camera liberă pe unul din cadrele știute ale celulei.
-
-    Se folosește și la randare, și la deschiderea viewer-ului, ca fereastra să pornească pe aceeași
-    priveliște ca `renders/cell.png`, nu pe încadrarea implicită a MuJoCo.
-    """
-    camera.lookat[:] = preset["lookat"]
-    camera.distance = preset["distance"]
-    camera.azimuth = preset["azimuth"]
-    camera.elevation = preset["elevation"]
-
-
-def render(model: mujoco.MjModel, data: mujoco.MjData, path: Path, camera: str | None,
-           width: int, height: int) -> None:
-    """Randează un cadru offscreen și îl scrie ca PNG."""
-    with mujoco.Renderer(model, height=height, width=width) as renderer:
-        if camera is None:
-            free = mujoco.MjvCamera()
-            mujoco.mjv_defaultFreeCamera(model, free)
-            configure_camera(free)
-            renderer.update_scene(data, camera=free)
-        else:
-            renderer.update_scene(data, camera=camera)
-        write_png(path, renderer.render())
-
-
 def check(args: argparse.Namespace) -> int:
     """Modul implicit: tot ce se poate verifica fără să te uiți la ecran."""
     steps = args.steps or scene.SETTLE_STEPS
@@ -213,8 +160,7 @@ def check(args: argparse.Namespace) -> int:
 
     machined = next(body for body, place in metadata["placements"].items()
                     if place["state"] == layout.STATE_MACHINED)
-    framing = scene.camera_framing(model, data, "camera_quality", machined,
-                                   layout.INSPECTION_CAMERA_FRAME[1])
+    framing = scene.camera_framing(model, data, "camera_quality", machined)
     print(f"  piesa în cadru          : {framing['distance_m']:.3f} m de obiectiv, "
           f"abatere {framing['angle_x_deg']:+.1f}° / {framing['angle_y_deg']:+.1f}° față de ax, "
           f"diametru {framing['diameter_px']:.0f} px ({framing['px_per_mm']:.1f} px/mm)")
@@ -223,6 +169,21 @@ def check(args: argparse.Namespace) -> int:
     elif framing["px_per_mm"] < checks.MIN_INSPECTION_PX_PER_MM:
         failures.append(f"camera de inspecție vede prea grosier ({framing['px_per_mm']:.1f} px/mm "
                         f"< {checks.MIN_INSPECTION_PX_PER_MM:.1f} px/mm)")
+
+    print("\nCamere de pe flanșe: piesa ținută, la 60° pe verticală")
+    for arm in arms.ARMS:
+        subject = arms.tool_point(model, data, arm)
+        view = scene.camera_view(model, data, f"{arm}_wrist_camera", subject)
+        diameter_mm = 2 * part.gear_radius_m(metadata["part"]["family"]) * 1000
+        pixels = diameter_mm * float(view["px_per_mm"])
+        print(f"  {arm}: punctul de strângere la {view['depth_m'] * 1000:.0f} mm, "
+              f"abatere {view['angle_x_deg']:+.1f}° / {view['angle_y_deg']:+.1f}° față de ax, "
+              f"piesa de {diameter_mm:.0f} mm iese la {pixels:.0f} px")
+        if not view["in_frame"]:
+            failures.append(f"camera de pe {arm} nu are scula în cadru")
+        elif pixels < checks.MIN_WRIST_PART_PX:
+            failures.append(f"camera de pe {arm} vede prea departe piesa ținută "
+                            f"({pixels:.0f} px < {checks.MIN_WRIST_PART_PX:.0f} px)")
 
     print("\nMaterial: două stări, amândouă pe benzi")
     for body, place in metadata["placements"].items():
@@ -282,52 +243,6 @@ def transport_line(model: mujoco.MjModel, data: mujoco.MjData,
     return f"t={data.time:6.2f} s | " + " | ".join(cells)
 
 
-class Frames:
-    """Cadre scrise pe drum, cu un singur randator: ce face `--demo --shots`.
-
-    Randatorul se deschide o dată, nu la fiecare cadru, iar camera este cea liberă, aceeași din
-    care iese `renders/cell.png`: pozele arată exact ce arată și verificarea de rutină.
-    """
-
-    def __init__(self, model: mujoco.MjModel, width: int = 1280, height: int = 960) -> None:
-        self.renderer = mujoco.Renderer(model, height=height, width=width)
-        self.camera = mujoco.MjvCamera()
-        mujoco.mjv_defaultFreeCamera(model, self.camera)
-        configure_camera(self.camera, DEMO_CAMERA)
-
-    def write(self, data: mujoco.MjData, path: Path) -> None:
-        """Scrie un cadru."""
-        self.renderer.update_scene(data, camera=self.camera)
-        write_png(path, self.renderer.render())
-
-    def close(self) -> None:
-        """Închide randatorul."""
-        self.renderer.close()
-
-
-def bring_parts_to_pickup(model: mujoco.MjModel, data: mujoco.MjData, parts: tuple[str, ...],
-                          budget: int = 6000) -> dict[str, float]:
-    """Rulează benzile până fiecare piesă trece de linia de oprire, ori până la bugetul de pași.
-
-    Ciclul brațelor are sens doar cu piesele la locul de preluare: altfel brațul întinde mâna
-    după nimic. Bugetul este plasa de siguranță pentru o piesă care nu ajunge niciodată — la
-    0,12 m/s, 6 000 de pași înseamnă 12 secunde de mers, mult peste orice cursă din celulă.
-    """
-    spent = 0
-    while spent < budget:
-        cell.transport(model, data, 200, parts=parts)
-        spent += 200
-        positions = cell.part_positions(model, data, parts)
-        carrying = cell.carried_parts(model, data, parts)
-        arrived = all(
-            carrying.get(body) is None
-            or belt.belt(str(carrying[body])).reached_stop(positions[body][0])
-            for body in parts)
-        if arrived:
-            break
-    return {body: float(cell.part_positions(model, data, parts)[body][0]) for body in parts}
-
-
 def demo(args: argparse.Namespace, hook: arms.StepHook | None = None,
          shots: Path | None = None) -> int:
     """Compune scena, așază totul la poziția nominală și rulează o dată ciclul brațelor."""
@@ -356,9 +271,9 @@ def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespac
     alege compartimentul în care brațul 2 lasă piesa, deci toate cele cinci se pot proba.
     """
     parts = cell.part_bodies(model)
-    arrived = bring_parts_to_pickup(model, data, parts)
+    arrived = cell.bring_parts_to_pickup(model, data, parts)
     tool = {arm: arms.tool_length(model, data, arm) for arm in arms.ARMS}
-    frames = Frames(model) if shots is not None else None
+    frames = camera.Frames(model) if shots is not None else None
     failures: list[str] = []
 
     print(f"Ciclul brațelor: fiecare punct de lucru, atins de sus; familia {family}")
@@ -454,7 +369,7 @@ def view(args: argparse.Namespace) -> int:
     started = time.monotonic()
     next_report = 0.0
     with mujoco.viewer.launch_passive(model, data) as viewer:
-        configure_camera(viewer.cam)
+        camera.configure_camera(viewer.cam)
         if args.demo:
             def hook(model: mujoco.MjModel, data: mujoco.MjData) -> None:
                 """Ține viewer-ul la curent cu starea și ritmul de rulare."""
@@ -566,14 +481,14 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.shots) if args.shots else RENDERS_DIR / "demo")
         return demo(args, shots=shots)
     if args.render is not None:
-        camera, width, height = camera_arguments(args)
+        camera_name, width, height = camera_arguments(args)
         path = Path(args.render) if args.render else RENDERS_DIR / (
-            "inspection.png" if camera == "camera_quality" else "cell.png")
+            "inspection.png" if camera_name == "camera_quality" else "cell.png")
         model, data, metadata, warnings = build(args)
         prepare(model, data, metadata, args.steps or scene.SETTLE_STEPS)
-        render(model, data, path, camera, width, height)
+        camera.render(model, data, path, camera_name, width, height)
         print(f"scris {path} ({width}x{height}, camera "
-              f"{camera or 'liberă'}, {len(warnings)} avertismente)")
+              f"{camera_name or 'liberă'}, {len(warnings)} avertismente)")
         return 0
     return check(args)
 

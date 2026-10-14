@@ -195,8 +195,11 @@ MJ_SAMPLES ?= 200
 # Familiile de piese pe care le parcurge `make mj-demo`. Ciclul atinge locul familiei în raft, deci
 # fiecare familie este o probă separată; `make mj-demo MJ_FAMILIES=wheel_100` scurtează proba.
 MJ_FAMILIES ?= wheel_100 flange_72 bushing_68 wheel_60 pinion_56
+# Câte cicluri adună `make mj-record` pentru fiecare familie. Un ciclu ajunge ca să vezi
+# fișierele; o sesiune de antrenare vrea zeci, deci se dă de pe linia de comandă.
+MJ_RECORD_CYCLES ?= 1
 
-.PHONY: mj-venv mj-check mj-render mj-demo mj-test
+.PHONY: mj-venv mj-check mj-render mj-demo mj-record mj-test
 mj-venv: ## Creează venv-ul geamănului MuJoCo și instalează requirements.txt
 	$(PY) -m venv $(ROOT)/$(MJ_DIR)/.venv
 	$(MJ_PY) -m pip install --quiet --upgrade pip
@@ -221,6 +224,15 @@ mj-demo: ## Rulează ciclul brațelor (offscreen), familie cu familie, și rapor
 mj-test: ## Testele geamănului care ating motorul; rulează din venv-ul lui (pytest e acolo)
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
 	cd $(ROOT) && $(MJ_PY) -m pytest tests/unit/test_mujoco_scene.py -q
+
+mj-record: ## Colectează o sesiune de antrenare (telemetrie + cadre) în simulation/mujoco/runs
+	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
+	@for family in $(MJ_FAMILIES); do \
+		echo "== familia $$family"; \
+		cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/run.py --family $$family --cycles $(MJ_RECORD_CYCLES) \
+			|| exit 1; \
+	done
+	@echo "sesiunile sunt în $(MJ_DIR)/runs (ignorate de git); vezi docs/11-geaman-mujoco.md §4"
 
 # ---------------------------------------------------------------- acces (rol de operator)
 # Stack-ul `access` are state local și se aplică o singură dată per cont, cu profilul de ADMIN,

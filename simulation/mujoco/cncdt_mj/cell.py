@@ -14,10 +14,16 @@ Modulul importă `mujoco`, ca `scene.py`; restul pachetului rămâne pur (ADR 00
 
 from __future__ import annotations
 
+from typing import Callable
+
 import mujoco
 import numpy as np
 
 from . import belt, layout
+
+#: Ce se cheamă după fiecare pas de simulare, ca la mișcarea brațelor: sesiunea de colectare își
+#: ia eșantioanele și cadrele din mers, iar transportul nu știe de ea.
+StepHook = Callable[[mujoco.MjModel, mujoco.MjData], None]
 
 
 def _body_id(model: mujoco.MjModel, name: str) -> int:
@@ -103,7 +109,7 @@ def apply_belt_forces(model: mujoco.MjModel, data: mujoco.MjData, speed_scale: f
 
 
 def transport(model: mujoco.MjModel, data: mujoco.MjData, steps: int, speed_scale: float = 1.0,
-              parts: tuple[str, ...] | None = None) -> None:
+              parts: tuple[str, ...] | None = None, hook: StepHook | None = None) -> None:
     """Rulează pașii cu benzile pornite: forța se rescrie la fiecare pas, apoi se face pasul.
 
     `mj_step` nu golește `data.xfrc_applied`, deci forța se scrie la fiecare pas: o dată pentru
@@ -112,6 +118,8 @@ def transport(model: mujoco.MjModel, data: mujoco.MjData, steps: int, speed_scal
     for _ in range(steps):
         apply_belt_forces(model, data, speed_scale, parts)
         mujoco.mj_step(model, data)
+        if hook is not None:
+            hook(model, data)
 
 
 def part_positions(model: mujoco.MjModel, data: mujoco.MjData,
@@ -120,3 +128,29 @@ def part_positions(model: mujoco.MjModel, data: mujoco.MjData,
     names = part_bodies(model) if parts is None else parts
     return {name: tuple(float(value) for value in data.xpos[_body_id(model, name)])
             for name in names}
+
+
+def bring_parts_to_pickup(model: mujoco.MjModel, data: mujoco.MjData, parts: tuple[str, ...],
+                          budget: int = 6000, hook: StepHook | None = None) -> dict[str, float]:
+    """Rulează benzile până fiecare piesă trece de linia de oprire, ori până la bugetul de pași.
+
+    Ciclul brațelor are sens doar cu piesele la locul de preluare: altfel brațul întinde mâna
+    după nimic. Bugetul este plasa de siguranță pentru o piesă care nu ajunge niciodată — la
+    0,12 m/s, 6 000 de pași înseamnă 12 secunde de mers, mult peste orice cursă din celulă.
+
+    ``hook`` este pentru sesiunea de colectare: piesa trece pe bandă prin dreptul camerei fixe, iar
+    cadrul de proces se ia atunci. Se cheamă după fiecare pas, ca la mișcarea brațelor.
+    """
+    spent = 0
+    while spent < budget:
+        transport(model, data, 200, parts=parts, hook=hook)
+        spent += 200
+        positions = part_positions(model, data, parts)
+        carrying = carried_parts(model, data, parts)
+        arrived = all(
+            carrying.get(body) is None
+            or belt.belt(str(carrying[body])).reached_stop(positions[body][0])
+            for body in parts)
+        if arrived:
+            break
+    return {body: float(part_positions(model, data, parts)[body][0]) for body in parts}
