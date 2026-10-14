@@ -4,7 +4,12 @@ Plan de implementare pentru al doilea geamăn al celulei CNC. Decizia arhitectur
 [ADR 0012](adr/0012-geaman-mujoco-pentru-generare-de-telemetrie.md); documentul de față spune
 **ce** se construiește, în ce ordine și cum se verifică.
 
-Stare: plan, fără cod. Faza 0 (documentația) este singura terminată.
+Stare: faza 0 (documentația) s-a terminat, iar din faza 2 există scena MJCF din
+`simulation/mujoco/`, cu piesa generată, cele două brațe și camera de inspecție. Verificarea ei,
+`view.py --check`, este **încă în roșu** pe patru constatări, trecute în README-ul geamănului:
+suportul camerei intră în raza brațelor, iar două reguli de verificare sunt prea largi.
+Uzura, telemetria, detectorul, interfața de control și randarea degradată sunt deocamdată doar
+pe hârtie.
 
 ## Cuprins
 
@@ -62,7 +67,10 @@ să ocupe câteva sute de pixeli, ceea ce cere simultan o rezoluție mai mare **
 aproape. Cu camera la 2,20 m, adică la ~1,35 m deasupra piesei, un obiectiv normal acoperă ~1,5 m
 din cadru: piesa ajunge la vreo 10 pixeli, iar defectul sub un pixel, deci nicio clasă din
 catalogul de defecte nu ar fi separabilă. De aceea camera de inspecție stă la 0,25 m deasupra
-suprafeței benzii 2 și randează la 640×480, adică ~4,5 px/mm pe piesă. Înălțimea camerelor este
+suprafeței benzii 2 și randează la 640×480, cu 30° pe verticală: acoperă 179 × 134 mm la nivelul
+benzii, adică ~3,6 px/mm pe piesă — destul ca un dinte ciobit de 4 mm să iasă pe ~14 pixeli și o
+gaură dezaxată cu 2,5 mm pe ~9. Sub ~0,3 mm nu se mai măsoară nimic, iar blurul din secțiunea 3
+se adaugă peste. Înălțimea camerelor este
 parametru, nu o constantă comună, iar intrinsics-urile camerei de inspecție — înălțime, câmp
 vizual, rezoluție — se scriu în `simulation/mujoco/README.md`, împreună cu ce poate și ce nu
 poate rezolva. Legătura cu uzura: degradarea camerei din secțiunea 3 aplică blur proporțional cu
@@ -288,31 +296,49 @@ Panoul rămâne o unealtă de dezvoltare. Operarea se uită în dashboard-urile 
 ## 7. Structura de fișiere
 
 ```
-simulation/mujoco/
-  README.md              # cum se rulează, ce iese, ce nu este modelat
-  requirements.txt       # mujoco==3.15.0, mujoco-menagerie==2026.10.1, numpy (+ RCF în faza 4)
-  scene/cell.xml         # asamblarea scenei, include modelele din mujoco_menagerie
+simulation/mujoco/          # există
+  README.md                # instalare, comenzi, structură, intrinsics, stare cunoscută
+  requirements.txt         # mujoco==3.15.0, mujoco-menagerie==2026.10.1, numpy, mapbox_earcut
+  view.py                   # --check / --render / --view, peste scena compusă de cncdt_mj.scene
+  scene/cell.xml            # șablonul celulei; cifrele se pun prin substituție, nu stau în el
   cncdt_mj/
-    wear.py              # motorul de uzură (pur, numpy)
-    faults.py            # injectare bruscă, reparație, rată de uzură (pur)
-    telemetry.py         # eșantion brut + ferestre, pe contract (pur)
-    detector.py          # RCF local + regula de alarmă (pur, numpy)
-    report.py            # preaviz, rată de detecție, alarme false (pur)
-    belt.py              # forțe tangențiale de bandă
-    camera.py            # randare offscreen + degradare
-    sensors.py           # din MjData în mărimi de proces
-    cell.py              # ciclul, stările mașinii, legarea uzurii de fizică
-    control.py           # REPL, endpoint local, punte către viewer
-    run.py               # punctul de intrare: sesiune, scenariu, sămânță, ieșire
-tests/unit/
-  test_mj_wear.py        # non-liniaritate, monotonie, mărginire, reproductibilitate
-  test_mj_telemetry.py   # conformitate cu contractul, ferestre, partiții
-  test_mj_detector.py    # prag, alarmă susținută, preaviz pe episod sintetic
-  test_mujoco_scene.py   # încarcă MJCF și face pași (importorskip)
+    __init__.py             # căile pachetului
+    layout.py               # așezarea în plan (din docs/diagrams/cell_layout.py) și înălțimile; fără MuJoCo
+    part.py                 # blocul brut și piesa din generatorul procedural; fără MuJoCo
+    scene.py                # compunerea: cell.xml plus cele două brațe; singurul care importă mujoco
 ```
 
+```
+simulation/mujoco/cncdt_mj/  # de scris, în fazele 1-5
+  wear.py                   # motorul de uzură (pur, numpy)
+  faults.py                 # injectare bruscă, reparație, rată de uzură (pur)
+  telemetry.py              # eșantion brut + ferestre, pe contract (pur)
+  detector.py               # RCF local + regula de alarmă (pur, numpy)
+  report.py                 # preaviz, rată de detecție, alarme false (pur)
+  belt.py                   # forțe tangențiale de bandă
+  camera.py                 # randare offscreen + degradare
+  sensors.py                # din MjData în mărimi de proces
+  cell.py                   # ciclul, stările mașinii, legarea uzurii de fizică
+  control.py                # REPL, endpoint local, punte către viewer
+  run.py                    # punctul de intrare: sesiune, scenariu, sămânță, ieșire
+tests/unit/
+  test_mujoco_scene.py      # de scris: layout/part fără MuJoCo, înălțimile față de acest document
+  test_mj_wear.py           # non-liniaritate, monotonie, mărginire, reproductibilitate
+  test_mj_telemetry.py      # conformitate cu contractul, ferestre, partiții
+  test_mj_detector.py       # prag, alarmă susținută, preaviz pe episod sintetic
+```
+
+**De ce scena nu se poate scrie declarativ.** MJCF nu poate aduce singur modelele din
+`mujoco-menagerie`: `<attach model="...">` nu funcționează în MuJoCo 3.15.0 — încercat cu patru
+forme de cale, toate sfârșite cu „could not find model" — iar `modeldir` nu există pe `<compiler>`.
+`scene/cell.xml` ține deci doar componentele celulei, iar cele două brațe se atașează programatic,
+cu `MjSpec.attach(child, prefix=..., frame=body.to_frame())` și `copy_during_attach = True` pentru
+al doilea exemplar. Celula își scrie propriile poziții nominale, fiindcă cele ale modelului copil
+se importă și s-ar ciocni între cele două brațe.
+
 Regula din `AGENTS.md` se respectă: identificatorii în engleză, comentariile de design în
-română, logica pură separată de cea care atinge motorul de fizică.
+română, logica pură separată de cea care atinge motorul de fizică — `layout.py` și `part.py` se
+importă din `.venv`-ul proiectului, unde `mujoco` nu există.
 
 ## 8. Faze și criterii de acceptare
 
@@ -325,6 +351,11 @@ română, logica pură separată de cea care atinge motorul de fizică.
 | 4 | `detector.py` + evaluare | tabelul de metrici din secțiunea 5, generat de o comandă, pe minimum 20 de episoade de eșec și 8 ore sănătoase |
 | 5 | `control.py` + degradarea camerei | injectarea și reparația din REPL se văd în telemetrie în aceeași fereastră; cadrul de cameră degradat păstrează piesa detectabilă până la `h` critic |
 | 6 | (opțional) SageMaker RCF + card de model | antrenare din ferestrele exportate, card în `ml/models/`, cost justificat în PR |
+
+Starea de azi: din faza 2 există partea de scenă — `layout.py`, `part.py`, `scene.py`,
+`scene/cell.xml` și `view.py`, verificate cu `view.py --check` — dar **criteriul nu este atins**:
+verificarea este roșie pe degajarea camerei față de brațe, iar „fără piese pierdute în geometrie"
+nu se poate dovedi până nu trece. `belt.py`, `cell.py` și `run.py` lipsesc.
 
 Fiecare fază se poate opri fără să lase ceva rupt: faza 1 nu are dependențe de MuJoCo, faza 2 nu
 atinge contractele publicate.
