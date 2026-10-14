@@ -180,6 +180,35 @@ diagrams: ## Regenerează diagramele de arhitectură din docs/diagrams/
 cell-layout: ## Regenerează planul celulei, văzut de sus (docs/diagrams/cnc-cell-layout.png)
 	cd $(ROOT) && $(PY) docs/diagrams/cell_layout.py
 
+# ---------------------------------------------------------------- geamănul MuJoCo
+# Al doilea geamăn al celulei (ADR 0012, `docs/11-geaman-mujoco.md`) are venv-ul lui: `mujoco`
+# nu are ce căuta în straturile Lambda și nici în `.venv`-ul proiectului. `make mj-venv` îl
+# creează o singură dată, iar `make mj-check` este poarta: iese cu cod 1 dacă vreo verificare a
+# scenei cade. `make test` nu depinde de el, fiindcă suita proiectului rulează fără `mujoco`;
+# `make mj-test` rulează, din venv-ul geamănului, testele care au nevoie de motor.
+MJ_DIR     := simulation/mujoco
+MJ_PY      := $(ROOT)/$(MJ_DIR)/.venv/bin/python
+MJ_SAMPLES ?= 200
+
+.PHONY: mj-venv mj-check mj-render mj-test
+mj-venv: ## Creează venv-ul geamănului MuJoCo și instalează requirements.txt
+	$(PY) -m venv $(ROOT)/$(MJ_DIR)/.venv
+	$(MJ_PY) -m pip install --quiet --upgrade pip
+	$(MJ_PY) -m pip install --quiet -r $(ROOT)/$(MJ_DIR)/requirements.txt
+
+mj-check: ## Verifică scena MuJoCo (compilează, măsoară, raportează); poartă pentru faza 2
+	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
+	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --check --samples $(MJ_SAMPLES)
+
+mj-render: ## Scrie cadrele geamănului: renders/cell.png și renders/inspection.png
+	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
+	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --render
+	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --render --camera camera_quality
+
+mj-test: ## Testele geamănului care ating motorul; rulează din venv-ul lui (pytest e acolo)
+	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
+	cd $(ROOT) && $(MJ_PY) -m pytest tests/unit/test_mujoco_scene.py -q
+
 # ---------------------------------------------------------------- acces (rol de operator)
 # Stack-ul `access` are state local și se aplică o singură dată per cont, cu profilul de ADMIN,
 # înainte să existe rolul. După aceea, credențialele de zi cu zi se iau cu
