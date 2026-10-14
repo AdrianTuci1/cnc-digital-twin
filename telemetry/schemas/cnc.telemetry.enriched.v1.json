@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cncdt.local/schemas/cnc.telemetry.enriched.v1.json",
+  "title": "cnc.telemetry.enriched.v1",
+  "description": "Fereastră de telemetrie agregată de Lambda-ul de feature engineering. Acestea sunt exact coloanele tabelului din registrul de schemă folosit de Firehose pentru conversia în Parquet. Orice câmp în plus față de această listă face conversia să eșueze, de aceea Lambda-ul filtrează înregistrarea înainte de a o scrie.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "device_id",
+    "cell_id",
+    "topic",
+    "ts_ms",
+    "received_at",
+    "window_s",
+    "sample_count",
+    "machine_state",
+    "cycle_id",
+    "part_id",
+    "spindle_load_mean",
+    "spindle_load_p95",
+    "spindle_load_std",
+    "vibration_rms",
+    "vibration_peak",
+    "vibration_std",
+    "tool_wear_index",
+    "coolant_flow_lpm",
+    "temp_c_mean",
+    "joint_friction_index",
+    "anomaly_score",
+    "anomaly_detected",
+    "model_version",
+    "is_synthetic_defect"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "device_id": { "type": "string" },
+    "cell_id": { "type": "string" },
+    "topic": { "type": "string" },
+    "ts_ms": { "type": "integer" },
+    "received_at": {
+      "type": "string",
+      "description": "Momentul agregării, în format ISO 8601 UTC."
+    },
+    "window_s": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Durata ferestrei, în secunde."
+    },
+    "sample_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Numărul de eșantioane brute din fereastră."
+    },
+    "machine_state": { "type": "string" },
+    "cycle_id": { "type": "string" },
+    "part_id": { "type": "string" },
+    "spindle_load_mean": { "type": "number" },
+    "spindle_load_p95": { "type": "number" },
+    "spindle_load_std": { "type": "number" },
+    "vibration_rms": { "type": "number" },
+    "vibration_peak": { "type": "number" },
+    "vibration_std": { "type": "number" },
+    "tool_wear_index": { "type": "number" },
+    "coolant_flow_lpm": { "type": "number" },
+    "temp_c_mean": { "type": "number" },
+    "joint_friction_index": { "type": "number" },
+    "anomaly_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Probabilitatea de anomalie. Vine de la endpoint sau, în lipsa lui, din pragurile absolute."
+    },
+    "anomaly_detected": { "type": "boolean" },
+    "model_version": {
+      "type": "string",
+      "description": "Versiunea modelului sau 'thresholds' când decizia vine din praguri."
+    },
+    "is_synthetic_defect": { "type": "boolean" }
+  }
+}

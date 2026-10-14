@@ -1,0 +1,25 @@
+# Exemplu de valori pentru stack-ul `sim-data` (volumul persistent de date).
+# `twinctl` generează `sim-data.auto.tfvars` (gitignorat) din variabilele SIM_DATA_VOLUME_*
+# din `.env`; fișierul de față arată ce se poate regla.
+
+project_name = "cncdt"
+environment  = "dev"
+region       = "eu-central-1"
+
+# Zona se fixează la creare și nu se mai schimbă: un volum EBS trăiește într-o singură zonă,
+# iar instanța trebuie să pornească în aceeași zonă ca să îl poată atașa. Lăsați gol în `.env`
+# (SIM_DATA_VOLUME_AZ) ca twinctl să o aleagă o dată, după cel mai mic preț spot.
+availability_zone = "eu-central-1b"
+
+# Mărimea se plătește lunar (0.0952 USD/GB-lună în eu-central-1), indiferent de instanță.
+# 100 GB ≈ 9.5 USD/lună, 200 GB ≈ 19 USD/lună; volumul se poate mări ulterior
+# (terraform apply + resize2fs la boot). Un volum pornit dintr-un snapshot nu poate fi mai mic
+# decât snapshot-ul: pentru discul rădăcină de 200 GB de mai jos, size_gb este cel puțin 200.
+size_gb    = 100
+iops       = 3000
+throughput = 125
+
+# Snapshot din care pornește volumul. Gol îl lasă pe twinctl să reia automat cel mai nou
+# snapshot al volumului (vezi `make sim-data-snapshot LIST=1`); se completează doar pentru o
+# restaurare anume, din alt snapshot.
+snapshot_id = ""

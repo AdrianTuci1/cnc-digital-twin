@@ -1,0 +1,2267 @@
+#!/usr/bin/env bash
+# twinctl — ciclul de viață al instanței NVIDIA Isaac Sim, dintr-o singură comandă.
+#
+#   ./tools/twinctl/twinctl init       verificări prealabile, cheie SSH, bucket de asset-uri
+#   ./tools/twinctl/twinctl up         creează instanța GPU
+#   ./tools/twinctl/twinctl status     starea instanței și a containerului
+#   ./tools/twinctl/twinctl connect    deschide tunelul și afișează URL-ul clientului WebRTC
+#   ./tools/twinctl/twinctl stop       oprește instanța on-demand (pe spot se termină, vezi down)
+#   ./tools/twinctl/twinctl data       starea volumului EBS persistent de date
+#   ./tools/twinctl/twinctl down       șterge resursele de simulare (volumul de date rămâne)
+#
+# Toate operațiunile trec prin Terraform (`infra/terraform/stacks/sim` și `stacks/sim-data`,
+# state local) și prin AWS CLI pentru acțiuni de runtime. Nu se folosește consola AWS.
+#
+# Instanța rulează pe spot (`SIM_USE_SPOT=true`): dacă AWS nu are capacitate, `up` eșuează cu
+# un indiciu clar. Nu există revenire automată pe on-demand.
+
+set -Eeuo pipefail
+
+# ---------------------------------------------------------------- constante
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "${SCRIPT_PATH}/../.." && pwd)"
+TF_DIR="${ROOT}/infra/terraform/stacks/sim"
+TFVARS="${TF_DIR}/sim.auto.tfvars"
+# Volumul de date stă în alt stack, cu alt state: `sim-down` nu îl poate atinge.
+DATA_DIR="${ROOT}/infra/terraform/stacks/sim-data"
+DATA_TFVARS="${DATA_DIR}/sim-data.auto.tfvars"
+STATE_DIR="${ROOT}/.twinctl"
+TUNNEL_DIR="${STATE_DIR}/tunnels"
+BOOTSTRAP_TIMEOUT_SECONDS="${BOOTSTRAP_TIMEOUT_SECONDS:-1500}"
+
+# Tarife pentru estimări. gp3, IOPS-ul, debitul, IPv4-ul public și g5.2xlarge au fost verificate
+# cu AWS Price List API pentru eu-central-1 (Frankfurt). Restul tipurilor de instanță sunt valori
+# aproximative de listă și servesc doar la ordinul de mărime.
+EBS_GP3_GB_MONTH="0.0952"
+EBS_GP3_IOPS_MONTH="0.006"
+EBS_GP3_MIBPS_MONTH="0.0476"
+EBS_SNAPSHOT_GB_MONTH="0.054"
+PUBLIC_IPV4_HOUR="0.005"
+GP3_FREE_IOPS="3000"
+GP3_FREE_MIBPS="125"
+
+instance_hourly_rate() {
+  case "$1" in
+    g5.xlarge)    echo "1.006" ;;
+    g5.2xlarge)   echo "1.5156" ;;
+    g5.4xlarge)   echo "1.624" ;;
+    g5.8xlarge)   echo "2.448" ;;
+    g5.12xlarge)  echo "5.672" ;;
+    g5.16xlarge)  echo "4.288" ;;
+    g5.24xlarge)  echo "8.144" ;;
+    g5.48xlarge)  echo "16.288" ;;
+    g6.xlarge)    echo "0.805" ;;
+    g6.2xlarge)   echo "1.323" ;;
+    g6.4xlarge)   echo "1.861" ;;
+    g6e.xlarge)   echo "1.861" ;;
+    g4dn.xlarge)  echo "0.526" ;;
+    g4dn.2xlarge) echo "0.752" ;;
+    g4dn.4xlarge) echo "1.204" ;;
+    g4dn.12xlarge) echo "3.912" ;;
+    *)            echo "" ;;
+  esac
+}
+
+# Prețul spot curent pentru un tip de instanță, cel mai recent punct publicat de AWS.
+# `describe-spot-price-history` cere un început de interval; șase ore în urmă este suficient
+# ca fiecare zonă să aibă un punct, iar dintre puncte îl luăm pe cel mai nou.
+spot_hourly_rate() {
+  local itype="$1" start
+  start="$(date -u -v-6H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+  [[ -z "${start}" ]] && return 0
+
+  aws_cli ec2 describe-spot-price-history \
+    --instance-types "${itype}" \
+    --product-descriptions "Linux/UNIX" \
+    --start-time "${start}" \
+    --query 'reverse(sort_by(SpotPriceHistory,&Timestamp))[0].SpotPrice' \
+    --output text 2>/dev/null || true
+}
+
+# Tipul de piață al instanței: `spot` sau on-demand (câmpul `InstanceLifecycle` e gol).
+instance_market() {
+  local lifecycle
+  lifecycle="$(instance_field "${1}" "InstanceLifecycle")"
+  if [[ "${lifecycle}" == "spot" ]]; then
+    printf 'spot'
+  else
+    printf 'on-demand'
+  fi
+}
+
+# Tariful orar aplicabil: prețul spot publicat acum, dacă instanța e pe spot, altfel tariful
+# on-demand din tabelul de mai sus. Prețul spot se citește la fiecare rulare, deci estimarea
+# urmează piața, iar când citirea eșuează se cade înapoi pe on-demand.
+hourly_rate_for() {
+  local id="$1" itype="$2" rate=""
+  if [[ "$(instance_market "${id}")" == "spot" ]]; then
+    rate="$(spot_hourly_rate "${itype}")"
+    if [[ -n "${rate}" && "${rate}" != "None" ]]; then
+      awk -v r="${rate}" 'BEGIN { printf "%.4f", r }'
+      return 0
+    fi
+  fi
+  instance_hourly_rate "${itype}"
+}
+
+# ---------------------------------------------------------------- ieșire
+if [[ -t 1 ]]; then
+  C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'
+  C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'
+else
+  C_RESET=""; C_BOLD=""; C_DIM=""; C_RED=""; C_GREEN=""; C_YELLOW=""; C_BLUE=""
+fi
+
+info()  { printf '%s\n' "${C_BLUE}==>${C_RESET} $*"; }
+ok()    { printf '%s\n' "${C_GREEN} ok ${C_RESET} $*"; }
+warn()  { printf '%s\n' "${C_YELLOW}atenție${C_RESET} $*" >&2; }
+die()   { printf '%s\n' "${C_RED}eroare${C_RESET} $*" >&2; exit 1; }
+plain() { printf '%s\n' "$*"; }
+
+row() {
+  # Aliniază eticheta la `width` caractere vizibile (diacriticele ocupă un caracter).
+  local label="$1" value="${2:-}" width="${3:-18}"
+  local pad=$(( width - ${#label} ))
+  (( pad < 1 )) && pad=1
+  printf '  %s%*s%s\n' "${label}" "${pad}" "" "${value}"
+}
+
+usage() {
+  cat <<'EOF'
+twinctl — ciclul de viață al instanței NVIDIA Isaac Sim, dintr-o singură comandă.
+
+  ./tools/twinctl/twinctl init       verificări prealabile, cheie SSH, bucket de asset-uri
+  ./tools/twinctl/twinctl up         creează instanța GPU și afișează datele de conectare
+  ./tools/twinctl/twinctl status     starea instanței și datele de conectare
+  ./tools/twinctl/twinctl connect    deschide tunelul și afișează URL-ul clientului WebRTC
+  ./tools/twinctl/twinctl stop       oprește instanța (păstrează discul)
+  ./tools/twinctl/twinctl data       starea volumului EBS persistent de date
+  ./tools/twinctl/twinctl down       șterge resursele de simulare (volumul de date rămâne)
+
+Toate operațiunile trec prin Terraform (`infra/terraform/stacks/sim` și `stacks/sim-data`,
+state local) și prin AWS CLI pentru acțiuni de runtime. Nu se folosește consola AWS.
+
+Instanța rulează pe piața spot (`SIM_USE_SPOT=true`): costă aproximativ jumătate, iar la o
+întrerupere AWS anunță cu două minute și termină instanța, fără să repornească nimic automat.
+Când AWS nu are capacitate, `up` eșuează cu un indiciu; nu există revenire pe on-demand.
+Revenirea este o decizie explicită: `make sim-up` creează o instanță nouă și reatașează
+volumul de date persistent. AWS acceptă oprirea doar pentru cererile spot `persistent`, iar
+cererea de aici este `one-time`, deci pe spot `stop` refuză și trimite la `down` urmat de `up`;
+on-demand (`SIM_USE_SPOT=false`) se oprește și se pornește normal. Detalii:
+docs/adr/0010-instanta-de-simulare-pe-spot.md.
+
+Comenzi:
+  init                 Verifică uneltele, creează cheia SSH și bucket-ul de asset-uri
+  up [opțiuni]         Creează instanța GPU și afișează datele de conectare
+                       (--wait așteaptă finalizarea bootstrap-ului)
+  status [--deep]      Starea instanței, datele de conectare; --deep rulează autotestarea
+  url                  Afișează serverul de semnalizare al clientului WebRTC
+  connect [opțiuni]    Deschide tunelul de semnalizare WebRTC (--mode auto|ssm|ssh, --stop închide)
+  dcv [--open]         Datele de acces grafic (desktop GNOME + Amazon DCV); --open deschide tunelul
+  ssh [comandă...]     Shell sau comandă pe instanță, prin SSM sau SSH
+  assets               Starea oglinzii locale de conținut Isaac Sim; pornește sincronizarea
+                       dacă lipsește (fără ea, browserele de asset-uri rămân goale)
+  push                 Urcă simulation/ pe instanță, prin S3 și SSM (cere bucket)
+  push-sim             Urcă simulation/ direct prin SSH (fără S3), pentru codul extensiei
+  vpn-config           Scrie profilul .ovpn (certificat de client inclus) pentru AWS VPN Client
+  vpn-off | vpn-on     Șterge ori recreează endpoint-ul Client VPN, fără să atingă instanța.
+                       Endpoint-ul se taxează orar cât timp există, conectat sau nu.
+  logs [--follow]      Afișează logurile Isaac Sim
+  start | stop         Pornește/oprește instanța păstrând discul
+  freeze [opțiuni]     Creează un AMI din instanță ca să nu reinstalezi Isaac Sim la următoarea
+                       pornire (--list, --keep N șterge AMI-urile mai vechi, --clear renunță)
+  data                 Starea volumului de date: ID, zonă, dimensiune, instanța care îl are,
+                       snapshot-uri existente și costul lunar
+  data-up [--snapshot ID] [--fresh]
+                       Creează volumul de date dacă lipsește (altfel nu face nimic). Dacă
+                       lipsește, reia automat ultimul snapshot; --snapshot impune un altul, iar
+                       --fresh cere un volum gol, fără snapshot
+  data-down [--yes] [--no-snapshot]
+                       ȘTERGE volumul de date. Implicit face întâi un snapshot; --no-snapshot
+                       șterge fără copie nouă (snapshot-urile vechi rămân). Cere volumul
+                       detașat (întâi `make sim-down`)
+  data-snapshot [--list] [--keep N]
+                       Creează un snapshot al volumului; --list le afișează pe cele existente,
+                       --keep N le șterge pe cele mai vechi peste N (merge și fără volum)
+  selftest             Rulează diagnoza mediului pe instanță
+  outputs              Afișează toate ieșirile Terraform
+  cost                 Estimare de cost pentru starea curentă
+  spot                 Prețul spot pe zone, comparația cu on-demand și scorul de capacitate
+  down [--yes] [--freeze]
+                       Șterge resursele de simulare (instanță, disc rădăcină, cheie, VPN).
+                       Volumul de date NU se șterge: rămâne pentru următoarea instanță și se
+                       șterge doar cu `data-down`. --freeze face întâi un AMI golden
+
+Ciclul economic recomandat:
+  make sim-up          pornește din AMI-ul golden, dacă există
+  make sim-freeze      salvează starea instalată într-un AMI (explicit, când vrei)
+  make sim-down        șterge instanța; rămân AMI-ul golden și volumul de date
+  make sim-data        arată volumul de date persistent
+  make sim-vpn         scrie profilul AWS VPN Client și arată adresa de streaming din tunel
+
+Volumul de date (SIM_DATA_VOLUME_ENABLED=true) este un EBS separat care se atașează fiecărei
+instanțe și se montează la /opt/cncdt: asset-urile, cache-ul și simulările supraviețuiesc
+instanței spot. Se șterge doar cu `data-down`, iar snapshot-urile se fac doar cu
+`data-snapshot`. Dacă volumul lipsește (a fost șters), `up` îl recreează în aceeași zonă și
+reia automat ultimul snapshot; `SIM_DATA_VOLUME_SNAPSHOT` din .env, ori `data-up --snapshot`,
+impune alt snapshot, iar `data-up --fresh` cere un volum gol. Se plătește lunar cât timp
+există. Detalii: docs/adr/0011-volum-de-date-persistent.md.
+
+Variabile de mediu (citite din .env dacă există):
+  AWS_PROFILE, AWS_REGION, PROJECT_NAME, ENVIRONMENT, SIM_INSTANCE_TYPE, SIM_USE_SPOT,
+  SIM_ROOT_VOLUME_GB, SIM_ROOT_VOLUME_IOPS, SIM_ROOT_VOLUME_THROUGHPUT, SIM_ALLOCATE_EIP,
+  SIM_AUTOSTART, SIM_ISAAC_SIM_IMAGE, SIM_AMI_ID, SIM_GOLDEN_AMI_PREFIX,
+  SIM_INSTALL_CLOUDWATCH_AGENT, SIM_WEBRTC_PUBLIC_PORTS, SIM_ASSETS_BUCKET,
+  SIM_SSH_KEY_NAME, SIM_SSH_PUBLIC_KEY, SIM_SSH_PRIVATE_KEY, SIM_SSH_ALLOWED_CIDRS,
+  SIM_ENABLE_TURN, ISAAC_SIGNALING_PORT, ISAAC_STREAM_PORT,
+  SIM_ISAAC_CONTENT_SECTIONS, SIM_ISAAC_CONTENT_URL,
+  SIM_DATA_VOLUME_ENABLED, SIM_DATA_VOLUME_GB, SIM_DATA_VOLUME_IOPS,
+  SIM_DATA_VOLUME_THROUGHPUT, SIM_DATA_VOLUME_AZ, SIM_DATA_VOLUME_SNAPSHOT,
+  SIM_VPN_ENABLED, SIM_VPN_CLIENT_CIDR, SIM_VPN_PORT, SIM_VPN_TRANSPORT, SIM_VPN_CLIENT_CN
+EOF
+}
+
+# ---------------------------------------------------------------- utilitare
+require_cmd() {
+  local cmd="$1" hint="${2:-}"
+  command -v "${cmd}" >/dev/null 2>&1 || die "lipsește comanda \`${cmd}\`.${hint:+ $hint}"
+}
+
+load_env() {
+  if [[ -f "${ROOT}/.env" ]]; then
+    # Toate valorile din .env devin variabile de mediu pentru procesele copil.
+    set -a
+    # shellcheck source=/dev/null
+    source "${ROOT}/.env"
+    set +a
+  fi
+
+  export AWS_PROFILE="${AWS_PROFILE:-default}"
+  export AWS_REGION="${AWS_REGION:-us-east-1}"
+  export PROJECT_NAME="${PROJECT_NAME:-cncdt}"
+  export ENVIRONMENT="${ENVIRONMENT:-dev}"
+
+  SIM_INSTANCE_TYPE="${SIM_INSTANCE_TYPE:-g5.2xlarge}"
+  SIM_USE_SPOT="${SIM_USE_SPOT:-true}"
+  SIM_ROOT_VOLUME_GB="${SIM_ROOT_VOLUME_GB:-200}"
+  SIM_ROOT_VOLUME_IOPS="${SIM_ROOT_VOLUME_IOPS:-3000}"
+  SIM_ROOT_VOLUME_THROUGHPUT="${SIM_ROOT_VOLUME_THROUGHPUT:-125}"
+  SIM_ALLOCATE_EIP="${SIM_ALLOCATE_EIP:-false}"
+  SIM_AUTOSTART="${SIM_AUTOSTART:-false}"
+  SIM_SSH_ALLOWED_CIDRS="${SIM_SSH_ALLOWED_CIDRS:-auto}"
+  SIM_SSH_KEY_NAME="${SIM_SSH_KEY_NAME:-}"
+  SIM_SSH_PUBLIC_KEY="${SIM_SSH_PUBLIC_KEY:-$HOME/.ssh/cncdt-sim.pub}"
+  SIM_SSH_PRIVATE_KEY="${SIM_SSH_PRIVATE_KEY:-$HOME/.ssh/cncdt-sim}"
+  SIM_ASSETS_BUCKET="${SIM_ASSETS_BUCKET:-}"
+  SIM_AMI_ID="${SIM_AMI_ID:-}"
+  SIM_GOLDEN_AMI_PREFIX="${SIM_GOLDEN_AMI_PREFIX:-${PROJECT_NAME}-${ENVIRONMENT}-sim-golden}"
+  SIM_ENABLE_TURN="${SIM_ENABLE_TURN:-false}"
+  SIM_INSTALL_CLOUDWATCH_AGENT="${SIM_INSTALL_CLOUDWATCH_AGENT:-true}"
+  SIM_DCV_ENABLED="${SIM_DCV_ENABLED:-true}"
+  SIM_DCV_PORT="${SIM_DCV_PORT:-8443}"
+  SIM_DCV_PUBLIC_ACCESS="${SIM_DCV_PUBLIC_ACCESS:-false}"
+  SIM_WEBRTC_PUBLIC_PORTS="${SIM_WEBRTC_PUBLIC_PORTS:-false}"
+  SIM_VPN_ENABLED="${SIM_VPN_ENABLED:-false}"
+  SIM_VPN_CLIENT_CIDR="${SIM_VPN_CLIENT_CIDR:-10.100.0.0/22}"
+  SIM_VPN_PORT="${SIM_VPN_PORT:-443}"
+  SIM_VPN_TRANSPORT="${SIM_VPN_TRANSPORT:-udp}"
+  SIM_VPN_CLIENT_CN="${SIM_VPN_CLIENT_CN:-operator}"
+  SIM_ISAAC_SIM_IMAGE="${SIM_ISAAC_SIM_IMAGE:-nvcr.io/nvidia/isaac-sim:latest}"
+  SIM_ISAAC_CONTENT_SECTIONS="${SIM_ISAAC_CONTENT_SECTIONS:-Robots,Props,Materials,Sensors,Environments/Simple_Warehouse}"
+  SIM_ISAAC_CONTENT_URL="${SIM_ISAAC_CONTENT_URL:-https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0}"
+  ISAAC_SIGNALING_PORT="${ISAAC_SIGNALING_PORT:-8211}"
+  ISAAC_STREAM_PORT="${ISAAC_STREAM_PORT:-49100}"
+
+  # Volumul EBS persistent care se atașează instanței și se montează la /opt/cncdt. Zona se
+  # scrie o singură dată, la creare: un volum EBS aparține unei singure zone, iar instanța
+  # trebuie să pornească exact acolo.
+  SIM_DATA_VOLUME_ENABLED="${SIM_DATA_VOLUME_ENABLED:-true}"
+  SIM_DATA_VOLUME_GB="${SIM_DATA_VOLUME_GB:-100}"
+  SIM_DATA_VOLUME_IOPS="${SIM_DATA_VOLUME_IOPS:-3000}"
+  SIM_DATA_VOLUME_THROUGHPUT="${SIM_DATA_VOLUME_THROUGHPUT:-125}"
+  SIM_DATA_VOLUME_AZ="${SIM_DATA_VOLUME_AZ:-}"
+  SIM_DATA_VOLUME_SNAPSHOT="${SIM_DATA_VOLUME_SNAPSHOT:-}"
+
+  # O cheie existentă în AWS are prioritate față de generarea unei chei locale.
+
+  mkdir -p "${STATE_DIR}" "${TUNNEL_DIR}"
+}
+
+has_ssm_plugin() {
+  command -v session-manager-plugin >/dev/null 2>&1
+}
+
+aws_cli() {
+  # Credențialele din mediu poartă sesiunea rolului de operator. Un `--profile` explicit le-ar
+  # ignora și ar atribui acțiunile utilizatorului, deci îl trecem doar când ele lipsesc.
+  if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
+    aws --region "${AWS_REGION}" "$@"
+  elif [[ -n "${AWS_PROFILE:-}" ]]; then
+    aws --region "${AWS_REGION}" --profile "${AWS_PROFILE}" "$@"
+  else
+    aws --region "${AWS_REGION}" "$@"
+  fi
+}
+
+tf() {
+  terraform -chdir="${TF_DIR}" "$@"
+}
+
+tfvar_list() {
+  # Transformă "a,b,c" în lista HCL ["a", "b", "c"].
+  local raw="$1"
+  local IFS=','
+  local out="" item
+  for item in ${raw}; do
+    item="${item// /}"
+    [[ -z "${item}" ]] && continue
+    out+="\"${item}\", "
+  done
+  printf '[%s]' "${out%, }"
+}
+
+generate_tfvars() {
+  # Instanța trebuie să pornească în zona volumului de date, altfel nu îl poate atașa.
+  local volume_id="" data_az=""
+  if [[ "${SIM_DATA_VOLUME_ENABLED}" == "true" ]]; then
+    volume_id="$(data_volume_id)"
+    [[ -n "${volume_id}" ]] && data_az="$(data_volume_az)"
+  fi
+
+  info "generez ${TFVARS#"${ROOT}/"} din .env"
+  cat > "${TFVARS}" <<EOF
+# Generat automat de tools/twinctl. Nu editați manual: suprascris la fiecare rulare.
+project_name = "${PROJECT_NAME}"
+environment  = "${ENVIRONMENT}"
+region       = "${AWS_REGION}"
+
+instance_type          = "${SIM_INSTANCE_TYPE}"
+use_spot               = ${SIM_USE_SPOT}
+root_volume_size_gb    = ${SIM_ROOT_VOLUME_GB}
+root_volume_iops       = ${SIM_ROOT_VOLUME_IOPS}
+root_volume_throughput = ${SIM_ROOT_VOLUME_THROUGHPUT}
+allocate_eip           = ${SIM_ALLOCATE_EIP}
+ami_id                 = "${SIM_AMI_ID}"
+
+availability_zone = "${data_az}"
+data_volume_id    = "${volume_id}"
+
+ssh_key_name            = "${SIM_SSH_KEY_NAME}"
+ssh_key_public_key_path = "${SIM_SSH_PUBLIC_KEY}"
+ssh_allowed_cidrs       = $(tfvar_list "${SIM_SSH_ALLOWED_CIDRS}")
+
+signaling_port   = ${ISAAC_SIGNALING_PORT}
+stream_port      = ${ISAAC_STREAM_PORT}
+media_port_range = "${ISAAC_MEDIA_PORT_RANGE:-47998-48020}"
+autostart_sim    = ${SIM_AUTOSTART}
+enable_turn      = ${SIM_ENABLE_TURN}
+
+isaac_sim_image          = "${SIM_ISAAC_SIM_IMAGE}"
+isaac_content_sections   = $(tfvar_list "${SIM_ISAAC_CONTENT_SECTIONS}")
+isaac_content_url        = "${SIM_ISAAC_CONTENT_URL}"
+install_cloudwatch_agent = ${SIM_INSTALL_CLOUDWATCH_AGENT}
+enable_dcv               = ${SIM_DCV_ENABLED}
+dcv_port                 = ${SIM_DCV_PORT}
+dcv_public_access        = ${SIM_DCV_PUBLIC_ACCESS}
+webrtc_public_ports      = ${SIM_WEBRTC_PUBLIC_PORTS}
+
+assets_bucket_name    = "${SIM_ASSETS_BUCKET}"
+data_lake_bucket_arns = []
+
+vpn_enabled            = ${SIM_VPN_ENABLED}
+vpn_client_cidr_block  = "${SIM_VPN_CLIENT_CIDR}"
+vpn_port               = ${SIM_VPN_PORT}
+vpn_transport_protocol = "${SIM_VPN_TRANSPORT}"
+vpn_client_common_name = "${SIM_VPN_CLIENT_CN}"
+EOF
+}
+
+tf_ready() {
+  [[ -d "${TF_DIR}/.terraform" ]]
+}
+
+ensure_tf_ready() {
+  if ! tf_ready; then
+    info "inițializez Terraform în stacks/sim"
+    tf init -input=false >/dev/null || die "terraform init a eșuat"
+  fi
+}
+
+tf_out() {
+  local name="$1"
+  tf output -raw "${name}" 2>/dev/null || true
+}
+
+tf_json() {
+  tf output -json 2>/dev/null || echo '{}'
+}
+
+# ---------------------------------------------------------------- volumul de date
+# Volumul stă în stack-ul `sim-data`, cu state separat: `sim-down` nu îl poate atinge, iar
+# ștergerea lui trece exclusiv prin `data-down`.
+data_tf() { terraform -chdir="${DATA_DIR}" "$@"; }
+
+data_tf_out() {
+  [[ -d "${DATA_DIR}/.terraform" ]] || return 0
+  data_tf output -raw "$1" 2>/dev/null || true
+}
+
+data_volume_id() { data_tf_out volume_id; }
+data_volume_az() { data_tf_out availability_zone; }
+
+ensure_data_ready() {
+  [[ -d "${DATA_DIR}/.terraform" ]] && return 0
+  info "inițializez Terraform în stacks/sim-data"
+  data_tf init -input=false >/dev/null || die "terraform init a eșuat în stacks/sim-data"
+}
+
+# Cea mai ieftină zonă pentru tipul de instanță, după ultimul preț spot publicat în fiecare
+# zonă. Volumul se leagă de zona aleasă, iar instanța pornește în ea. Alternativa (o zonă
+# aleasă manual) se pune în SIM_DATA_VOLUME_AZ înainte de prima creare.
+cheapest_spot_az() {
+  local start
+  start="$(date -u -v-6H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+  local -a args=(
+    ec2 describe-spot-price-history
+    --instance-types "${SIM_INSTANCE_TYPE}"
+    --product-descriptions "Linux/UNIX"
+    --query 'reverse(sort_by(SpotPriceHistory,&Timestamp))[].[AvailabilityZone,SpotPrice]'
+    --output text
+  )
+  [[ -n "${start}" ]] && args+=(--start-time "${start}")
+  aws_cli "${args[@]}" 2>/dev/null \
+    | awk '!vazut[$1]++ { print $1, $2 }' \
+    | sort -k2 -n | awk 'NR == 1 { print $1 }'
+}
+
+generate_data_tfvars() {
+  [[ -n "${SIM_DATA_VOLUME_AZ}" ]] || die "lipsește zona volumului; rulați \`make sim-data-up\`"
+  info "generez ${DATA_TFVARS#"${ROOT}/"}"
+  cat > "${DATA_TFVARS}" <<EOF
+# Generat automat de tools/twinctl. Nu editați manual: suprascris la fiecare rulare.
+project_name      = "${PROJECT_NAME}"
+environment       = "${ENVIRONMENT}"
+region            = "${AWS_REGION}"
+availability_zone = "${SIM_DATA_VOLUME_AZ}"
+size_gb           = ${SIM_DATA_VOLUME_GB}
+iops              = ${SIM_DATA_VOLUME_IOPS}
+throughput        = ${SIM_DATA_VOLUME_THROUGHPUT}
+snapshot_id       = "${SIM_DATA_VOLUME_SNAPSHOT}"
+EOF
+}
+
+# Creează volumul de date dacă lipsește. Dacă există, nu îl atinge: datele de pe el sunt
+# prețioase, iar o dimensiune schimbată ar aplica o extindere, nu o recrare.
+ensure_data_volume() {
+  if [[ "${SIM_DATA_VOLUME_ENABLED}" != "true" ]]; then
+    plain "  ${C_DIM}volumul de date este dezactivat (SIM_DATA_VOLUME_ENABLED=false)${C_RESET}"
+    return 0
+  fi
+
+  ensure_data_ready
+
+  local existing
+  existing="$(data_volume_id)"
+  if [[ -n "${existing}" ]]; then
+    ok "volum de date existent: ${existing} în $(data_volume_az) ($(data_tf_out size_gb) GB)"
+    return 0
+  fi
+
+  local az="${SIM_DATA_VOLUME_AZ}"
+  if [[ -z "${az}" ]]; then
+    info "aleg zona volumului de date (cea mai ieftină capacitate spot acum)"
+    az="$(cheapest_spot_az)"
+    [[ -n "${az}" ]] || die "nu am putut citi prețurile spot; setați SIM_DATA_VOLUME_AZ în .env"
+    ok "zonă aleasă: ${az} (rămâne fixă cât trăiește volumul)"
+    if [[ -f "${ROOT}/.env" ]]; then
+      set_env_var SIM_DATA_VOLUME_AZ "${az}"
+    else
+      warn "nu există .env: scrieți SIM_DATA_VOLUME_AZ=${az} ca să păstrați zona"
+    fi
+    SIM_DATA_VOLUME_AZ="${az}"
+  fi
+
+  # Volumul lipsește. Ordinea: `data-up --fresh` cere un volum gol, o valoare explicită în
+  # SIM_DATA_VOLUME_SNAPSHOT (ori `data-up --snapshot`) impune un snapshot anume, iar altfel
+  # reluăm automat ultimul snapshot, ca `make sim-up` să readucă singură starea de dinaintea
+  # ștergerii.
+  local from_env="${SIM_DATA_VOLUME_SNAPSHOT}"
+  local snapshot="${from_env}"
+
+  if [[ "${SIM_DATA_VOLUME_FRESH:-}" == "true" ]]; then
+    snapshot=""
+    if [[ -n "${from_env}" ]]; then
+      [[ -f "${ROOT}/.env" ]] && set_env_var SIM_DATA_VOLUME_SNAPSHOT ""
+      plain "      SIM_DATA_VOLUME_SNAPSHOT golit în .env (--fresh ignoră snapshot-urile)"
+      from_env=""
+    fi
+  elif [[ -z "${snapshot}" ]]; then
+    local latest=""
+    latest="$(data_snapshot_ids)"
+    if [[ -n "${latest}" ]]; then
+      snapshot="${latest%%$'\n'*}"
+      ok "reiau ultimul snapshot al volumului: ${snapshot}"
+    else
+      plain "  ${C_DIM}nu există snapshot al volumului; creez un volum gol${C_RESET}"
+    fi
+  fi
+  SIM_DATA_VOLUME_SNAPSHOT="${snapshot}"
+
+  # Un volum nou nu poate fi mai mic decât snapshot-ul din care pornește. Cel mai des se
+  # întâmplă când cineva indică snapshot-ul discului rădăcină (200 GB) în loc de unul al
+  # volumului de date (100 GB); AWS ar refuza cu un mesaj neclar.
+  if [[ -n "${snapshot}" ]]; then
+    local snap_size snap_name
+    snap_size="$(aws_cli ec2 describe-snapshots --snapshot-ids "${snapshot}" \
+      --query 'Snapshots[0].VolumeSize' --output text 2>/dev/null || true)"
+    if [[ "${snap_size}" =~ ^[0-9]+$ ]] && (( snap_size > SIM_DATA_VOLUME_GB )); then
+      die "snapshot-ul ${snapshot} are ${snap_size} GB, iar volumul de date este configurat la ${SIM_DATA_VOLUME_GB} GB; măriți SIM_DATA_VOLUME_GB peste ${snap_size}"
+    fi
+    # Un snapshot al discului rădăcină ține un sistem de operare întreg, nu conținutul lui
+    # /opt/cncdt. Bootstrap-ul recunoaște structura și expune /opt/cncdt de pe volum prin bind
+    # mount; merită spus, ca să nu pară că montarea a eșuat.
+    snap_name="$(aws_cli ec2 describe-snapshots --snapshot-ids "${snapshot}" \
+      --query 'Snapshots[0].Tags[?Key==`Name`]|[0].Value' --output text 2>/dev/null || true)"
+    [[ "${snap_name}" == "None" ]] && snap_name=""
+    if [[ -n "${snap_name}" && "${snap_name}" != "${PROJECT_NAME}-${ENVIRONMENT}-sim-data-"* ]]; then
+      plain "  ${C_DIM}snapshot de disc rădăcină (${snap_name}): bootstrap-ul expune /opt/cncdt de pe volum prin bind mount${C_RESET}"
+    fi
+  fi
+
+  generate_data_tfvars
+  info "creez volumul de date (${SIM_DATA_VOLUME_GB} GB gp3 în ${az})"
+  if ! data_tf apply -input=false -auto-approve 2>&1 | tee "${STATE_DIR}/last-data-apply.log"; then
+    die "crearea volumului de date a eșuat; jurnalul: ${STATE_DIR}/last-data-apply.log"
+  fi
+  ok "volum de date creat: $(data_volume_id)"
+
+  # Un snapshot cerut explicit se folosește o singură dată: la următoarea recreare se ia iar
+  # cel mai nou, nu aceeași stare veche.
+  if [[ -n "${from_env}" ]]; then
+    [[ -f "${ROOT}/.env" ]] && set_env_var SIM_DATA_VOLUME_SNAPSHOT ""
+    plain "      SIM_DATA_VOLUME_SNAPSHOT golit în .env (se folosește la o singură creare)"
+  fi
+  SIM_DATA_VOLUME_SNAPSHOT=""
+}
+
+state_exists() {
+  tf_ready && tf state list >/dev/null 2>&1 && [[ -n "$(tf state list 2>/dev/null | head -1)" ]]
+}
+
+current_instance_id() {
+  tf_out instance_id
+}
+
+instance_field() {
+  local id="$1" field="$2"
+  aws_cli ec2 describe-instances --instance-ids "${id}" \
+    --query "Reservations[].Instances[].${field}" --output text 2>/dev/null || true
+}
+
+instance_state() { instance_field "${1}" "State.Name"; }
+instance_ip() { instance_field "${1}" "PublicIpAddress"; }
+instance_launch_time() { instance_field "${1}" "LaunchTime"; }
+
+wait_for_state() {
+  local id="$1" want="$2" tries="${3:-60}"
+  local i state
+  for ((i = 0; i < tries; i++)); do
+    state="$(instance_state "${id}")"
+    [[ "${state}" == "${want}" ]] && return 0
+    sleep 5
+  done
+  return 1
+}
+
+# Convertesc un timestamp ISO-8601 UTC (formatul AWS) în epoch, pe macOS și pe Linux.
+iso_utc_to_epoch() {
+  local clean
+  # Elimin fracțiunile de secundă și sufixul de fus orar: AWS întoarce mereu UTC.
+  clean="$(printf '%s' "$1" | sed -E 's/\..*//; s/([+-][0-9]{2}:[0-9]{2}|Z)$//')"
+  if date -j -u -f "%Y-%m-%dT%H:%M:%S" "${clean}" "+%s" 2>/dev/null; then
+    return 0
+  fi
+  date -u -d "${clean}" "+%s" 2>/dev/null || echo 0
+}
+
+instance_minutes_running() {
+  local id="$1" launch launch_epoch now_epoch
+  launch="$(instance_launch_time "${id}")"
+  [[ -z "${launch}" ]] && { echo 0; return; }
+  launch_epoch="$(iso_utc_to_epoch "${launch}")"
+  now_epoch="$(date "+%s")"
+  if [[ -z "${launch_epoch}" || "${launch_epoch}" -eq 0 ]]; then
+    echo 0
+    return
+  fi
+  echo $(( (now_epoch - launch_epoch) / 60 ))
+}
+
+# ---------------------------------------------------------------- init
+cmd_init() {
+  info "verific uneltele necesare"
+  require_cmd terraform "Instalați: brew install terraform"
+  require_cmd aws "Instalați AWS CLI v2: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+  require_cmd jq "Instalați: brew install jq"
+  ok "terraform, aws, jq"
+
+  if has_ssm_plugin; then
+    ok "session-manager-plugin prezent (acces fără port SSH deschis)"
+  else
+    warn "session-manager-plugin lipsește; modul implicit de acces va fi SSH prin portul 22"
+    plain "      instalare: brew install --cask session-manager-plugin"
+  fi
+
+  info "verific credențialele AWS (profil ${AWS_PROFILE}, regiune ${AWS_REGION})"
+  local ident
+  ident="$(aws_cli sts get-caller-identity --output json 2>/dev/null)" \
+    || die "credențialele AWS nu funcționează. Rulați \`aws configure\` sau setați AWS_PROFILE."
+  ok "cont $(jq -r .Account <<<"${ident}") ca $(jq -r .Arn <<<"${ident}")"
+
+  generate_tfvars
+  ensure_tf_ready
+
+  if [[ -n "${SIM_SSH_KEY_NAME}" ]]; then
+    ok "folosesc cheia SSH existentă în AWS: ${SIM_SSH_KEY_NAME}"
+  elif [[ -f "${SIM_SSH_PUBLIC_KEY}" ]]; then
+    ok "cheie publică găsită: ${SIM_SSH_PUBLIC_KEY}"
+  else
+    info "generez o cheie SSH dedicată proiectului"
+    mkdir -p "$(dirname "${SIM_SSH_PUBLIC_KEY}")"
+    ssh-keygen -t ed25519 -C "${PROJECT_NAME}-sim" -f "${SIM_SSH_PRIVATE_KEY}" -N "" >/dev/null
+    ok "cheie creată: ${SIM_SSH_PRIVATE_KEY} (și .pub)"
+    generate_tfvars
+  fi
+
+  if [[ -z "${SIM_ASSETS_BUCKET}" ]]; then
+    local bucket
+    bucket="$(aws_cli s3api list-buckets \
+      --query "Buckets[?starts_with(Name, '${PROJECT_NAME}-${ENVIRONMENT}-assets-')].Name | [0]" \
+      --output text 2>/dev/null || true)"
+    if [[ -n "${bucket}" && "${bucket}" != "None" ]]; then
+      ok "bucket de asset-uri detectat: ${bucket}"
+      plain "      adăugați în .env: SIM_ASSETS_BUCKET=${bucket}"
+    else
+      warn "nu am găsit un bucket de asset-uri. Rulați \`make platform-up\` pentru stack-ul de platformă."
+    fi
+  else
+    ok "bucket de asset-uri: ${SIM_ASSETS_BUCKET}"
+  fi
+
+  info "verific dacă tipul de instanță este disponibil în ${AWS_REGION}"
+  local azs
+  azs="$(aws_cli ec2 describe-instance-type-offerings \
+    --location-type availability-zone \
+    --filters "Name=instance-type,Values=${SIM_INSTANCE_TYPE}" \
+    --query 'InstanceTypeOfferings[].Location' --output text 2>/dev/null || true)"
+  if [[ -n "${azs}" && "${azs}" != "None" ]]; then
+    ok "${SIM_INSTANCE_TYPE} disponibil în: ${azs}"
+  else
+    warn "${SIM_INSTANCE_TYPE} nu apare ca disponibil în ${AWS_REGION}; alegeți altă regiune sau alt tip"
+  fi
+
+  plain ""
+  ok "gata. Următorul pas: make sim-up"
+}
+
+# ---------------------------------------------------------------- conectare
+print_connection_info() {
+  # Rezumatul necesar pentru a vă conecta: IP, porturi, URL, SSH/SSM, stare TURN.
+  local id="$1"
+  local state ip private_ip az turn signaling stream url ssh_cmd ssm_cmd vpn vpn_dns vpn_url
+
+  state="$(instance_state "${id}")"
+  ip="$(tf_out public_ip)"
+  private_ip="$(tf_out private_ip)"
+  az="$(tf_out availability_zone)"
+  turn="$(tf_out turn_enabled)"
+  signaling="$(tf_out signaling_port)"
+  stream="$(tf_out stream_port)"
+  url="$(tf_out webrtc_url)"
+  ssh_cmd="$(tf_out ssh_command)"
+  ssm_cmd="$(tf_out ssm_shell_command)"
+
+  # Cu tunelul pornit, porturile de streaming nu mai sunt publice: clientul se conectează la
+  # adresa privată a instanței, prin VPN, deci adresa de dat clientului este cea din tunel.
+  vpn="$(tf_out vpn_enabled)"
+  vpn_dns="$(tf_out vpn_endpoint_dns_name)"
+  vpn_url="$(tf_out internal_url)"
+  if [[ "${vpn}" == "true" && -n "${vpn_url}" ]]; then
+    url="${vpn_url}"
+  fi
+
+  plain ""
+  printf '%s\n' "${C_BOLD}Date de conectare — Isaac Sim${C_RESET}"
+  row "instanță" "${id}"
+  row "stare" "${state:-<necunoscută>}"
+  row "IP public" "${ip:-<alocat la pornire>}  (Elastic IP)"
+  row "IP privat" "${private_ip:-<necunoscut>}"
+  row "zonă" "${az:-<necunoscută>}"
+  row "port semnalizare" "${signaling:-49100}/TCP"
+  row "media (UDP)" "$(tf_out media_port_range)"
+  if [[ "${turn}" == "true" ]]; then
+    row "TURN/STUN" "pornit (3478/TCP+UDP, releu 49160-49200/UDP)"
+  else
+    row "TURN/STUN" "oprit (SIM_ENABLE_TURN=true pentru acces fără tunel)"
+  fi
+  if [[ "${vpn}" == "true" ]]; then
+    row "tunel VPN" "${vpn_dns:-<se creează>} (${SIM_VPN_PORT}/${SIM_VPN_TRANSPORT})"
+    row "adrese tunel" "${SIM_VPN_CLIENT_CIDR}"
+  fi
+  plain ""
+  row "server client" "${url}"
+  [[ -n "${ssh_cmd}" ]] && row "SSH" "${ssh_cmd}"
+  [[ -n "${ssm_cmd}" ]] && row "shell SSM" "${ssm_cmd}"
+  if [[ "${vpn}" == "true" ]]; then
+    plain "  ${C_DIM}1. Importați profilul:  ./tools/twinctl/twinctl vpn-config${C_RESET}"
+    plain "  ${C_DIM}2. Conectați profilul în AWS VPN Client, apoi folosiți „${url}\".${C_RESET}"
+  else
+    plain "  ${C_DIM}Introduceți „${url}\" în Isaac Sim WebRTC Streaming Client (aplicația nativă).${C_RESET}"
+  fi
+  plain "  ${C_DIM}Isaac Sim 5.0 nu mai servește pagina /streaming/webrtc-client în browser.${C_RESET}"
+}
+
+# ---------------------------------------------------------------- up
+cmd_up() {
+  local wait_bootstrap="false" auto_approve="true" plan_only="false"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --wait) wait_bootstrap="true" ;;
+      --plan) plan_only="true" ;;
+      --no-auto-approve) auto_approve="false" ;;
+      *) die "opțiune necunoscută pentru up: $1" ;;
+    esac
+    shift
+  done
+
+  require_cmd terraform
+  load_env
+  # Volumul se creează înaintea instanței: de ID-ul și de zona lui depinde tfvars-ul stack-ului
+  # `sim`, iar zona devine obligatorie pentru instanță.
+  ensure_data_volume
+  if [[ "${SIM_DATA_VOLUME_ENABLED}" == "true" ]]; then
+    local existing_volume
+    existing_volume="$(data_volume_id)"
+    if [[ -n "${existing_volume}" ]]; then
+      wait_for_data_volume_free "${existing_volume}"
+    fi
+  fi
+  generate_tfvars
+  ensure_tf_ready
+
+  if [[ "${plan_only}" == "true" ]]; then
+    tf plan -input=false -out=plan.out
+    return 0
+  fi
+
+  require_cmd aws
+
+  if state_exists; then
+    local existing_id existing_state
+    existing_id="$(current_instance_id)"
+    existing_state="$(instance_state "${existing_id}")"
+    if [[ "${existing_state}" == "terminated" || "${existing_state}" == "shutting-down" ]]; then
+      # Cererea spot `one-time` se închide când AWS retrage capacitatea, iar instanța se
+      # termină singură. Volumul de date se detașează și rămâne în stack-ul lui, deci apply-ul
+      # care urmează creează o instanță nouă și reatașează același volum.
+      warn "instanța ${existing_id} a fost terminată (AWS a retras capacitatea spot)"
+      plain "      apply-ul creează o instanță nouă și reatașează volumul de date existent."
+    else
+      warn "există deja o instanță în state: ${existing_id} (stare: ${existing_state})"
+      plain "      folosiți \`start\` pentru a o reporni sau \`down\` pentru a o șterge."
+    fi
+  fi
+
+  local -a apply_args=(-input=false)
+  if [[ "${auto_approve}" == "true" ]]; then
+    apply_args+=(-auto-approve)
+  fi
+
+  info "aplic Terraform (poate dura 2-4 minute până pornește instanța)"
+  # Jurnalul aplicării rămâne în .twinctl ca să putem recunoaște eșecurile de capacitate spot,
+  # care nu se văd în mesajul scurt de eroare al Terraform.
+  local apply_log="${STATE_DIR}/last-apply.log"
+  if ! tf apply "${apply_args[@]}" 2>&1 | tee "${apply_log}"; then
+    if grep -Eqi "insufficientinstancecapacity|unfulfillablecapacity|no spot capacity|spotmaxpricetoolow" "${apply_log}"; then
+      warn "AWS nu are capacitate spot disponibilă acum pentru ${SIM_INSTANCE_TYPE}"
+      plain "      capacitatea spot se schimbă des: reîncercați în câteva minute."
+      plain "      alternativ, alt tip de instanță: SIM_INSTANCE_TYPE în .env."
+    fi
+    die "terraform apply a eșuat; jurnalul: ${apply_log#"${ROOT}/"}"
+  fi
+
+  local id
+  id="$(current_instance_id)"
+  ok "instanță creată: ${id}"
+  printf '  %-14s %s\n' "tip" "$(tf_out instance_type)"
+  printf '  %-14s %s\n' "piață" "$(instance_market "${id}")"
+  printf '  %-14s %s\n' "AMI" "$(tf_out ami_id)"
+  printf '  %-14s %s\n' "regiune" "${AWS_REGION}"
+  printf '  %-14s %s\n' "zonă" "$(tf_out availability_zone)"
+  local volume_id
+  volume_id="$(tf_out data_volume_id)"
+  if [[ -n "${volume_id}" ]]; then
+    printf '  %-14s %s\n' "volum de date" "${volume_id} (persistent, montat la /opt/cncdt)"
+  fi
+
+  if [[ "${wait_bootstrap}" == "true" ]]; then
+    wait_for_bootstrap "${id}"
+  else
+    plain ""
+    plain "  Bootstrap-ul instalează driverele și scripturile de streaming (3-6 minute)."
+    plain "  Urmăriți-l cu:  ./tools/twinctl/twinctl logs --bootstrap --follow"
+  fi
+
+  print_connection_info "${id}"
+
+  plain ""
+  plain "${C_BOLD}Următorii pași${C_RESET}"
+  plain "  1. ./tools/twinctl/twinctl connect   # tunel pentru semnalizare + datele de conectare"
+  plain "  2. introduceți serverul în Isaac Sim WebRTC Streaming Client (aplicația nativă)"
+  plain "  3. dacă aplicația nu a pornit automat:"
+  plain "     ./tools/twinctl/twinctl ssh /opt/cncdt/scripts/start-isaac.sh"
+  plain "  4. codul extensiei nu vine din AMI:  ./tools/twinctl/twinctl push-sim"
+}
+
+wait_for_bootstrap() {
+  local id="$1"
+  info "aștept finalizarea bootstrap-ului (maximum $((BOOTSTRAP_TIMEOUT_SECONDS / 60)) minute)"
+
+  if ! has_ssm_plugin && [[ "${SIM_SSH_ALLOWED_CIDRS}" == "" ]]; then
+    warn "nu pot verifica bootstrap-ul: fără SSM și fără port SSH deschis"
+    return 1
+  fi
+
+  local waited=0 interval=15
+  while (( waited < BOOTSTRAP_TIMEOUT_SECONDS )); do
+    if ssm_command "${id}" 'test -f /opt/cncdt/.bootstrapped && echo READY || echo PENDING' 2>/dev/null \
+      | grep -q READY; then
+      ok "bootstrap finalizat"
+      return 0
+    fi
+    sleep "${interval}"
+    waited=$(( waited + interval ))
+    printf '\r  %s aștept... %ss' "${C_DIM}" "${waited}"
+  done
+
+  printf '\r'
+  warn "bootstrap-ul nu a confirmat în $((BOOTSTRAP_TIMEOUT_SECONDS / 60)) de minute"
+  plain "      verificați: ./tools/twinctl/twinctl logs --bootstrap --tail 80"
+  return 1
+}
+
+ssm_command() {
+  # Rulează o comandă pe instanță prin SSM și întoarce stdout.
+  local id="$1" command="$2" timeout="${3:-120}"
+  local cmd_id out status
+  cmd_id="$(aws_cli ssm send-command \
+    --instance-ids "${id}" \
+    --document-name "AWS-RunShellScript" \
+    --timeout-seconds "${timeout}" \
+    --parameters "commands=${command}" \
+    --query 'Command.CommandId' --output text 2>/dev/null)" || return 1
+  [[ -z "${cmd_id}" || "${cmd_id}" == "None" ]] && return 1
+
+  local i
+  for ((i = 0; i < timeout / 3 + 10; i++)); do
+    status="$(aws_cli ssm get-command-invocation --command-id "${cmd_id}" --instance-id "${id}" \
+      --query 'Status' --output text 2>/dev/null || echo Pending)"
+    case "${status}" in
+      Success|Failed|Cancelled|TimedOut) break ;;
+    esac
+    sleep 3
+  done
+
+  out="$(aws_cli ssm get-command-invocation --command-id "${cmd_id}" --instance-id "${id}" \
+    --query 'StandardOutputContent' --output text 2>/dev/null || true)"
+  local err
+  err="$(aws_cli ssm get-command-invocation --command-id "${cmd_id}" --instance-id "${id}" \
+    --query 'StandardErrorContent' --output text 2>/dev/null || true)"
+
+  printf '%s\n%s\n' "${out}" "${err}"
+  [[ "${status}" == "Success" ]]
+}
+
+# ---------------------------------------------------------------- status
+cmd_status() {
+  local deep="false"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --deep) deep="true" ;;
+      *) die "opțiune necunoscută pentru status: $1" ;;
+    esac
+    shift
+  done
+
+  load_env
+  ensure_tf_ready
+
+  if ! state_exists; then
+    warn "nu există instanță de simulare în state (${TF_DIR#"${ROOT}/"})"
+    plain "      creați una cu: make sim-up"
+    return 0
+  fi
+
+  local id state ip itype launch
+  id="$(current_instance_id)"
+  state="$(instance_state "${id}")"
+  ip="$(instance_ip "${id}")"
+  itype="$(instance_field "${id}" "InstanceType")"
+  launch="$(instance_launch_time "${id}")"
+
+  printf '%s\n' "${C_BOLD}Instanță de simulare${C_RESET}"
+  row "ID" "${id}" 16
+  row "tip" "${itype}" 16
+  local market
+  market="$(instance_market "${id}")"
+  if [[ "${market}" == "on-demand" && "${SIM_USE_SPOT}" == "true" ]]; then
+    market="on-demand (instanță creată înainte de trecerea pe spot; \`down\` + \`up\` o mută)"
+  fi
+  row "piață" "${market}" 16
+  row "stare" "${state}" 16
+  row "IP public" "${ip:-<alocat la pornire>}" 16
+  row "regiune" "${AWS_REGION}" 16
+  row "AMI" "$(tf_out ami_id)" 16
+  row "lansată" "${launch:--}" 16
+
+  local volume_id volume_size
+  volume_id="$(tf_out data_volume_id)"
+  if [[ -n "${volume_id}" ]]; then
+    volume_size="$(data_tf_out size_gb)"
+    row "volum date" "${volume_id} (${volume_size:-${SIM_DATA_VOLUME_GB}} GB gp3, persistent)" 16
+  else
+    row "volum date" "niciunul; starea stă doar pe discul rădăcină" 16
+  fi
+
+  local minutes
+  minutes="$(instance_minutes_running "${id}")"
+  local hours
+  hours="$(awk -v m="${minutes}" 'BEGIN { printf "%.2f", m / 60 }')"
+  row "durată" "${hours} h" 16
+
+  local rate
+  rate="$(hourly_rate_for "${id}" "${itype}")"
+  if [[ -n "${rate}" && "${state}" == "running" ]]; then
+    row "cost curent" "$(awk -v h="${hours}" -v r="${rate}" 'BEGIN { printf "~%.2f", h * r }') USD (tarif ${rate} USD/h)" 16
+  fi
+
+  row "log bootstrap" "$(tf_out bootstrap_log_group)" 16
+
+  # Tuneluri active
+  local tunnel_pids
+  tunnel_pids="$(active_tunnels)"
+  if [[ -n "${tunnel_pids}" ]]; then
+    row "tunel" "activ (PID: $(tr '\n' ' ' <<<"${tunnel_pids}"))" 16
+  else
+    row "tunel" "închis" 16
+  fi
+
+  if [[ "${state}" != "running" ]]; then
+    print_connection_info "${id}"
+    return 0
+  fi
+
+  if [[ "${deep}" == "true" ]]; then
+    plain ""
+    info "autotestare pe instanță"
+    ssm_command "${id}" '/opt/cncdt/scripts/selftest.sh' 300 || warn "autotestarea a eșuat (SSM indisponibil?)"
+  elif has_ssm_plugin; then
+    plain ""
+    local container
+    container="$(ssm_command "${id}" 'docker ps --filter name=isaac-sim --format "{{.Status}}" 2>/dev/null | head -1' 60 || true)"
+    if [[ -n "${container// /}" ]]; then
+      row "container" "${container}" 16
+    else
+      row "container" "oprit" 16
+    fi
+  fi
+
+  print_connection_info "${id}"
+}
+
+# ---------------------------------------------------------------- url
+cmd_url() {
+  load_env
+  ensure_tf_ready
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+  plain "$(tf_out webrtc_url)"
+}
+
+# ---------------------------------------------------------------- tuneluri
+active_tunnels() {
+  local pidfile pid
+  for pidfile in "${TUNNEL_DIR}"/*.pid; do
+    [[ -e "${pidfile}" ]] || continue
+    pid="$(cat "${pidfile}" 2>/dev/null || true)"
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+      printf '%s\n' "${pid}"
+    else
+      rm -f "${pidfile}"
+    fi
+  done
+}
+
+cmd_connect() {
+  local mode="auto" stop="false" foreground="false"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --mode) mode="${2:-auto}"; shift ;;
+      --stop) stop="true" ;;
+      --foreground) foreground="true" ;;
+      *) die "opțiune necunoscută pentru connect: $1" ;;
+    esac
+    shift
+  done
+
+  load_env
+  ensure_tf_ready
+
+  if [[ "${stop}" == "true" ]]; then
+    stop_tunnels
+    return 0
+  fi
+
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+  local id state ip
+  id="$(current_instance_id)"
+  state="$(instance_state "${id}")"
+  [[ "${state}" == "running" ]] || die "instanța este ${state}; rulați \`start\`"
+
+  ip="$(instance_ip "${id}")"
+
+  case "${mode}" in
+    auto)
+      if has_ssm_plugin; then mode="ssm"; else mode="ssh"; fi
+      ;;
+    ssm|ssh) ;;
+    *) die "mod necunoscut: ${mode} (folosiți auto, ssm sau ssh)" ;;
+  esac
+
+  if [[ "${mode}" == "ssh" ]]; then
+    [[ -f "${SIM_SSH_PRIVATE_KEY}" ]] || die "cheia privată nu există: ${SIM_SSH_PRIVATE_KEY}"
+    [[ -n "${SIM_SSH_KEY_NAME}${SIM_SSH_PUBLIC_KEY}" ]] || die "nu s-a configurat nicio cheie SSH"
+  fi
+
+  stop_tunnels >/dev/null
+
+  # Doar semnalizarea se tuneluează: media WebRTC este UDP și nu trece prin port-forwarding TCP.
+  info "deschid tunelul (${mode}) pentru portul de semnalizare ${ISAAC_SIGNALING_PORT}"
+
+  if [[ "${mode}" == "ssm" ]]; then
+    start_ssm_tunnel "${id}" signaling "${ISAAC_SIGNALING_PORT}"
+  else
+    start_ssh_tunnel "${ip}" signaling "${ISAAC_SIGNALING_PORT}"
+  fi
+
+  sleep 2
+  if [[ -z "$(active_tunnels)" ]]; then
+    warn "tunelul nu a pornit; verificați ${TUNNEL_DIR}/*.log"
+    return 1
+  fi
+  ok "tunel activ (PID: $(active_tunnels | tr '\n' ' '))"
+
+  local url
+  url="$(tf_out webrtc_url)"
+  plain ""
+  printf '%s\n' "${C_BOLD}Server pentru clientul Isaac Sim WebRTC Streaming Client:${C_RESET} ${url}"
+  plain ""
+  plain "${C_DIM}Note:${C_RESET}"
+  plain "  • Isaac Sim 5.0 nu mai servește pagina /streaming/webrtc-client; folosiți aplicația"
+  plain "    nativă „Isaac Sim WebRTC Streaming Client\" (Windows/macOS/Linux), din pagina de"
+  plain "    download Isaac Sim."
+  plain "  • Aplicația Isaac Sim trebuie să fie pornită:  ./tools/twinctl/twinctl ssh /opt/cncdt/scripts/start-isaac.sh"
+  plain "  • Tunelul acoperă doar semnalizarea (TCP). Media WebRTC este UDP (${ISAAC_MEDIA_PORT_RANGE:-47998-48020})"
+  plain "    și trebuie să ajungă direct la instanță, nu prin 127.0.0.1; IP-ul clientului"
+  plain "    trebuie să fie în SIM_SSH_ALLOWED_CIDRS."
+  plain "  • Închideți tunelul cu: ./tools/twinctl/twinctl connect --stop"
+
+  [[ "${foreground}" == "true" ]] && wait
+}
+
+start_ssm_tunnel() {
+  local id="$1" tag="$2" port="$3"
+  local log="${TUNNEL_DIR}/ssm-${tag}-${port}.log"
+  nohup aws ssm start-session \
+    --region "${AWS_REGION}" --profile "${AWS_PROFILE}" \
+    --target "${id}" \
+    --document-name AWS-StartPortForwardingSession \
+    --parameters "{\"portNumber\":[\"${port}\"],\"localPortNumber\":[\"${port}\"]}" \
+    >"${log}" 2>&1 &
+  printf '%s\n' "$!" > "${TUNNEL_DIR}/ssm-${tag}-${port}.pid"
+}
+
+start_ssh_tunnel() {
+  local ip="$1" tag="$2"; shift 2
+  local -a forwards=()
+  local port
+  for port in "$@"; do
+    forwards+=(-L "${port}:127.0.0.1:${port}")
+  done
+  local log="${TUNNEL_DIR}/ssh-${tag}.log"
+  nohup ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+    -o StrictHostKeyChecking=accept-new \
+    -i "${SIM_SSH_PRIVATE_KEY}" "${forwards[@]}" "ubuntu@${ip}" \
+    >"${log}" 2>&1 &
+  printf '%s\n' "$!" > "${TUNNEL_DIR}/ssh-${tag}.pid"
+}
+
+stop_tunnels() {
+  local pidfile pid stopped=0
+  for pidfile in "${TUNNEL_DIR}"/*.pid; do
+    [[ -e "${pidfile}" ]] || continue
+    pid="$(cat "${pidfile}" 2>/dev/null || true)"
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+      kill "${pid}" 2>/dev/null || true
+      stopped=$(( stopped + 1 ))
+    fi
+    rm -f "${pidfile}"
+  done
+  if [[ "${stopped}" -gt 0 ]]; then
+    ok "am închis ${stopped} tunel(uri)"
+  else
+    ok "niciun tunel activ"
+  fi
+}
+
+# ---------------------------------------------------------------- ssh
+cmd_ssh() {
+  load_env
+  ensure_tf_ready
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+
+  local id ip
+  id="$(current_instance_id)"
+  ip="$(instance_ip "${id}")"
+
+  if [[ $# -eq 0 ]]; then
+    if has_ssm_plugin; then
+      info "deschid sesiune SSM către ${id}"
+      aws_cli ssm start-session --target "${id}"
+      return $?
+    fi
+    info "deschid sesiune SSH către ${ip}"
+    exec ssh -i "${SIM_SSH_PRIVATE_KEY}" "ubuntu@${ip}"
+  fi
+
+  if has_ssm_plugin; then
+    ssm_command "${id}" "$*"
+  else
+    ssh -i "${SIM_SSH_PRIVATE_KEY}" "ubuntu@${ip}" "$@"
+  fi
+}
+
+# ---------------------------------------------------------------- push
+cmd_push() {
+  load_env
+  ensure_tf_ready
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+
+  local id
+  id="$(current_instance_id)"
+
+  local bucket="${SIM_ASSETS_BUCKET}"
+  if [[ -z "${bucket}" ]]; then
+    bucket="$(aws_cli s3api list-buckets \
+      --query "Buckets[?starts_with(Name, '${PROJECT_NAME}-${ENVIRONMENT}-assets-')].Name | [0]" \
+      --output text 2>/dev/null || true)"
+  fi
+  [[ -n "${bucket}" && "${bucket}" != "None" ]] \
+    || die "nu am găsit bucket-ul de asset-uri; rulați \`make platform-up\` sau setați SIM_ASSETS_BUCKET"
+
+  local staging="${STATE_DIR}/staging"
+  rm -rf "${staging}"
+  mkdir -p "${staging}/repo"
+
+  info "pregătesc pachetul din simulation/"
+  tar --exclude='assets/*.usd*' --exclude='__pycache__' --exclude='logs' \
+    -czf "${staging}/simulation.tgz" -C "${ROOT}" simulation
+
+  local asset_count=0
+  if compgen -G "${ROOT}/simulation/assets/*" >/dev/null; then
+    asset_count="$(find "${ROOT}/simulation/assets" -type f | wc -l | tr -d ' ')"
+  fi
+
+  info "urc în s3://${bucket}/sim-assets/latest/"
+  aws_cli s3 cp "${staging}/simulation.tgz" \
+    "s3://${bucket}/sim-assets/latest/simulation.tgz" --only-show-errors
+  if [[ "${asset_count}" -gt 0 ]]; then
+    aws_cli s3 sync "${ROOT}/simulation/assets/" "s3://${bucket}/sim-assets/latest/assets/" \
+      --only-show-errors
+    ok "am urcat ${asset_count} fișiere de asset-uri"
+  fi
+
+  info "despachetez pe instanță prin SSM"
+  local command
+  command="set -e
+mkdir -p /opt/cncdt/simulation
+aws s3 cp s3://${bucket}/sim-assets/latest/simulation.tgz /tmp/simulation.tgz --region ${AWS_REGION}
+tar -xzf /tmp/simulation.tgz -C /tmp
+rm -rf /opt/cncdt/simulation
+mv /tmp/simulation /opt/cncdt/simulation
+mkdir -p /opt/cncdt/assets
+if aws s3 ls s3://${bucket}/sim-assets/latest/assets/ --region ${AWS_REGION} >/dev/null 2>&1; then
+  aws s3 sync s3://${bucket}/sim-assets/latest/assets/ /opt/cncdt/assets/ --only-show-errors --region ${AWS_REGION}
+fi
+chown -R ubuntu:ubuntu /opt/cncdt/simulation /opt/cncdt/assets
+echo 'sync complet'"
+
+  ssm_command "${id}" "${command}" 300 || warn "sincronizarea prin SSM a eșuat parțial"
+  ok "simulation/ este pe instanță în /opt/cncdt/simulation"
+  rm -rf "${staging}"
+}
+
+# ---------------------------------------------------------------- logs
+cmd_logs() {
+  local follow="false" bootstrap="false" tail_lines="120"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --follow|-f) follow="true" ;;
+      --bootstrap) bootstrap="true" ;;
+      --tail) tail_lines="${2:-120}"; shift ;;
+      *) die "opțiune necunoscută pentru logs: $1" ;;
+    esac
+    shift
+  done
+
+  load_env
+  ensure_tf_ready
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+
+  local id
+  id="$(current_instance_id)"
+
+  local target
+  if [[ "${bootstrap}" == "true" ]]; then
+    target="/var/log/cncdt-bootstrap.log"
+  else
+    target="/opt/cncdt/logs"
+  fi
+
+  if [[ "${follow}" == "true" ]] && has_ssm_plugin; then
+    local command
+    if [[ "${bootstrap}" == "true" ]]; then
+      command="tail -n ${tail_lines} -f ${target}"
+    else
+      command="docker logs -f --tail ${tail_lines} isaac-sim 2>&1 || tail -n ${tail_lines} -f ${target}/*.log"
+    fi
+    info "sesiune interactivă (Ctrl+C pentru a ieși)"
+    aws_cli ssm start-session --target "${id}" \
+      --document-name AWS-StartInteractiveCommand \
+      --parameters "{\"command\":[\"${command}\"]}"
+    return $?
+  fi
+
+  if [[ "${bootstrap}" == "true" ]]; then
+    ssm_command "${id}" "tail -n ${tail_lines} ${target}" 120
+  else
+    ssm_command "${id}" "docker logs --tail ${tail_lines} isaac-sim 2>&1 || ls -la ${target}" 120
+  fi
+}
+
+# ---------------------------------------------------------------- start / stop
+cmd_start() {
+  load_env
+  ensure_tf_ready
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+
+  local id
+  id="$(current_instance_id)"
+  local state
+  state="$(instance_state "${id}")"
+
+  if [[ "${state}" == "running" ]]; then
+    ok "instanța rulează deja"
+    return 0
+  fi
+
+  if [[ "${state}" == "terminated" || "${state}" == "shutting-down" ]]; then
+    die "instanța ${id} a fost terminată (cerere spot \`one-time\`); porniți alta cu \`make sim-up\` — volumul de date se reatașează singur"
+  fi
+
+  info "pornesc instanța ${id}"
+  aws_cli ec2 start-instances --instance-ids "${id}" >/dev/null
+  wait_for_state "${id}" "running" 40 || die "instanța nu a ajuns în starea running"
+
+  ok "instanța rulează"
+  if [[ "$(instance_market "${id}")" == "on-demand" && "${SIM_USE_SPOT}" == "true" ]]; then
+    warn "instanța ${id} nu rulează pe spot (a fost creată cu SIM_USE_SPOT=false)"
+    plain "      \`make sim-down\` urmat de \`make sim-up\` o recreează pe spot."
+  fi
+  print_connection_info "${id}"
+  plain ""
+  plain "  Containerul Isaac Sim pornește automat la boot dacă SIM_AUTOSTART=true."
+  plain "  Altfel: ./tools/twinctl/twinctl ssh /opt/cncdt/scripts/start-isaac.sh"
+}
+
+cmd_stop() {
+  [[ $# -eq 0 ]] || die "comanda stop nu primește opțiuni: $1"
+
+  load_env
+  ensure_tf_ready
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+
+  stop_tunnels >/dev/null
+
+  local id
+  id="$(current_instance_id)"
+  local state market
+  state="$(instance_state "${id}")"
+  market="$(instance_market "${id}")"
+
+  if [[ "${state}" != "running" ]]; then
+    ok "instanța este deja ${state}"
+    return 0
+  fi
+
+  # AWS acceptă oprirea doar pentru cererile spot `persistent`, iar a noastră este `one-time`:
+  # API-ul refuză oprirea. Pauza care funcționează pe spot este terminarea, iar volumul de date
+  # rămâne în stack-ul lui și se reatașează la următorul `up`.
+  if [[ "${market}" == "spot" ]]; then
+    warn "instanța rulează pe spot cu cerere \`one-time\`: AWS permite terminarea, nu oprirea"
+    plain "      pentru o pauză: ./tools/twinctl/twinctl down   (instanța se șterge, volumul rămâne)"
+    plain "      reluarea:        make sim-up                  (instanță nouă, același volum reatașat)"
+    return 1
+  fi
+
+  info "opresc instanța ${id} (discul rămâne, costul de GPU se oprește)"
+  aws_cli ec2 stop-instances --instance-ids "${id}" >/dev/null
+  wait_for_state "${id}" "stopped" 60 || warn "instanța nu a confirmat oprirea în 5 minute"
+  ok "instanță oprită. Reluați cu \`start\`, ștergeți cu \`down\`."
+  plain "      cost estimat în repaus: ~$(awk -v gb="${SIM_ROOT_VOLUME_GB}" -v p="${EBS_GP3_GB_MONTH}" 'BEGIN { printf "%.2f", gb * p / 30 / 24 }') USD/h (EBS gp3)"
+}
+
+# ---------------------------------------------------------------- selftest
+cmd_selftest() {
+  load_env
+  ensure_tf_ready
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+
+  local id state
+  id="$(current_instance_id)"
+  state="$(instance_state "${id}")"
+  [[ "${state}" == "running" ]] || die "instanța este ${state}; rulați \`start\`"
+
+  info "rulez /opt/cncdt/scripts/selftest.sh pe instanță"
+  ssm_command "${id}" '/opt/cncdt/scripts/selftest.sh' 300
+}
+
+# ---------------------------------------------------------------- conținut Isaac Sim
+cmd_assets() {
+  # Browserele de asset-uri din Isaac Sim listează dintr-o oglindă locală: listarea
+  # directoarelor din bucketul public Omniverse nu funcționează în `omni.client`, deși
+  # fișierele individuale se descarcă. Comanda arată starea oglinzii și, dacă lipsește,
+  # pornește sincronizarea detașat pe instanță (durează ~25 de minute pentru ~10 GB).
+  load_env
+  ensure_tf_ready
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+
+  local id state
+  id="$(current_instance_id)"
+  state="$(instance_state "${id}")"
+  [[ "${state}" == "running" ]] || die "instanța este ${state}; rulați \`start\`"
+
+  info "oglinda de conținut Isaac Sim (/opt/cncdt/isaac-assets)"
+  ssm_command "${id}" '/opt/cncdt/scripts/content-status.sh --start' 900
+}
+
+# ---------------------------------------------------------------- outputs
+cmd_outputs() {
+  load_env
+  ensure_tf_ready
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+
+  local json
+  json="$(tf_json)"
+  if command -v jq >/dev/null 2>&1; then
+    jq -r 'to_entries[] | "\(.key)\t\(.value.value)"' <<<"${json}" | column -t -s $'\t'
+  else
+    plain "${json}"
+  fi
+}
+
+# ---------------------------------------------------------------- cost
+cmd_cost() {
+  load_env
+  ensure_tf_ready
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+
+  local id itype state market minutes hours rate
+  id="$(current_instance_id)"
+  itype="$(instance_field "${id}" "InstanceType")"
+  state="$(instance_state "${id}")"
+  market="$(instance_market "${id}")"
+  minutes="$(instance_minutes_running "${id}")"
+  hours="$(awk -v m="${minutes}" 'BEGIN { printf "%.2f", m / 60 }')"
+  rate="$(hourly_rate_for "${id}" "${itype}")"
+  [[ -z "${rate}" ]] && rate="unknown"
+
+  printf '%s\n' "${C_BOLD}Estimare de cost${C_RESET}"
+  row "tip instanță" "${itype}" 24
+  row "piață" "${market}" 24
+  row "tarif orar (approx.)" "${rate} USD" 24
+  row "durată de la lansare" "${hours} h" 24
+
+  if [[ "${rate}" != "unknown" && "${state}" == "running" ]]; then
+    row "cost compute acumulat" "$(awk -v h="${hours}" -v r="${rate}" 'BEGIN { printf "%.2f", h * r }') USD" 24
+  fi
+
+  row "volum EBS (storage)" "$(awk -v gb="${SIM_ROOT_VOLUME_GB}" -v p="${EBS_GP3_GB_MONTH}" 'BEGIN { printf "%.2f", gb * p }') USD/lună (${SIM_ROOT_VOLUME_GB} GB gp3)" 24
+  local extra_iops extra_mibps
+  extra_iops="$(awk -v i="${SIM_ROOT_VOLUME_IOPS}" -v f="${GP3_FREE_IOPS}" 'BEGIN { v = i - f; if (v < 0) v = 0; printf "%d", v }')"
+  extra_mibps="$(awk -v t="${SIM_ROOT_VOLUME_THROUGHPUT}" -v f="${GP3_FREE_MIBPS}" 'BEGIN { v = t - f; if (v < 0) v = 0; printf "%d", v }')"
+  row "volum EBS (IOPS+debit)" \
+    "$(awk -v i="${extra_iops}" -v pi="${EBS_GP3_IOPS_MONTH}" -v t="${extra_mibps}" -v pt="${EBS_GP3_MIBPS_MONTH}" \
+      'BEGIN { printf "%.2f", i * pi + t * pt }') USD/lună (peste baseline)" 24
+  # Volumul de date trăiește independent de instanță, deci se plătește și când nu rulează nimic.
+  local volume_id
+  volume_id="$(tf_out data_volume_id)"
+  if [[ -n "${volume_id}" ]]; then
+    row "volum de date (persistent)" \
+      "$(awk -v gb="${SIM_DATA_VOLUME_GB}" -v p="${EBS_GP3_GB_MONTH}" \
+        'BEGIN { printf "%.2f", gb * p }') USD/lună (${SIM_DATA_VOLUME_GB} GB gp3, se plătește și în repaus)" 24
+  fi
+  if [[ "${SIM_ALLOCATE_EIP}" == "true" ]]; then
+    row "Elastic IP" "$(awk -v p="${PUBLIC_IPV4_HOUR}" 'BEGIN { printf "%.2f", p * 730 }') USD/lună" 24
+  else
+    row "Elastic IP" "0 (IP auto-atribuit, eliberat la oprire)" 24
+  fi
+  if [[ -n "${SIM_AMI_ID}" ]]; then
+    row "snapshot AMI golden" "~2.70 USD/lună (billed pe blocurile folosite)" 24
+  fi
+
+  plain ""
+  plain "  Tarifele gp3, IPv4 și on-demand sunt verificate în ${AWS_REGION}; prețul spot se"
+  plain "  citește la fiecare rulare din istoricul de prețuri AWS, iar restul sunt aproximative."
+  plain "  Costul real: AWS Cost Explorer, filtrat pe eticheta Project=${PROJECT_NAME}."
+  plain "  Cel mai eficient control de cost: \`make sim-freeze\` urmat de \`make sim-down\`."
+  plain "  Volumul de date se plătește și când nu rulează nimic: \`make sim-data\` arată starea lui."
+}
+
+# ---------------------------------------------------------------- piața spot
+# Ce merită văzut înainte de o lansare: prețul spot pe fiecare zonă, tariful on-demand pentru
+# comparație și scorul de capacitate. Scorul este o recomandare pe termen scurt: AWS îl
+# calculează pentru o cerere de flotă și avertizează că pentru unul-două tipuri de instanță
+# iese sistematic mic, deci îl cerem pe familia g5. Verificarea decisivă rămâne `make sim-up`.
+cmd_spot() {
+  load_env
+  require_cmd aws
+
+  printf '%s\n' "${C_BOLD}Piața spot: ${SIM_INSTANCE_TYPE} în ${AWS_REGION}${C_RESET}"
+
+  local start
+  start="$(date -u -v-6H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+
+  local -a price_args=(
+    ec2 describe-spot-price-history
+    --instance-types "${SIM_INSTANCE_TYPE}"
+    --product-descriptions "Linux/UNIX"
+  )
+  [[ -n "${start}" ]] && price_args+=(--start-time "${start}")
+
+  local prices
+  prices="$(aws_cli "${price_args[@]}" \
+    --query 'reverse(sort_by(SpotPriceHistory,&Timestamp))[].[AvailabilityZone,SpotPrice]' \
+    --output text 2>/dev/null | awk '!vazut[$1]++ { print $1, $2 }')"
+
+  if [[ -z "${prices}" ]]; then
+    warn "nu am putut citi prețurile spot; verificați credențialele și regiunea"
+  else
+    local az price
+    while read -r az price; do
+      [[ -z "${az}" ]] && continue
+      row "${az}" "$(awk -v p="${price}" 'BEGIN { printf "%.4f", p }') USD/h" 26
+    done <<<"${prices}"
+  fi
+
+  local ondemand
+  ondemand="$(instance_hourly_rate "${SIM_INSTANCE_TYPE}")"
+  if [[ -n "${ondemand}" ]]; then
+    row "on-demand (comparație)" "${ondemand} USD/h" 26
+  fi
+
+  local -a score_args=(
+    ec2 get-spot-placement-scores
+    --instance-types g5.xlarge g5.2xlarge g5.4xlarge
+    --target-capacity 1
+    --single-availability-zone
+    --region-names "${AWS_REGION}"
+  )
+  local scores azmap
+  scores="$(aws_cli "${score_args[@]}" \
+    --query 'SpotPlacementScores[].[AvailabilityZoneId,Score]' --output text 2>/dev/null || true)"
+  azmap="$(aws_cli ec2 describe-availability-zones \
+    --query 'AvailabilityZones[].[ZoneName,ZoneId]' --output text 2>/dev/null || true)"
+
+  if [[ -z "${scores}" ]]; then
+    plain "  ${C_DIM}scorul de capacitate nu a putut fi citit${C_RESET}"
+  else
+    local azid score azname
+    while read -r azid score; do
+      [[ -z "${azid}" ]] && continue
+      azname="$(awk -v id="${azid}" '$2 == id { print $1 }' <<<"${azmap}")"
+      row "capacitate ${azname:-${azid}}" "${score}/10" 26
+    done <<<"${scores}"
+    plain "  ${C_DIM}1 = puțin probabil, 10 = foarte probabil, la cererea de acum${C_RESET}"
+  fi
+
+  if [[ "${SIM_USE_SPOT}" != "true" ]]; then
+    plain ""
+    warn "SIM_USE_SPOT nu este true: următoarea \`up\` cumpără instanța on-demand"
+  fi
+}
+
+# ---------------------------------------------------------------- volumul de date
+# Volumul EBS care ține starea Isaac Sim dincolo de viața instanței spot. Se creează o singură
+# dată (`data-up`, ori automat la primul `up`), se atașează fiecărei instanțe și se șterge
+# exclusiv cu `data-down`. Snapshot-urile se fac doar cu `data-snapshot`.
+data_snapshot_ids() {
+  # Snapshot-urile create de twinctl, cele mai noi primele. Se recunosc după eticheta Name;
+  # doar cele `completed` se pot folosi la recrearea volumului.
+  aws_cli ec2 describe-snapshots --owner-ids self \
+    --filters "Name=tag:Name,Values=${PROJECT_NAME}-${ENVIRONMENT}-sim-data-*" \
+    "Name=status,Values=completed" \
+    --query 'reverse(sort_by(Snapshots,&StartTime))[].SnapshotId' --output text 2>/dev/null \
+    | tr '\t' '\n' | sed -e '/^None$/d' -e '/^$/d'
+}
+
+data_volume_state() {
+  aws_cli ec2 describe-volumes --volume-ids "$1" \
+    --query 'Volumes[0].State' --output text 2>/dev/null || true
+}
+
+data_volume_attachment() {
+  aws_cli ec2 describe-volumes --volume-ids "$1" \
+    --query 'Volumes[0].Attachments[0].InstanceId' --output text 2>/dev/null || true
+}
+
+# AWS detașează volumul când instanța spot se termină, dar nu instantaneu. Dacă AWS tocmai a
+# retras capacitatea și relansăm imediat, atașarea ar eșua cu `VolumeInUse`. Așteptăm scurt.
+wait_for_data_volume_free() {
+  local volume_id="$1" tries="${2:-24}" attempt=0 state attached
+  while (( attempt < tries )); do
+    state="$(data_volume_state "${volume_id}")"
+    [[ "${state}" == "in-use" ]] || return 0
+    attached="$(data_volume_attachment "${volume_id}")"
+    [[ -z "${attached}" || "${attached}" == "None" ]] && return 0
+    if (( attempt == 0 )); then
+      info "volumul ${volume_id} e încă atașat instanței ${attached}; aștept detașarea"
+    fi
+    sleep 5
+    attempt=$((attempt + 1))
+  done
+  warn "volumul ${volume_id} este încă atașat după 2 minute; apply-ul poate eșua cu VolumeInUse"
+}
+
+cmd_data() {
+  load_env
+
+  printf '%s\n' "${C_BOLD}Volum de date (persistent)${C_RESET}"
+  if [[ "${SIM_DATA_VOLUME_ENABLED}" != "true" ]]; then
+    warn "SIM_DATA_VOLUME_ENABLED=false: instanțele noi nu primesc volum de date"
+  fi
+
+  local id
+  id="$(data_volume_id)"
+  if [[ -z "${id}" ]]; then
+    row "stare" "nu există; se creează automat la \`make sim-up\` sau explicit cu \`make sim-data-up\`" 14
+    return 0
+  fi
+
+  local az state attached size
+  az="$(data_volume_az)"
+  state="$(data_volume_state "${id}")"
+  attached="$(data_volume_attachment "${id}")"
+  [[ "${attached}" == "None" ]] && attached=""
+  size="$(data_tf_out size_gb)"
+
+  row "ID" "${id}" 14
+  row "zonă" "${az}" 14
+  row "stare" "${state}" 14
+  row "dimensiune" "${size} GB gp3 ($(data_tf_out iops) IOPS, $(data_tf_out throughput) MiB/s)" 14
+  row "atașat la" "${attached:-<detașat>}" 14
+  row "cost lunar" \
+    "$(awk -v gb="${size}" -v p="${EBS_GP3_GB_MONTH}" 'BEGIN { printf "%.2f", gb * p }') USD (se plătește mereu)" 14
+
+  local snaps
+  snaps="$(data_snapshot_ids)"
+  if [[ -n "${snaps}" ]]; then
+    plain ""
+    plain "  ${C_BOLD}Snapshot-uri${C_RESET}"
+    local snap line
+    while read -r snap; do
+      [[ -n "${snap}" ]] || continue
+      line="$(aws_cli ec2 describe-snapshots --snapshot-ids "${snap}" \
+        --query 'Snapshots[0].[StartTime,VolumeSize,State]' --output text 2>/dev/null || true)"
+      row "${snap}" "${line}" 26
+    done <<<"${snaps}"
+  fi
+
+  plain ""
+  plain "  Dacă volumul lipsește, \`make sim-up\` îl recreează și reia automat ultimul snapshot."
+  plain "  Se șterge doar cu:  make sim-data-down"
+  plain "  Snapshot manual:    make sim-data-snapshot"
+}
+
+cmd_data_up() {
+  local snapshot="" fresh="false"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --snapshot) snapshot="${2:-}"; shift ;;
+      --fresh) fresh="true" ;;
+      *) die "opțiune necunoscută pentru data-up: $1" ;;
+    esac
+    shift
+  done
+
+  load_env
+  require_cmd terraform
+
+  if [[ -n "${snapshot}" ]]; then
+    set_env_var SIM_DATA_VOLUME_SNAPSHOT "${snapshot}"
+    SIM_DATA_VOLUME_SNAPSHOT="${snapshot}"
+    ok "volumul va porni din snapshot-ul ${snapshot}"
+  fi
+  if [[ "${fresh}" == "true" ]]; then
+    SIM_DATA_VOLUME_FRESH="true"
+    warn "volum gol cerut explicit: nu se reia niciun snapshot"
+  fi
+
+  local before
+  before="$(data_volume_id)"
+  ensure_data_volume
+
+  if [[ -n "${before}" && "${before}" == "$(data_volume_id)" ]]; then
+    plain "  volumul exista deja; nu am schimbat nimic"
+  fi
+  plain ""
+  cmd_data
+}
+
+cmd_data_down() {
+  local assume_yes="false" snapshot="true"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --yes|-y) assume_yes="true" ;;
+      --no-snapshot) snapshot="false" ;;
+      *) die "opțiune necunoscută pentru data-down: $1" ;;
+    esac
+    shift
+  done
+
+  load_env
+
+  local id
+  id="$(data_volume_id)"
+  if [[ -z "${id}" ]]; then
+    ok "nu există volum de date; nimic de șters"
+    return 0
+  fi
+
+  local attached
+  attached="$(data_volume_attachment "${id}")"
+  if [[ -n "${attached}" && "${attached}" != "None" ]]; then
+    die "volumul ${id} este atașat instanței ${attached}; rulați întâi \`make sim-down\` (o detașează), apoi repetați"
+  fi
+
+  printf '%s\n' "${C_BOLD}Se va șterge volumul de date:${C_RESET}"
+  row "volum" "${id} ($(data_tf_out size_gb) GB gp3 în $(data_volume_az))" 24
+  row "conținut" "asset-uri Isaac Sim, cache, modele, simulation/ de pe instanță" 24
+  if [[ "${snapshot}" == "true" ]]; then
+    row "înainte de ștergere" "se creează un snapshot manual" 24
+  else
+    row "înainte de ștergere" "FĂRĂ snapshot: datele se pierd definitiv" 24
+  fi
+  plain ""
+
+  if [[ "${assume_yes}" != "true" ]]; then
+    read -r -p "Confirmați ștergerea volumului de date? scrieți 'da': " answer
+    [[ "${answer}" == "da" ]] || { warn "anulat"; return 1; }
+  fi
+
+  if [[ "${snapshot}" == "true" ]]; then
+    cmd_data_snapshot || die "snapshot-ul a eșuat; nu șterg volumul"
+  fi
+
+  ensure_data_ready
+  data_tf destroy -input=false -auto-approve
+
+  ok "volumul de date a fost șters"
+  local remaining
+  remaining="$(data_snapshot_ids)"
+  if [[ -n "${remaining}" ]]; then
+    plain "      snapshot-urile rămân, iar următorul \`make sim-up\` reia automat cel mai nou:"
+    local snap
+    while read -r snap; do
+      [[ -n "${snap}" ]] || continue
+      plain "        ${snap}"
+    done <<<"${remaining}"
+    plain "      pentru un volum gol: make sim-data-up FRESH=1"
+  fi
+  plain "      recreați cu: make sim-data-up (aceeași zonă: ${SIM_DATA_VOLUME_AZ:-<nesetat>})"
+}
+
+cmd_data_snapshot() {
+  local list_only="false" keep="" assume_yes="false"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --list) list_only="true" ;;
+      --keep) keep="${2:-}"; shift ;;
+      --yes|-y) assume_yes="true" ;;
+      *) die "opțiune necunoscută pentru data-snapshot: $1" ;;
+    esac
+    shift
+  done
+
+  load_env
+
+  local snaps snap
+  if [[ "${list_only}" == "true" ]]; then
+    snaps="$(data_snapshot_ids)"
+    if [[ -z "${snaps}" ]]; then
+      plain "  niciun snapshot al volumului de date"
+      return 0
+    fi
+    plain "${C_BOLD}Snapshot-uri ale volumului de date${C_RESET}"
+    while read -r snap; do
+      [[ -n "${snap}" ]] || continue
+      row "${snap}" "$(aws_cli ec2 describe-snapshots --snapshot-ids "${snap}" \
+        --query 'Snapshots[0].[StartTime,VolumeSize,State]' --output text 2>/dev/null || true)" 26
+    done <<<"${snaps}"
+    return 0
+  fi
+
+  local id
+  id="$(data_volume_id)"
+  if [[ -z "${id}" ]]; then
+    # Fără volum: rămâne doar curățarea snapshot-urilor, ca ele să poată fi șterse și după
+    # `make sim-data-down` (altfel `KEEP` ar cere un volum care nu mai există).
+    [[ -n "${keep}" ]] || die "nu există volum de date; creați-l cu \`make sim-data-up\` (reia automat ultimul snapshot)"
+    prune_data_snapshots "${keep}" "${assume_yes}"
+    return 0
+  fi
+
+  local name
+  name="${PROJECT_NAME}-${ENVIRONMENT}-sim-data-$(date -u +%Y%m%d-%H%M%S)"
+  info "creez snapshot din ${id}"
+  snap="$(aws_cli ec2 create-snapshot --volume-id "${id}" \
+    --description "Volum de date ${id} (${name})" \
+    --query 'SnapshotId' --output text)" || die "create-snapshot a eșuat"
+  ok "snapshot pornit: ${snap}"
+
+  aws_cli ec2 create-tags --resources "${snap}" \
+    --tags "Key=Name,Value=${name}" "Key=Project,Value=${PROJECT_NAME}" \
+    "Key=Environment,Value=${ENVIRONMENT}" "Key=ManagedBy,Value=twinctl" >/dev/null \
+    || warn "etichetarea snapshot-ului a eșuat (snapshot-ul rămâne valid)"
+
+  info "aștept starea completed (minute, în funcție de blocurile modificate)"
+  local waited=0 state
+  while :; do
+    state="$(aws_cli ec2 describe-snapshots --snapshot-ids "${snap}" --query 'Snapshots[0].State' --output text)"
+    [[ "${state}" == "completed" ]] && break
+    [[ "${state}" == "error" ]] && die "snapshot-ul a eșuat"
+    sleep 15
+    waited=$((waited + 15))
+    if (( waited % 60 == 0 )); then plain "   ${state}... ${waited}s"; fi
+    if (( waited > 7200 )); then die "snapshot-ul nu s-a terminat în 2 ore"; fi
+  done
+  ok "snapshot disponibil: ${snap}"
+
+  [[ -n "${keep}" ]] || return 0
+  prune_data_snapshots "${keep}" "${assume_yes}"
+}
+
+# Păstrează cele mai noi `keep` snapshot-uri ale volumului de date și le șterge pe celelalte.
+prune_data_snapshots() {
+  local keep="$1" assume_yes="${2:-false}"
+  [[ "${keep}" =~ ^[0-9]+$ ]] || die "--keep cere un număr întreg"
+
+  local -a all=() old=()
+  local snap
+  while read -r snap; do [[ -n "${snap}" ]] && all+=("${snap}"); done < <(data_snapshot_ids)
+  if (( ${#all[@]} <= keep )); then
+    plain "  nimic de șters: ${#all[@]} snapshot-uri, --keep ${keep}"
+    return 0
+  fi
+
+  old=("${all[@]:keep}")
+  plain "  ${#old[@]} snapshot-uri mai vechi de șters: ${old[*]}"
+  if [[ "${assume_yes}" != "true" ]]; then
+    local answer
+    read -r -p "Confirmați ștergerea acestor snapshot-uri? scrieți 'da': " answer
+    [[ "${answer}" == "da" ]] || { warn "ștergerea snapshot-urilor a fost anulată"; return 0; }
+  fi
+  for snap in "${old[@]}"; do
+    aws_cli ec2 delete-snapshot --snapshot-id "${snap}" >/dev/null && ok "șters: ${snap}"
+  done
+}
+
+# ---------------------------------------------------------------- AMI golden
+# Fluxul economic: în loc să ții un volum EBS de 200 GB pentru o instanță oprită, faci o
+# imagine (AMI) din instanță și ștergi tot. Când reiei lucrul, `up` pornește din AMI, cu Isaac
+# Sim deja instalat, iar în repaus plătești doar snapshot-ul (billed pe blocurile folosite).
+
+set_env_var() {
+  # Scrie NAME=value în .env păstrând restul fișierului.
+  local name="$1" value="$2" file="${ROOT}/.env" tmp
+  [[ -f "${file}" ]] || die "nu există ${file}"
+  tmp="$(mktemp)"
+  if grep -q "^${name}=" "${file}"; then
+    awk -v n="${name}" -v v="${value}" \
+      'BEGIN { FS = "=" } $1 == n { print n "=" v; next } { print }' "${file}" > "${tmp}"
+  else
+    cp "${file}" "${tmp}"
+    printf '%s=%s\n' "${name}" "${value}" >> "${tmp}"
+  fi
+  mv "${tmp}" "${file}"
+}
+
+golden_ami_ids() {
+  # ID-urile AMI-urilor golden, cele mai noi primele.
+  aws_cli ec2 describe-images --owners self \
+    --filters "Name=name,Values=${SIM_GOLDEN_AMI_PREFIX}-*" \
+    --query 'reverse(sort_by(Images,&CreationDate))[].ImageId' --output text 2>/dev/null \
+    | tr '\t' '\n' | sed -e '/^None$/d' -e '/^$/d'
+}
+
+ami_snapshot_ids() {
+  aws_cli ec2 describe-images --image-ids "$1" \
+    --query 'Images[].BlockDeviceMappings[].Ebs.SnapshotId' --output text 2>/dev/null \
+    | tr '\t' '\n' | sed -e '/^None$/d' -e '/^$/d'
+}
+
+delete_ami() {
+  # Întâi se deregistrează AMI-ul, apoi se șterg snapshot-urile: cât timp AMI-ul le referă,
+  # `delete-snapshot` e refuzat de AWS.
+  local ami="$1" snaps
+  snaps="$(ami_snapshot_ids "${ami}")"
+  aws_cli ec2 deregister-image --image-id "${ami}" >/dev/null
+  local snap
+  while read -r snap; do
+    [[ -n "${snap}" ]] || continue
+    aws_cli ec2 delete-snapshot --snapshot-id "${snap}" >/dev/null
+  done <<<"${snaps}"
+}
+
+cmd_freeze() {
+  local keep="" list_only="false" clear="false" assume_yes="false"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --list) list_only="true" ;;
+      --clear) clear="true" ;;
+      --keep) keep="${2:-}"; shift ;;
+      --yes|-y) assume_yes="true" ;;
+      *) die "opțiune necunoscută pentru freeze: $1" ;;
+    esac
+    shift
+  done
+
+  load_env
+  ensure_tf_ready
+
+  if [[ "${clear}" == "true" ]]; then
+    set_env_var SIM_AMI_ID ""
+    ok "SIM_AMI_ID golit: următoarea \`up\` pornește din AMI-ul de bază Amazon Deep Learning"
+    return 0
+  fi
+
+  if [[ "${list_only}" == "true" ]]; then
+    plain "${C_BOLD}AMI-uri golden${C_RESET}"
+    aws_cli ec2 describe-images --owners self \
+      --filters "Name=name,Values=${SIM_GOLDEN_AMI_PREFIX}-*" \
+      --query 'reverse(sort_by(Images,&CreationDate))[].{Nume:Name,Id:ImageId,Stare:State,GB:BlockDeviceMappings[0].Ebs.VolumeSize}' \
+      --output table
+    row "SIM_AMI_ID" "${SIM_AMI_ID:-<gol>}" 14
+    return 0
+  fi
+
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+  local id state
+  id="$(current_instance_id)"
+  state="$(instance_state "${id}")"
+  [[ "${state}" == "running" ]] \
+    || die "instanța este ${state}; porniți-o cu \`start\` înainte de a o îngheța"
+
+  local name="${SIM_GOLDEN_AMI_PREFIX}-$(date -u +%Y%m%d-%H%M%S)"
+  info "creez AMI din ${id} (fără reboot)"
+  local ami
+  ami="$(aws_cli ec2 create-image --instance-id "${id}" --name "${name}" \
+    --description "Isaac Sim ${SIM_ISAAC_SIM_IMAGE}, bootstrap finalizat" \
+    --no-reboot --query 'ImageId' --output text)" || die "create-image a eșuat"
+  ok "AMI pornit: ${ami}"
+
+  # Sintaxa scurtă a CLI cere perechi Key=...,Value=...; „Project=cncdt" ar fi citit ca membru
+  # de structură și refuzat. Etichetarea nu e critică: un eșec nu trebuie să anuleze AMI-ul.
+  aws_cli ec2 create-tags --resources "${ami}" \
+    --tags "Key=Project,Value=${PROJECT_NAME}" "Key=Environment,Value=${ENVIRONMENT}" \
+    "Key=ManagedBy,Value=twinctl" >/dev/null \
+    || warn "etichetarea AMI-ului a eșuat (AMI-ul rămâne valid)"
+
+  info "aștept starea available (câteva minute, cât se scrie snapshot-ul)"
+  local waited=0
+  while :; do
+    state="$(aws_cli ec2 describe-images --image-ids "${ami}" --query 'Images[0].State' --output text)"
+    [[ "${state}" == "available" ]] && break
+    [[ "${state}" == "failed" ]] && die "AMI-ul a eșuat"
+    sleep 15
+    waited=$((waited + 15))
+    if (( waited % 60 == 0 )); then plain "   ${state}... ${waited}s"; fi
+    if (( waited > 3600 )); then die "AMI-ul nu s-a terminat în 60 de minute"; fi
+  done
+  ok "AMI disponibil"
+
+  set_env_var SIM_AMI_ID "${ami}"
+  ok "SIM_AMI_ID actualizat în .env"
+
+  if [[ -n "${keep}" ]]; then
+    [[ "${keep}" =~ ^[0-9]+$ ]] || die "--keep cere un număr întreg"
+    local -a all=() old=()
+    while read -r line; do [[ -n "${line}" ]] && all+=("${line}"); done < <(golden_ami_ids)
+    if (( ${#all[@]} <= keep )); then
+      plain "  nimic de șters: ${#all[@]} AMI-uri golden, --keep ${keep}"
+    else
+      old=("${all[@]:keep}")
+      printf '%s\n' "${C_BOLD}Se vor șterge ${#old[@]} AMI-uri golden mai vechi:${C_RESET}"
+      local a
+      for a in "${old[@]}"; do row "AMI" "${a}" 12; done
+      if [[ "${assume_yes}" != "true" ]]; then
+        local answer
+        read -r -p "Confirmați ștergerea? scrieți 'da': " answer
+        [[ "${answer}" == "da" ]] || { warn "nu am șters nimic"; return 0; }
+      fi
+      for a in "${old[@]}"; do
+        delete_ami "${a}" && ok "șters ${a}"
+      done
+    fi
+  fi
+
+  plain ""
+  plain "  Costul în repaus este doar snapshot-ul: la ~50 GB folosiți, ~2,70 USD/lună."
+  plain "  Ștergeți instanța cu:  make sim-down    (sau \`twinctl down --freeze\` dintr-o dată)"
+}
+
+# ---------------------------------------------------------------- push direct
+cmd_push_sim() {
+  # `push` trece prin S3 și are nevoie de bucket. Acesta copiază direct prin SSH, ceea ce e
+  # suficient pentru codul extensiei (câteva sute de KB) și merge și fără stack-ul `platform`.
+  load_env
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+  require_cmd rsync
+
+  local id ip
+  id="$(current_instance_id)"
+  ip="$(instance_ip "${id}")"
+  [[ -n "${ip}" ]] || die "instanța nu are IP public; folosiți \`push\` prin S3"
+
+  info "sincronizez simulation/ către ubuntu@${ip}:/opt/cncdt/simulation"
+  rsync -az --delete \
+    --exclude '__pycache__' --exclude 'logs' --exclude 'assets/*.usd*' \
+    -e "ssh -i ${SIM_SSH_PRIVATE_KEY} -o StrictHostKeyChecking=accept-new -o BatchMode=yes" \
+    "${ROOT}/simulation/" "ubuntu@${ip}:/opt/cncdt/simulation/"
+  ok "codul extensiei este actualizat pe instanță"
+  plain "      containerul citește codul la pornire; reporniți-l cu:"
+  plain "      ./tools/twinctl/twinctl ssh 'docker restart isaac-sim'"
+}
+
+# ---------------------------------------------------------------- Client VPN
+cmd_vpn_config() {
+  # AWS nu livrează certificatul de client în fișierul exportat, deci îl adăugăm noi din
+  # output-ul Terraform. Rezultatul se importă direct în AWS VPN Client.
+  load_env
+  ensure_tf_ready
+  require_cmd aws
+
+  [[ "${SIM_VPN_ENABLED}" == "true" ]] \
+    || die "VPN-ul este oprit; puneți SIM_VPN_ENABLED=true în .env și rulați \`make sim-up\`"
+
+  local endpoint
+  endpoint="$(tf_out vpn_endpoint_id)"
+  [[ -n "${endpoint}" ]] || die "nu există endpoint Client VPN; rulați \`make sim-up\` întâi"
+
+  local out="${HOME}/.cncdt/${PROJECT_NAME}-${ENVIRONMENT}-sim.ovpn"
+  local base
+  base="$(mktemp)"
+  mkdir -p "$(dirname "${out}")"
+
+  info "export configurația endpoint-ului ${endpoint}"
+  aws_cli ec2 export-client-vpn-client-configuration \
+    --client-vpn-endpoint-id "${endpoint}" \
+    --query 'ClientConfiguration' --output text > "${base}" \
+    || die "export-client-vpn-client-configuration a eșuat"
+
+  {
+    cat "${base}"
+    printf '\n<cert>\n%s\n</cert>\n' "$(tf_out vpn_client_certificate)"
+    printf '<key>\n%s\n</key>\n' "$(tf_out vpn_client_private_key)"
+  } > "${out}"
+  chmod 600 "${out}"
+  rm -f "${base}"
+
+  ok "profil VPN scris: ${out}"
+  row "endpoint" "${endpoint}" 16
+  row "DNS tunel" "$(tf_out vpn_endpoint_dns_name)" 16
+  row "adrese clienți" "${SIM_VPN_CLIENT_CIDR}" 16
+  row "instanță (privat)" "$(tf_out private_ip)" 16
+  row "server WebRTC" "$(tf_out internal_url)" 16
+  plain ""
+  plain "  ${C_BOLD}Import în AWS VPN Client${C_RESET}"
+  plain "    File → Manage Profiles → Add Profile → alegeți ${out}"
+  plain "    Conectați profilul, apoi introduceți „$(tf_out internal_url)\" în clientul Isaac Sim."
+  plain "  ${C_DIM}Cheia privată a clientului rămâne în ${out} (mod 600); nu o comitați.${C_RESET}"
+}
+
+# ---------------------------------------------------------------- vpn on/off
+# Endpoint-ul Client VPN se taxează orar pentru fiecare subrețea asociată, conectat sau nu
+# (~$0.10/oră în eu-central-1, deci ~$2.40/zi). Când nu e folosit, se șterge.
+#
+# Operațiile sunt țintite pe modulul VPN și pe regulile de tunel din grupul de securitate al
+# instanței. Instanța, discul și restul stack-ului rămân neatinse, deci nu se declanșează nici
+# înlocuirea instanței aflată în așteptare (AMI golden nou). Regulile publice de WebRTC nu fac
+# parte din ținte: rămân cum sunt, ca accesul direct să nu depindă de tunel.
+VPN_TARGETS=(
+  -target=module.vpn
+  -target=aws_vpc_security_group_ingress_rule.vpn_client
+  -target=module.sim.aws_vpc_security_group_ingress_rule.vpn_ssh
+  -target=module.sim.aws_vpc_security_group_ingress_rule.vpn_signaling
+  -target=module.sim.aws_vpc_security_group_ingress_rule.vpn_media
+)
+
+cmd_vpn_off() {
+  load_env
+  ensure_tf_ready
+  require_cmd aws
+
+  local endpoint
+  endpoint="$(tf_out vpn_endpoint_id)"
+  if [[ -z "${endpoint}" ]]; then
+    info "nu există endpoint Client VPN în state; nu am ce șterge"
+    set_env_var SIM_VPN_ENABLED false
+    return 0
+  fi
+
+  info "șterg endpoint-ul ${endpoint} și regulile de tunel (instanța rămâne)"
+  tf destroy -input=false -auto-approve -var vpn_enabled=true "${VPN_TARGETS[@]}" \
+    || die "ștergerea VPN-ului a eșuat"
+  set_env_var SIM_VPN_ENABLED false
+
+  ok "VPN oprit: taxa orară a endpoint-ului se oprește, instanța și discul sunt neatinse."
+  plain "  Revenire:  make sim-vpn-on   (certificate noi), apoi  make sim-vpn  pentru profil."
+}
+
+cmd_vpn_on() {
+  load_env
+  ensure_tf_ready
+  require_cmd aws
+
+  local existing
+  existing="$(tf_out vpn_endpoint_id)"
+  if [[ -n "${existing}" ]]; then
+    info "endpoint-ul ${existing} există deja; nu creez al doilea"
+    set_env_var SIM_VPN_ENABLED true
+    return 0
+  fi
+
+  info "recreez endpoint-ul Client VPN (instanța rămâne)"
+  tf apply -input=false -auto-approve -var vpn_enabled=true "${VPN_TARGETS[@]}" \
+    || die "crearea VPN-ului a eșuat"
+  set_env_var SIM_VPN_ENABLED true
+
+  ok "VPN pornit. Certificatele de client sunt noi, deci profilul vechi nu mai e valabil."
+  plain "  Profil nou:  make sim-vpn   (se scrie în ~/.cncdt/${PROJECT_NAME}-${ENVIRONMENT}-sim.ovpn)"
+}
+
+# ---------------------------------------------------------------- dcv (acces grafic)
+cmd_dcv() {
+  # Interfața grafică a instanței: desktop GNOME + Amazon DCV, instalate de bootstrap.
+  # Portul 8443 nu este deschis public; se ajunge la el prin tunel (SSH sau Session Manager).
+  local open="false" mode="auto"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --open) open="true" ;;
+      --mode) mode="${2:-auto}"; shift ;;
+      *) die "opțiune necunoscută pentru dcv: $1" ;;
+    esac
+    shift
+  done
+
+  load_env
+  ensure_tf_ready
+  require_cmd aws
+  state_exists || die "nu există instanță; rulați întâi \`up\`"
+
+  local id state ip port param password
+  id="$(current_instance_id)"
+  state="$(instance_state "${id}")"
+  [[ "${state}" == "running" ]] || die "instanța este ${state}; rulați \`start\`"
+  ip="$(instance_ip "${id}")"
+  port="$(tf_out dcv_port)"
+  [[ -n "${port}" && "${port}" != "null" ]] || port="${SIM_DCV_PORT:-8443}"
+  # Numele parametrului vine din ieșirea Terraform; pe instanțele create înainte de introducerea
+  # DCV, ieșirea lipsește din state, deci îl reconstruim din .env (aceeași schemă ca în modul).
+  param="$(tf_out dcv_password_parameter)"
+  if [[ -z "${param}" || "${param}" == "null" ]]; then
+    param="${SIM_DCV_PASSWORD_PARAMETER:-/${PROJECT_NAME}-${ENVIRONMENT}-sim/dcv-password}"
+  fi
+
+  if [[ "${SIM_DCV_ENABLED}" != "true" ]]; then
+    die "DCV este dezactivat; puneți SIM_DCV_ENABLED=true în .env și recreați instanța"
+  fi
+
+  plain ""
+  printf '%s\n' "${C_BOLD}Interfață grafică (Amazon DCV)${C_RESET}"
+  row "client web" "https://localhost:${port}/" 16
+  row "utilizator" "ubuntu" 16
+
+  if [[ -n "${param}" && "${param}" != "null" ]]; then
+    password="$(aws_cli ssm get-parameter --name "${param}" --with-decryption \
+      --query 'Parameter.Value' --output text 2>/dev/null || true)"
+    if [[ -n "${password}" && "${password}" != "None" ]]; then
+      row "parolă" "${password}" 16
+    else
+      warn "parola nu a fost găsită în ${param}; setați una cu: ./tools/twinctl/twinctl ssh sudo passwd ubuntu"
+    fi
+  fi
+
+  plain ""
+  plain "  ${C_BOLD}Tunel către portul ${port}${C_RESET}"
+  plain "    ssh -i ${SIM_SSH_PRIVATE_KEY} -L ${port}:127.0.0.1:${port} -N ubuntu@${ip}"
+  plain "    ${C_DIM}sau, fără port 22 deschis:${C_RESET}"
+  plain "    aws ssm start-session --target ${id} --document-name AWS-StartPortForwardingSession \\"
+  plain "      --parameters '{\"portNumber\":[\"${port}\"],\"localPortNumber\":[\"${port}\"]}'"
+  plain ""
+
+  if [[ "${open}" != "true" ]]; then
+    plain "  ${C_DIM}Rulați cu --open ca să deschid tunelul în fundal.${C_RESET}"
+    return 0
+  fi
+
+  case "${mode}" in
+    auto) if has_ssm_plugin; then mode="ssm"; else mode="ssh"; fi ;;
+    ssm|ssh) ;;
+    *) die "mod necunoscut: ${mode} (folosiți auto, ssm sau ssh)" ;;
+  esac
+
+  info "deschid tunelul (${mode}) pentru portul ${port}"
+  if [[ "${mode}" == "ssm" ]]; then
+    start_ssm_tunnel "${id}" dcv "${port}"
+  else
+    start_ssh_tunnel "${ip}" dcv "${port}"
+  fi
+  sleep 2
+  if [[ -z "$(active_tunnels)" ]]; then
+    warn "tunelul nu a pornit; verificați ${TUNNEL_DIR}/*.log"
+    return 1
+  fi
+  ok "tunel activ; deschideți https://localhost:${port}/ în browser"
+  plain "  ${C_DIM}Închideți tunelurile cu: ./tools/twinctl/twinctl connect --stop${C_RESET}"
+}
+
+# ---------------------------------------------------------------- down
+cmd_down() {
+  local assume_yes="false" freeze="false"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --yes|-y) assume_yes="true" ;;
+      --freeze) freeze="true" ;;
+      *) die "opțiune necunoscută pentru down: $1" ;;
+    esac
+    shift
+  done
+
+  load_env
+  ensure_tf_ready
+
+  if ! state_exists; then
+    ok "nu există nimic de șters"
+    return 0
+  fi
+
+  local id ip
+  id="$(current_instance_id)"
+  ip="$(tf_out public_ip)"
+
+  printf '%s\n' "${C_BOLD}Se vor șterge:${C_RESET}"
+  row "instanță" "${id} ($(tf_out instance_type))" 24
+  row "volum rădăcină" "${SIM_ROOT_VOLUME_GB} GB (se pierde tot ce e pe disc)" 24
+  row "IP public (Elastic)" "${ip:-<alocat la pornire>}" 24
+  row "security group" "$(tf_out security_group_id)" 24
+  local key_name
+  key_name="$(tf_out key_name)"
+  [[ -n "${key_name}" ]] && row "cheie SSH" "${key_name}" 24
+  row "log group bootstrap" "$(tf_out bootstrap_log_group)" 24
+  row "rol IAM + alarmă" "create de stack-ul sim" 24
+  local volume_id
+  volume_id="$(tf_out data_volume_id)"
+  if [[ -n "${volume_id}" ]]; then
+    row "volum de date" "PĂSTRAT: ${volume_id} (se șterge doar cu \`make sim-data-down\`)" 24
+  fi
+  if [[ "${freeze}" == "true" ]]; then
+    row "înainte de ștergere" "se creează un AMI golden (Isaac Sim rămâne instalat)" 24
+  else
+    row "înainte de ștergere" "fără AMI: următoarea \`up\` reinstalează Isaac Sim" 24
+  fi
+  plain ""
+
+  if [[ "${assume_yes}" != "true" ]]; then
+    read -r -p "Confirmați ștergerea completă? scrieți 'da': " answer
+    [[ "${answer}" == "da" ]] || { warn "anulat"; return 1; }
+  fi
+
+  if [[ "${freeze}" == "true" ]]; then
+    cmd_freeze || die "înghețarea a eșuat; nu șterg nimic"
+  fi
+
+  stop_tunnels >/dev/null
+
+  local -a args=(-input=false)
+  [[ "${assume_yes}" == "true" ]] && args+=(-auto-approve)
+  tf destroy "${args[@]}"
+
+  ok "resurse șterse. State-ul local rămâne gol în stacks/sim."
+  plain "      asset-urile urcate în S3 rămân intacte."
+  if [[ -n "${volume_id}" ]]; then
+    plain "      volumul de date ${volume_id} rămâne și se reatașează la următorul \`up\`."
+  fi
+  plain "      recreați oricând cu: make sim-up"
+}
+
+# ---------------------------------------------------------------- dispatch
+main() {
+  local command="${1:-help}"
+  shift || true
+
+  case "${command}" in
+    init)      load_env; cmd_init "$@" ;;
+    up)        cmd_up "$@" ;;
+    status)    cmd_status "$@" ;;
+    url)       cmd_url "$@" ;;
+    connect)   cmd_connect "$@" ;;
+    dcv)       cmd_dcv "$@" ;;
+    ssh)       cmd_ssh "$@" ;;
+    push)      cmd_push "$@" ;;
+    push-sim)  cmd_push_sim "$@" ;;
+    freeze)    cmd_freeze "$@" ;;
+    vpn-config) cmd_vpn_config "$@" ;;
+    vpn-off)   cmd_vpn_off "$@" ;;
+    vpn-on)    cmd_vpn_on "$@" ;;
+    logs)      cmd_logs "$@" ;;
+    start)     cmd_start "$@" ;;
+    stop)      cmd_stop "$@" ;;
+    selftest)  cmd_selftest "$@" ;;
+    outputs)   cmd_outputs "$@" ;;
+    cost)      cmd_cost "$@" ;;
+    spot)      cmd_spot "$@" ;;
+    data)      cmd_data "$@" ;;
+    data-up)   cmd_data_up "$@" ;;
+    data-down) cmd_data_down "$@" ;;
+    data-snapshot)
+               cmd_data_snapshot "$@" ;;
+    down)      cmd_down "$@" ;;
+    help|--help|-h) load_env; usage ;;
+    *)         warn "comandă necunoscută: ${command}"; plain ""; load_env; usage; exit 1 ;;
+  esac
+}
+
+main "$@"

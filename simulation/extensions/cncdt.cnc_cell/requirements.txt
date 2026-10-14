@@ -1,0 +1,12 @@
+# Dependențele modulului `cncdt.cnc_cell.parts` (generatorul procedural de piese).
+#
+# Isaac Sim aduce deja numpy. `mapbox-earcut` triangulează fețele cu găuri interioare și
+# trebuie instalat o dată, în Python-ul lui Isaac Sim:
+#
+#     ./python.sh -m pip install mapbox-earcut
+#
+# În afara Isaac Sim (generare în lot, teste) ambele se instalează normal:
+#
+#     pip install -r requirements.txt
+numpy
+mapbox-earcut

@@ -1,0 +1,40 @@
+# Exemplu de valori pentru stack-ul `sim`.
+# Copiați în `sim.auto.tfvars` (gitignorat) sau lăsați `twinctl` să îl genereze din `.env`.
+
+project_name = "cncdt"
+environment  = "dev"
+region       = "eu-central-1"
+
+instance_type       = "g5.2xlarge"
+# Piața spot: ~50% mai ieftin. La întrerupere AWS anunță cu două minute și termină instanța,
+# fără să repornească nimic automat; revenirea se face cu `make sim-up` din AMI-ul golden.
+# `false` = on-demand.
+use_spot            = true
+root_volume_size_gb = 300
+allocate_eip        = true
+
+# Gol = detectare automată a AMI-ului Amazon Deep Learning cu drivere NVIDIA.
+ami_id = ""
+
+# `auto` adaugă IP-ul public al mașinii curente. Gol înseamnă acces doar prin Session Manager.
+ssh_allowed_cidrs       = ["auto"]
+ssh_key_public_key_path = "~/.ssh/cncdt-sim.pub"
+ssh_key_name            = ""
+
+# Isaac Sim
+isaac_sim_image             = "nvcr.io/nvidia/isaac-sim:latest"
+isaac_sim_entrypoint_script = "./isaac-sim.streaming.sh"
+signaling_port              = 8211
+stream_port                 = 49100
+autostart_sim               = false
+
+# Acces la stream fără tunel SSH. Cere credențiale coturn înainte de expunere publică.
+enable_turn         = false
+webrtc_public_ports = false
+
+# Observabilitate
+install_cloudwatch_agent = true
+
+# Asset-uri și data lake (completați după `make platform-up` pe stack-ul de platformă)
+assets_bucket_name    = ""
+data_lake_bucket_arns = []

@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cncdt.local/schemas/cnc.telemetry.v1.json",
+  "title": "cnc.telemetry.v1",
+  "description": "Eșantion brut de telemetrie, publicat de celula CNC la aproximativ 10 Hz. Un lot de astfel de eșantioane, tamponat de Firehose la 60 de secunde, este agregat de Lambda-ul de feature engineering.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "device_id",
+    "cell_id",
+    "topic",
+    "ts_ms",
+    "machine_state",
+    "cycle_id",
+    "part_id",
+    "spindle_load",
+    "vibration",
+    "temp_c",
+    "coolant_flow_lpm",
+    "joint_effort",
+    "axis_feed",
+    "tool_wear_index",
+    "joint_friction_index",
+    "surface_quality"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "device_id": {
+      "type": "string",
+      "description": "Identificatorul mașinii, de exemplu cnc-cell-01."
+    },
+    "cell_id": {
+      "type": "string",
+      "description": "Celula de producție, de exemplu cell-a."
+    },
+    "topic": {
+      "type": "string",
+      "description": "Topicul MQTT pe care a fost publicat eșantionul."
+    },
+    "ts_ms": {
+      "type": "integer",
+      "description": "Marcaj de timp epoch, în milisecunde. Folosit la alinierea ferestrelor."
+    },
+    "machine_state": {
+      "type": "string",
+      "enum": ["IDLE", "LOADING", "CUTTING", "UNLOADING", "INSPECTING"]
+    },
+    "cycle_id": {
+      "type": "string",
+      "pattern": "^cyc-[0-9]{6}$"
+    },
+    "part_id": {
+      "type": "string",
+      "pattern": "^part-[0-9]{6}$"
+    },
+    "sample_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Numărul eșantionului în sesiunea de simulare."
+    },
+    "spindle_load": {
+      "type": "number",
+      "description": "Sarcina axului, normalizată la intervalul [0, 1]."
+    },
+    "vibration": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Vibrația măsurată, în unități relative."
+    },
+    "temp_c": {
+      "type": "number",
+      "description": "Temperatura zonei de prelucrare, în grade Celsius."
+    },
+    "coolant_flow_lpm": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Debitul lichidului de răcire, în litri pe minut."
+    },
+    "joint_effort": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Efortul mediu al articulațiilor robotului."
+    },
+    "axis_feed": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Avansul axelor, în unități relative."
+    },
+    "tool_wear_index": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Uzura sculei, de la 0 (nouă) la 1 (uzată complet)."
+    },
+    "joint_friction_index": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Frecarea articulațiilor, de la 0 (lubrifiate) la 1 (blocate)."
+    },
+    "surface_quality": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Calitatea suprafeței prelucrate, dedusă din uzură."
+    },
+    "coolant_fault": {
+      "type": "boolean",
+      "description": "Adevărat când simularea a injectat un defect de răcire."
+    },
+    "is_synthetic_defect": {
+      "type": "boolean",
+      "description": "Adevărat când operatorul a cerut un defect forțat pentru piesa curentă."
+    }
+  }
+}

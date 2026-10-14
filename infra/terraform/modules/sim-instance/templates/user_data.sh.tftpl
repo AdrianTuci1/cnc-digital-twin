@@ -1,0 +1,1050 @@
+#!/bin/bash
+# Bootstrap instanță Isaac Sim — generat de Terraform. Nu editați manual.
+#
+# Responsabilități:
+#   1. pachete de bază și instrumente de diagnostic;
+#   2. runtime NVIDIA Container Toolkit pentru Docker;
+#   3. (opțional) montarea volumului EBS persistent peste /opt/cncdt;
+#   4. structura de directoare și scripturile de pornire/oprire a livestreaming-ului;
+#   5. (opțional) server TURN/STUN pentru acces fără tunel SSH;
+#   6. (opțional) CloudWatch Agent pentru metrice de GPU;
+#   7. (opțional) desktop GNOME și server Amazon DCV pentru acces grafic;
+#   8. oglinda locală a conținutului Isaac Sim și configurațiile care o folosesc;
+#   9. (opțional) pornirea automată a containerului Isaac Sim.
+#
+# Configurația este injectată de Terraform ca JSON în base64, ca să nu depindă de citare.
+set -euo pipefail
+
+exec > >(tee -a /var/log/cncdt-bootstrap.log) 2>&1
+
+CONFIG_B64='__CNCDT_CONFIG_B64__'
+
+STATE_DIR="/opt/cncdt"
+MARKER="${STATE_DIR}/.bootstrapped"
+
+log() { printf '[cncdt %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+
+# IMDSv2: token obligatoriu, instanța are http_tokens=required.
+imds() {
+  local token
+  token="$(curl -sS -X PUT http://169.254.169.254/latest/api/token \
+    -H 'X-aws-ec2-metadata-token-ttl-seconds: 120')"
+  curl -sS -H "X-aws-ec2-metadata-token: ${token}" "http://169.254.169.254/latest/meta-data/$1"
+}
+
+# ---------------------------------------------------------------- 1. pachete
+install_base_packages() {
+  log "instalare pachete de bază"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y --no-install-recommends \
+    ca-certificates curl wget unzip jq git rsync tmux htop tree \
+    net-tools iproute2 dnsutils pciutils nvtop python3-venv
+  log "pachete instalate"
+}
+
+# ---------------------------------------------------------------- 2. docker
+install_nvidia_runtime() {
+  # AMI-ul Amazon Deep Learning are deja driverele și toolkit-ul. Instalăm doar ce lipsește.
+  if ! command -v docker >/dev/null 2>&1; then
+    log "docker absent, instalare din depozitul oficial"
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    # shellcheck disable=SC1091
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "${VERSION_CODENAME}") stable" \
+      > /etc/apt/sources.list.d/docker.list
+    apt-get update -y
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  fi
+
+  if ! dpkg -l 2>/dev/null | grep -q '^ii  nvidia-container-toolkit'; then
+    log "instalare NVIDIA Container Toolkit"
+    # `--yes --batch` este obligatoriu: AMI-ul Amazon Deep Learning vine deja cu cheia, iar
+    # `gpg --dearmor -o` peste un fișier existent cere confirmare pe /dev/tty. Fără tty
+    # (cloud-init) iese cu eroare, iar `set -e` oprește tot bootstrap-ul.
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+      | gpg --dearmor --yes --batch -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    curl -sL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+      | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+      > /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    apt-get update -y
+    apt-get install -y nvidia-container-toolkit
+  fi
+
+  nvidia-ctk runtime configure --runtime=docker
+  systemctl restart docker
+  usermod -aG docker ubuntu || true
+
+  log "verificare GPU"
+  if ! nvidia-smi -L; then
+    log "ATENȚIE: nvidia-smi nu a raportat un GPU. Verificați tipul instanței și AMI-ul."
+  fi
+}
+
+# ---------------------------------------------------------------- 3. volum de date
+# Volumul EBS persistent (stack-ul `sim-data`) se atașează la fiecare instanță nouă și ține
+# starea Isaac Sim (asset-uri, cache, modele, simulare), ca ea să supraviețuiască instanței
+# spot. Fără volum, totul rămâne pe discul rădăcină, ca înainte.
+#
+# Volumul poate avea două forme, după snapshot-ul din care a fost creat:
+#   a) volum al stării: rădăcina conține direct conținutul lui /opt/cncdt (ce produce
+#      `make sim-data-snapshot`);
+#   b) disc rădăcină al unei instanțe vechi: rădăcina e un sistem de operare întreg, iar
+#      starea utilă stă în /opt/cncdt pe volum. Atunci expunem acel subdirector la /opt/cncdt
+#      printr-un bind mount, ca să folosim conținutul existent fără să îl rescriem.
+mount_data_volume() {
+  local volume_id="${DATA_VOLUME_ID:-}"
+  if [ -z "${volume_id}" ] || [ "${volume_id}" = "null" ]; then
+    log "fără volum de date; starea rămâne pe discul rădăcină"
+    return 0
+  fi
+
+  # Pe instanțele Nitro, /dev/sdf apare ca /dev/nvmeXn1, iar numele depinde de ordinea de
+  # atașare. Legătura din /dev/disk/by-id conține ID-ul volumului (fără cratime), deci o
+  # găsim indiferent de denumirea din guest.
+  local by_id="/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${volume_id//-/}"
+  local device="" waited=0
+  while [ ! -e "${by_id}" ] && [ "${waited}" -lt 300 ]; do
+    sleep 5
+    waited=$((waited + 5))
+  done
+  if [ -e "${by_id}" ]; then
+    device="$(readlink -f "${by_id}")"
+  else
+    log "ATENȚIE: volumul ${volume_id} nu a apărut în 5 minute; starea rămâne pe discul rădăcină"
+    return 0
+  fi
+
+  local uuid fresh="false"
+  uuid="$(blkid -s UUID -o value "${device}" 2>/dev/null || true)"
+  if [ -z "${uuid}" ]; then
+    log "formatare ${device} (${volume_id}) ca ext4"
+    mkfs.ext4 -m 0 -L cncdt-data "${device}"
+    uuid="$(blkid -s UUID -o value "${device}")"
+    fresh="true"
+  fi
+
+  local persist_dir="/mnt/cncdt-persist"
+
+  # Deja montat: fstab-ul din AMI-ul golden are liniile pentru acest UUID, iar systemd le-a
+  # aplicat înainte de bootstrap. Nu mai montăm a doua oară.
+  if mountpoint -q "${persist_dir}" || mountpoint -q "${STATE_DIR}"; then
+    log "volumul de date este deja montat la ${STATE_DIR}"
+    resize2fs "${device}" >/dev/null 2>&1 || log "ATENȚIE: resize2fs a eșuat (volum nemărit?)"
+    return 0
+  fi
+
+  mkdir -p "${persist_dir}"
+  mount "${device}" "${persist_dir}"
+
+  # Rădăcina stării: volumul de date obișnuit, ori /opt/cncdt de pe un disc rădăcină refăcut
+  # dintr-un snapshot. Detectăm după structura de sistem de operare de la rădăcină.
+  local root_fs="false" data_root="${persist_dir}"
+  if [ -d "${persist_dir}/etc" ] && [ -d "${persist_dir}/opt/cncdt" ]; then
+    root_fs="true"
+    data_root="${persist_dir}/opt/cncdt"
+    log "volumul e un disc rădăcină; starea se ia din ${data_root}"
+  fi
+
+  # La primul boot pe un volum gol copiem conținutul din AMI (oglinda Isaac Sim are ~10 GB),
+  # ca să nu îl descărcăm din nou. Volumul deja populat nu se atinge.
+  if [ -z "$(ls -A "${data_root}")" ] && [ -d "${STATE_DIR}" ] && [ -n "$(ls -A "${STATE_DIR}")" ]; then
+    log "copiere conținut existent din ${STATE_DIR} în volumul de date"
+    rsync -a "${STATE_DIR}/" "${data_root}/"
+  fi
+
+  # Creștere online, dacă volumul a fost mărit între timp.
+  resize2fs "${device}" >/dev/null 2>&1 || log "ATENȚIE: resize2fs a eșuat (volum nemărit?)"
+
+  mkdir -p "${STATE_DIR}"
+  if [ "${root_fs}" = "true" ]; then
+    mount --bind "${data_root}" "${STATE_DIR}"
+  else
+    umount "${persist_dir}"
+    rmdir "${persist_dir}"
+    mount "${device}" "${STATE_DIR}"
+  fi
+
+  # `nofail` este esențial: dacă volumul lipsește, instanța pornește totuși. Un disc rădăcină
+  # are nevoie de două linii: dispozitivul și bind-ul subdirectorului stării.
+  if ! grep -q "UUID=${uuid}" /etc/fstab; then
+    if [ "${root_fs}" = "true" ]; then
+      printf 'UUID=%s %s ext4 defaults,nofail,noatime 0 2\n' "${uuid}" "${persist_dir}" >> /etc/fstab
+      printf '%s %s none bind,nofail,x-systemd.requires-mounts-for=%s 0 0\n' \
+        "${data_root}" "${STATE_DIR}" "${persist_dir}" >> /etc/fstab
+    else
+      printf 'UUID=%s %s ext4 defaults,nofail,noatime 0 2\n' "${uuid}" "${STATE_DIR}" >> /etc/fstab
+    fi
+  fi
+
+  if [ "${fresh}" = "true" ]; then
+    log "volum de date pregătit: ${volume_id} montat la ${STATE_DIR}"
+  else
+    log "volum de date existent atașat: ${volume_id} la ${STATE_DIR}"
+  fi
+}
+
+# ---------------------------------------------------------------- 4. workspace
+prepare_workspace() {
+  log "pregătire ${STATE_DIR}"
+  mkdir -p "${STATE_DIR}"/{logs,assets,secrets,scripts,models}
+  mkdir -p "${STATE_DIR}"/cache/{kit,ov,glcache,computecache}
+  chown -R ubuntu:ubuntu "${STATE_DIR}"
+
+  # Scriptul de sincronizare a asset-urilor din S3.
+  cat > "${STATE_DIR}/scripts/fetch-assets.sh" <<'FETCH'
+#!/bin/bash
+set -euo pipefail
+BUCKET="${1:-}"
+[ -z "${BUCKET}" ] && { echo "usage: fetch-assets.sh <bucket> [prefix]"; exit 2; }
+PREFIX="${2:-sim-assets/latest}"
+DEST="/opt/cncdt/assets"
+mkdir -p "${DEST}"
+aws s3 sync "s3://${BUCKET}/${PREFIX}/" "${DEST}/" --delete --only-show-errors
+echo "asset-uri sincronizate în ${DEST}"
+FETCH
+  chmod +x "${STATE_DIR}/scripts/fetch-assets.sh"
+
+  # Scriptul de pornire a containerului cu livestreaming WebRTC.
+  cat > "${STATE_DIR}/scripts/start-isaac.sh" <<'START'
+#!/bin/bash
+set -euo pipefail
+
+IMAGE="${ISAAC_IMAGE:?ISAAC_IMAGE lipsește}"
+ENTRYPOINT="${ENTRYPOINT_SCRIPT:-./isaac-sim.streaming.sh}"
+NAME="${CONTAINER_NAME:-isaac-sim}"
+SIGNALING_PORT="${SIGNALING_PORT:-8211}"
+# Portul de media WebRTC. Se fixează ca să putem anunța un endpoint public determinist; altfel
+# serverul alege la întâmplare din intervalul app.livestream.minHostPort-maxHostPort.
+MEDIA_PORT="${MEDIA_PORT:-47998}"
+# Transportul de signaling al pluginului de livestreaming. Clientul Isaac Sim WebRTC Streaming
+# Client 1.1.5 deschide un WebSocket simplu către `ws://<host>:49100`, deci valoarea corectă
+# este cea implicită a extensiei `omni.kit.livestream.webrtc`: `websocket`. Pluginul acceptă
+# și `wss`/`websocketsecure`, dar atunci ar cere un certificat pe care nu îl avem.
+LIVESTREAM_PROTO="${LIVESTREAM_PROTO:-websocket}"
+ASSET_DIR="/opt/cncdt/assets"
+SIM_DIR="/opt/cncdt/simulation"
+PYLIBS_DIR="/opt/cncdt/pylibs"
+# Oglinda locală a conținutului Isaac Sim (Robots, Props, Materials, Sensors) și
+# configurațiile care trimit browserele spre ea (vezi patch-isaac-content.sh).
+ISAAC_CONTENT_DIR="${ISAAC_CONTENT_DIR:-/opt/cncdt/isaac-assets}"
+ISAAC_CONTENT_MOUNT="${ISAAC_CONTENT_MOUNT:-/isaac-assets}"
+ISAAC_CONFIG_DIR="${ISAAC_CONFIG_DIR:-/opt/cncdt/isaac-config}"
+
+# Isaac Sim anunță browserului adresa la care poate fi atins. Într-un VPC, interfața are doar
+# IP privat, iar IP-ul public EC2 este NAT 1:1 peste ea, deci fără adresa publică candidatul
+# ICE rămâne nerutabil și fluxul video nu pornește niciodată.
+PUBLIC_IP="${PUBLIC_IP:-}"
+if [ -z "${PUBLIC_IP}" ]; then
+  token="$(curl -sS -X PUT http://169.254.169.254/latest/api/token \
+    -H 'X-aws-ec2-metadata-token-ttl-seconds: 120' 2>/dev/null || true)"
+  if [ -n "${token}" ]; then
+    # Cu Client VPN activ, porturile WebRTC nu mai sunt publice: clientul ajunge la instanță pe
+    # adresa privată, prin tunel, deci candidatul ICE trebuie să fie tot adresa privată.
+    if [ "${LIVESTREAM_PUBLIC_ADDRESS:-true}" = "true" ]; then
+      META_PATH="public-ipv4"
+    else
+      META_PATH="local-ipv4"
+    fi
+    PUBLIC_IP="$(curl -sS -H "X-aws-ec2-metadata-token: ${token}" \
+      "http://169.254.169.254/latest/meta-data/${META_PATH}" 2>/dev/null || true)"
+  fi
+fi
+
+# Pluginul de livestreaming citește exact cheile `app.livestream.publicEndpointAddress`,
+# `publicEndpointPort` și `fixedHostPort` (verificat în libcarb.livestream-rtc.plugin.so,
+# Isaac Sim 5.0). Fără ele, serverul își anunță doar IP-ul privat, iar clientul care vine din
+# internet nu are cum să atingă candidatul ICE: conexiunea se deschide și cade imediat.
+ISAAC_EXTRA_ARGS="${ISAAC_EXTRA_ARGS:-}"
+if [ -z "${ISAAC_EXTRA_ARGS}" ] && [ -n "${PUBLIC_IP}" ]; then
+  ISAAC_EXTRA_ARGS="--/app/livestream/publicEndpointAddress=${PUBLIC_IP}"
+  ISAAC_EXTRA_ARGS="${ISAAC_EXTRA_ARGS} --/app/livestream/publicEndpointPort=${MEDIA_PORT}"
+  ISAAC_EXTRA_ARGS="${ISAAC_EXTRA_ARGS} --/app/livestream/fixedHostPort=${MEDIA_PORT}"
+  ISAAC_EXTRA_ARGS="${ISAAC_EXTRA_ARGS} --/app/livestream/proto=${LIVESTREAM_PROTO}"
+fi
+
+# Extensia proiectului stă în afara imaginii, în SIM_DIR, și se montează read-only.
+# `--ext-folder` o face descoperibilă. ATENȚIE: `--enable` NU o încarcă (verificat pe
+# Isaac Sim 5.0: Kit ignoră flagul, iar „App ready" apare fără extensie). Încărcarea automată
+# cere un fișier .kit care adaugă folderul în app.exts.folders și numele în [dependencies].
+# Până atunci, activați-o manual: Window → Extensions → cncdt.cnc_cell.
+EXT_DIR="${SIM_DIR}/extensions"
+if [ -d "${EXT_DIR}" ]; then
+  ISAAC_EXTRA_ARGS="${ISAAC_EXTRA_ARGS} --ext-folder /sim/extensions"
+else
+  echo "ATENȚIE: ${EXT_DIR} lipsește; rulați 'make sim-push-sim' înainte de pornire"
+fi
+LOG_DIR="/opt/cncdt/logs"
+CACHE_DIR="/opt/cncdt/cache"
+
+# Conținutul din cloud se descarcă, dar listarea directoarelor din bucket nu funcționează în
+# `omni.client`, deci fără oglinda locală browserele rămân goale. Când oglinda există, ea se
+# montează read-only, iar rădăcina implicită de asset-uri devine calea locală: de acolo o
+# citesc atât browserele, cât și scripturile care folosesc `get_assets_root_path()`.
+#
+# Configurațiile se citesc din imagine, deci patch-ul are nevoie de ea. Imaginea este cea a
+# containerului, deci la pornire există sigur. Îl rulăm când lipsește sau când s-a schimbat
+# ce este oglindit: altfel lista de rădăcini rămâne cea de la bootstrap.
+WANTED_SECTIONS="${ISAAC_CONTENT_SECTIONS:-$(cut -d'|' -f2 "${ISAAC_CONFIG_DIR}/fingerprint" 2>/dev/null)}"
+
+content_fingerprint() {
+  local dirs
+  dirs="$(cd "${ISAAC_CONTENT_DIR}/Isaac" 2>/dev/null && find . -maxdepth 2 -type d | sort | tr '\n' ' ')" || true
+  printf '%s|%s' "${dirs}" "${WANTED_SECTIONS}"
+}
+
+if [ -d "${ISAAC_CONTENT_DIR}/Isaac" ] && docker image inspect "${IMAGE}" >/dev/null 2>&1; then
+  if [ ! -s "${ISAAC_CONFIG_DIR}/mounts" ] \
+    || [ "$(content_fingerprint)" != "$(cat "${ISAAC_CONFIG_DIR}/fingerprint" 2>/dev/null)" ]; then
+    echo "scriu configurațiile de conținut (patch-isaac-content.sh)"
+    ISAAC_IMAGE="${IMAGE}" ISAAC_CONTENT_DIR="${ISAAC_CONTENT_DIR}" \
+      ISAAC_CONTENT_SECTIONS="${WANTED_SECTIONS}" \
+      /opt/cncdt/scripts/patch-isaac-content.sh || \
+      echo "ATENȚIE: patch-ul configurațiilor de conținut a eșuat; browserele rămân pe cloud"
+  fi
+fi
+
+CONTENT_MOUNTS=()
+CONTENT_MODE="cloud"
+if [ -d "${ISAAC_CONTENT_DIR}/Isaac" ]; then
+  CONTENT_MODE="local"
+  CONTENT_MOUNTS+=(-v "${ISAAC_CONTENT_DIR}:${ISAAC_CONTENT_MOUNT}:ro")
+  ISAAC_EXTRA_ARGS="${ISAAC_EXTRA_ARGS} --/persistent/isaac/asset_root/default=${ISAAC_CONTENT_MOUNT}"
+else
+  echo "ATENȚIE: ${ISAAC_CONTENT_DIR}/Isaac lipsește; browserele de conținut rămân goale"
+  echo "         rulați /opt/cncdt/scripts/sync-isaac-assets.sh sau 'make sim-assets'"
+fi
+# `mounts` este scris de patch-isaac-content.sh și are forma cale-gazdă:cale-container.
+if [ -s "${ISAAC_CONFIG_DIR}/mounts" ]; then
+  while IFS= read -r mount; do
+    [ -n "${mount}" ] || continue
+    CONTENT_MOUNTS+=(-v "${mount%%:*}:${mount#*:}:ro")
+  done < "${ISAAC_CONFIG_DIR}/mounts"
+fi
+
+mkdir -p "${ASSET_DIR}" "${LOG_DIR}" "${CACHE_DIR}"/{kit,ov,glcache,computecache}
+mkdir -p "${SIM_DIR}" "${PYLIBS_DIR}"
+
+container_env() {
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$1" 2>/dev/null \
+    | sed -n "s/^$2=//p" | head -1
+}
+
+if docker ps --format '{{.Names}}' | grep -qx "${NAME}"; then
+  # După o restaurare dintr-un AMI, Docker repornește singur containerul cu variabilele de la
+  # data înghețării, inclusiv IP-ul public de atunci. Le comparăm cu cele curente: altfel
+  # candidatul ICE rămâne nerutabil și fluxul WebRTC nu pornește niciodată.
+  CURRENT_IP="$(container_env "${NAME}" PUBLIC_IP || true)"
+  CURRENT_PORT="$(container_env "${NAME}" ISAAC_SIM_SIGNALING_PORT || true)"
+  CURRENT_MEDIA="$(container_env "${NAME}" ISAAC_SIM_MEDIA_PORT || true)"
+  CURRENT_PROTO="$(container_env "${NAME}" ISAAC_SIM_LIVESTREAM_PROTO || true)"
+  CURRENT_CONTENT="$(container_env "${NAME}" ISAAC_CONTENT_MODE || true)"
+  if [ -z "${PUBLIC_IP}" ]; then
+    echo "ATENȚIE: IP-ul public nu a putut fi citit (IMDS); păstrez containerul care rulează"
+    exit 0
+  fi
+  if [ "${CURRENT_IP}" = "${PUBLIC_IP}" ] && [ "${CURRENT_PORT}" = "${SIGNALING_PORT}" ] && [ "${CURRENT_MEDIA}" = "${MEDIA_PORT}" ] && [ "${CURRENT_PROTO}" = "${LIVESTREAM_PROTO}" ] && [ "${CURRENT_CONTENT}" = "${CONTENT_MODE}" ]; then
+    echo "containerul ${NAME} rulează deja cu parametrii curenți (${PUBLIC_IP}, semnalizare ${SIGNALING_PORT}, media ${MEDIA_PORT}, conținut ${CONTENT_MODE})"
+    exit 0
+  fi
+  echo "container perimat (${CURRENT_IP:-?}/media ${CURRENT_MEDIA:-?}/conținut ${CURRENT_CONTENT:-?} -> ${PUBLIC_IP}/media ${MEDIA_PORT}/conținut ${CONTENT_MODE}); îl recreez"
+fi
+docker rm -f "${NAME}" >/dev/null 2>&1 || true
+
+# --network host este necesar: semnalizarea și media WebRTC folosesc porturi multiple.
+docker run -d --name "${NAME}" \
+  --gpus all \
+  --network host \
+  --ipc host \
+  --restart unless-stopped \
+  -e ACCEPT_EULA=Y \
+  -e PRIVACY_CONSENT=Y \
+  -e OMNI_KIT_ACCEPT_EULA=Y \
+  -e "ISAAC_SIM_SIGNALING_PORT=${SIGNALING_PORT}" \
+  -e "ISAAC_SIM_MEDIA_PORT=${MEDIA_PORT}" \
+  -e "ISAAC_SIM_LIVESTREAM_PROTO=${LIVESTREAM_PROTO}" \
+  -e "PUBLIC_IP=${PUBLIC_IP}" \
+  -e "ISAAC_CONTENT_MODE=${CONTENT_MODE}" \
+  "${CONTENT_MOUNTS[@]}" \
+  -v "${ASSET_DIR}:/assets:ro" \
+  -v "${SIM_DIR}:/sim:ro" \
+  -v "${PYLIBS_DIR}:/cncdt/pylibs:ro" \
+  -v "${LOG_DIR}:/logs:rw" \
+  -v "${CACHE_DIR}/kit:/isaac-sim/kit/cache:rw" \
+  -v "${CACHE_DIR}/ov:/root/.cache/ov:rw" \
+  -v "${CACHE_DIR}/glcache:/root/.cache/nvidia/GLCache:rw" \
+  -v "${CACHE_DIR}/computecache:/root/.nv/ComputeCache:rw" \
+  "${IMAGE}" \
+  bash -lc "export PYTHONPATH=/cncdt/pylibs:\${PYTHONPATH:-}; ${ENTRYPOINT} ${ISAAC_EXTRA_ARGS}"
+
+cat <<EOF
+container pornit: ${NAME}
+  loguri:      docker logs -f ${NAME}
+  gata când:   în log apare "App ready" sau "Isaac Sim Full Streaming App is loaded"
+  client:      Isaac Sim WebRTC Streaming Client, server ${PUBLIC_IP:-127.0.0.1}:${SIGNALING_PORT}
+  media:       UDP ${MEDIA_PORT} (trebuie deschis, altfel imaginea nu apare)
+EOF
+START
+  chmod +x "${STATE_DIR}/scripts/start-isaac.sh"
+
+  cat > "${STATE_DIR}/scripts/stop-isaac.sh" <<'STOP'
+#!/bin/bash
+set -euo pipefail
+NAME="${CONTAINER_NAME:-isaac-sim}"
+if docker rm -f "${NAME}" >/dev/null 2>&1; then echo "container ${NAME} oprit"; else echo "containerul ${NAME} nu rula"; fi
+STOP
+  chmod +x "${STATE_DIR}/scripts/stop-isaac.sh"
+
+  # Diagnoza rapidă, folosită de `twinctl status --deep`.
+  cat > "${STATE_DIR}/scripts/selftest.sh" <<'SELFTEST'
+#!/bin/bash
+# Raport scurt despre starea mediului de simulare.
+set -uo pipefail
+echo "=== GPU ===";        nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader || echo "nvidia-smi indisponibil"
+echo "=== Docker ===";     docker --version || echo "docker indisponibil"
+echo "=== NVIDIA runtime ==="; docker info --format '{{json .Runtimes}}' 2>/dev/null || true
+echo "=== Container ===";  docker ps --filter name=isaac-sim --format '{{.Names}} {{.Status}}' || true
+echo "=== Desktop / X ==="; pgrep -a Xorg || echo "Xorg NU rulează (desktop indisponibil)"
+echo "=== DCV ===";        systemctl is-active dcvserver 2>/dev/null || echo "dcvserver indisponibil"
+echo "=== Porturi în ascultare ==="; ss -lntup 2>/dev/null | grep -E '8211|49100|3478|8443' || echo "niciun port de streaming deschis"
+echo "=== Disc ===";       df -h / | tail -1
+echo "=== Conținut Isaac Sim ==="; /opt/cncdt/scripts/content-status.sh 2>/dev/null || echo "scriptul de stare lipsește"
+if [ -s /opt/cncdt/isaac-config/mounts ]; then
+  echo "=== Configurații de conținut (rescrise) ==="; cat /opt/cncdt/isaac-config/mounts
+  docker exec isaac-sim grep -c "/isaac-assets" /isaac-sim/exts/isaacsim.asset.browser/config/extension.toml 2>/dev/null \
+    | sed 's/^/rădăcini locale active în container: /' || true
+fi
+echo "=== Ultimele linii din log ==="; docker logs --tail 15 isaac-sim 2>&1 || true
+SELFTEST
+  chmod +x "${STATE_DIR}/scripts/selftest.sh"
+
+  chown -R ubuntu:ubuntu "${STATE_DIR}"
+}
+
+# ---------------------------------------------------------------- 5. TURN/STUN
+configure_turn() {
+  if [ "${ENABLE_TURN}" != "true" ]; then
+    log "TURN dezactivat"
+    return 0
+  fi
+
+  log "instalare coturn"
+  apt-get install -y coturn
+
+  EXTERNAL_IP="$(imds public-ipv4 || true)"
+
+  cat > /etc/turnserver.conf <<TURN
+listening-port=3478
+fingerprint
+lt-cred-mech
+realm=cncdt.local
+min-port=$(echo "${TURN_RELAY_RANGE}" | cut -d- -f1)
+max-port=$(echo "${TURN_RELAY_RANGE}" | cut -d- -f2)
+external-ip=${EXTERNAL_IP}
+no-multicast-peers
+no-cli
+TURN
+
+  # Credențialele se adaugă la runtime, din SSM Parameter Store, nu în acest fișier.
+  if [ -n "${TURN_USER:-}" ] && [ -n "${TURN_PASSWORD:-}" ]; then
+    echo "user=${TURN_USER}:${TURN_PASSWORD}" >> /etc/turnserver.conf
+  else
+    log "ATENȚIE: coturn pornește fără utilizatori; setați TURN_USER/TURN_PASSWORD sau adăugați credențiale în /etc/turnserver.conf"
+  fi
+
+  sed -i 's/^#TURNSERVER_ENABLED=1/TURNSERVER_ENABLED=1/' /etc/default/coturn
+  systemctl enable coturn
+  systemctl restart coturn || log "ATENȚIE: coturn nu a pornit (verificați /var/log/syslog)"
+  log "coturn configurat: 3478, relay ${TURN_RELAY_RANGE}, IP extern ${EXTERNAL_IP}"
+}
+
+# ---------------------------------------------------------------- 6. CloudWatch Agent
+install_cloudwatch_agent() {
+  if [ "${INSTALL_CW_AGENT}" != "true" ]; then
+    log "CloudWatch Agent dezactivat"
+    return 0
+  fi
+
+  log "instalare CloudWatch Agent"
+  local arch
+  arch="$(dpkg --print-architecture)"
+  curl -fsSL "https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/${arch}/latest/amazon-cloudwatch-agent.deb" \
+    -o /tmp/amazon-cloudwatch-agent.deb
+  dpkg -i -E /tmp/amazon-cloudwatch-agent.deb
+
+  cat > /opt/aws/amazon-cloudwatch-agent/etc/cncdt-agent.json <<CWCONF
+{
+  "agent": { "metrics_collection_interval": 60, "run_as_user": "root" },
+  "metrics": {
+    "namespace": "CNCDT/Simulation",
+    "append_dimensions": { "InstanceId": "\${aws:InstanceId}" },
+    "metrics_collected": {
+      "nvidia_gpu": {
+        "measurement": ["utilization_gpu", "utilization_memory", "temperature_gpu", "memory_used", "memory_total", "power_draw"]
+      },
+      "mem": { "measurement": ["mem_used_percent"] },
+      "disk": { "measurement": ["disk_used_percent"], "resources": ["/"] },
+      "cpu": { "measurement": ["cpu_usage_active"], "totalcpu": false }
+    }
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/opt/cncdt/logs/*.log",
+            "log_group_name": "/aws/ec2/${PROJECT}-${ENVIRONMENT}-sim/isaac-sim",
+            "log_stream_name": "{instance_id}",
+            "retention_in_days": 7
+          }
+        ]
+      }
+    }
+  }
+}
+CWCONF
+
+  /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+    -a fetch-config -m ec2 -s \
+    -c file:/opt/aws/amazon-cloudwatch-agent/etc/cncdt-agent.json \
+    || log "ATENȚIE: pornirea CloudWatch Agent a eșuat"
+}
+
+# ---------------------------------------------------------------- 7. desktop + Amazon DCV
+# AMI-ul Amazon Deep Learning pornește fără server grafic: nu are GNOME, GDM3, Xorg sau
+# glxinfo. Fără ele nu există nici interfață grafică, nici sesiune DCV. Pașii de mai jos sunt
+# prerequisitele din documentația AWS pentru DCV pe Ubuntu 22.04 cu GPU NVIDIA.
+install_graphical_desktop() {
+  if [ "${ENABLE_DCV}" != "true" ]; then
+    log "desktop și DCV dezactivate"
+    return 0
+  fi
+
+  export DEBIAN_FRONTEND=noninteractive
+
+  # `ubuntu-desktop` aduce GNOME, GDM3 și Xorg. Durează câteva minute, de aceea se sare peste
+  # el dacă imaginea (AMI-ul înghețat) îl are deja.
+  if ! dpkg -l 2>/dev/null | grep -q '^ii  gdm3'; then
+    log "instalare desktop GNOME (ubuntu-desktop), durează câteva minute"
+    apt-get install -y ubuntu-desktop mesa-utils
+  fi
+
+  # DCV suportă doar X11, iar GDM3 preferă Wayland pe Ubuntu 22.04. Fără această linie,
+  # dcvserver pornește dar nu se poate atașa la sesiunea consolei.
+  if [ -f /etc/gdm3/custom.conf ]; then
+    if grep -qE '^[[:space:]]*#?[[:space:]]*WaylandEnable' /etc/gdm3/custom.conf; then
+      sed -i 's/^[[:space:]]*#\?[[:space:]]*WaylandEnable=.*/WaylandEnable=false/' /etc/gdm3/custom.conf
+    else
+      sed -i '/^\[daemon\]/a WaylandEnable=false' /etc/gdm3/custom.conf
+    fi
+  fi
+  systemctl set-default graphical.target
+
+  # Xorg trebuie să pornească pe GPU deși nu există monitor fizic: `--connected-monitor`
+  # forțează un conector virtual, altfel serverul X se oprește cu "no screens found".
+  rm -f /etc/X11/XF86Config*
+  if command -v nvidia-xconfig >/dev/null 2>&1; then
+    nvidia-xconfig --preserve-busid --enable-all-gpus --connected-monitor=DFP-0
+  else
+    log "ATENȚIE: nvidia-xconfig lipsește; Xorg poate să nu pornească pe GPU"
+  fi
+
+  install_dcv_packages
+  configure_dcv_server
+  configure_dcv_session
+}
+
+install_dcv_packages() {
+  if dpkg -l 2>/dev/null | grep -q '^ii  nice-dcv-server'; then
+    log "pachetele DCV sunt deja instalate"
+    return 0
+  fi
+
+  log "descărcare pachete Amazon DCV"
+  (
+    cd /tmp
+    rm -rf /tmp/nice-dcv-*
+    # Aliasul `/latest` dă întotdeauna ultima versiune publicată; nu există cale cu versiune fixă.
+    wget -q https://d1uj6qtbmh3dt5.cloudfront.net/nice-dcv-ubuntu2204-x86_64.tgz
+    tar -xzf nice-dcv-ubuntu2204-x86_64.tgz
+    cd /tmp/nice-dcv-*
+    apt-get install -y ./nice-dcv-server_*_amd64.ubuntu2204.deb \
+                       ./nice-dcv-web-viewer_*_amd64.ubuntu2204.deb \
+                       ./nice-dcv-gl_*_amd64.ubuntu2204.deb
+  )
+
+  # DCV are nevoie de grupul video ca să partajeze GPU-ul între sesiuni.
+  usermod -aG video dcv
+  rm -rf /tmp/nice-dcv-*
+}
+
+# dcv.conf este rescris cu configparser, nu prin adăugare de secțiuni: fișierul implicit are
+# deja secțiunile comentate, iar o secțiune duplicată face parsarea să eșueze și serverul să
+# pornească fără setările dorite.
+configure_dcv_server() {
+  DCV_PORT="${DCV_PORT}" python3 - <<'PY'
+import configparser
+import os
+
+path = "/etc/dcv/dcv.conf"
+cfg = configparser.ConfigParser()
+cfg.optionxform = str
+cfg.read(path)
+
+if not cfg.has_section("session-management"):
+    cfg.add_section("session-management")
+cfg.set("session-management", "create-session", "true")
+
+if not cfg.has_section("session-management/automatic-console-session"):
+    cfg.add_section("session-management/automatic-console-session")
+cfg.set("session-management/automatic-console-session", "owner", "ubuntu")
+
+# Portul trebuie să coincidă cu regula din security group, altfel tunelul merge în gol.
+if not cfg.has_section("connectivity"):
+    cfg.add_section("connectivity")
+cfg.set("connectivity", "web-port", os.environ["DCV_PORT"])
+
+with open(path, "w", encoding="utf-8") as handle:
+    cfg.write(handle)
+print(f"dcv.conf actualizat: create-session=true, owner=ubuntu, web-port={os.environ['DCV_PORT']}")
+PY
+}
+
+# DCV autentifică proprietarul sesiunii cu parola de Linux, nu cu cheia SSH. Parola se
+# generează o singură dată și se păstrează în SSM Parameter Store (SecureString), ca să
+# supraviețuiască recreării instanței și să nu fie scrisă în log sau în state.
+configure_dcv_session() {
+  local param="${DCV_PASSWORD_PARAMETER}"
+  local password=""
+
+  if password="$(aws ssm get-parameter --name "${param}" --with-decryption \
+      --query 'Parameter.Value' --output text 2>/dev/null)" && [ -n "${password}" ]; then
+    log "parola DCV existentă în ${param}; o refolosesc"
+  elif password="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 16)" \
+      && aws ssm put-parameter --name "${param}" --value "${password}" \
+           --type SecureString --overwrite >/dev/null 2>&1; then
+    log "parolă DCV nouă, scrisă în ${param}"
+  else
+    log "ATENȚIE: parola DCV nu a putut fi citită sau scrisă în ${param}; setați-o cu 'sudo passwd ubuntu'"
+    return 0
+  fi
+
+  echo "ubuntu:${password}" | chpasswd
+  log "parola utilizatorului ubuntu actualizată"
+
+  systemctl enable dcvserver >/dev/null 2>&1 || true
+  systemctl restart dcvserver || log "ATENȚIE: dcvserver nu a pornit; verificați 'journalctl -u dcvserver'"
+}
+
+# ---------------------------------------------------------------- 8. conținut Isaac Sim
+# Browserele de asset-uri din Isaac Sim își iau rădăcinile din bucketul public Omniverse
+# (`omniverse-content-production.s3-us-west-2.amazonaws.com`). Fișierele individuale se
+# descarcă de acolo, dar listarea directoarelor nu funcționează în `omni.client`: răspunsul
+# pentru un prefix-drept-director este 404, iar browserele rămân goale (în jurnal apare
+# „Failed to find item at 'https://omniverse-content-production.s3-us-west-2.amazonaws.com/'").
+# Soluția este o oglindă locală plus configurațiile care trimit rădăcinile spre ea. Aceeași
+# recomandare apare și în documentația NVIDIA pentru Conveyor Track Builder („download the
+# assets locally and point the Conveyor Assets Location at the local folder").
+prepare_isaac_content() {
+  ISAAC_CONTENT_DIR="${ISAAC_CONTENT_DIR:-${STATE_DIR}/isaac-assets}"
+  ISAAC_CONTENT_MOUNT="${ISAAC_CONTENT_MOUNT:-/isaac-assets}"
+  ISAAC_CONFIG_DIR="${ISAAC_CONFIG_DIR:-${STATE_DIR}/isaac-config}"
+  export ISAAC_CONTENT_DIR ISAAC_CONTENT_MOUNT ISAAC_CONFIG_DIR \
+    ISAAC_CONTENT_URL ISAAC_CONTENT_SECTIONS
+
+  mkdir -p "${ISAAC_CONTENT_DIR}" "${ISAAC_CONFIG_DIR}"
+
+  # Jurnalul de sincronizare este scris atât de root (bootstrap, SSM), cât și de ubuntu
+  # (`make sim-assets`, pornire manuală), deci îl creăm cu drepturi pentru ambele.
+  touch /var/log/cncdt-isaac-assets.log
+  chown ubuntu:ubuntu /var/log/cncdt-isaac-assets.log
+
+  # Descărcarea se face în fundal: implicit sunt ~10 GB, adică peste bugetul de timp al
+  # bootstrap-ului (twinctl așteaptă 25 de minute). `aws s3 sync` este reluabil, deci o
+  # relansare continuă de unde a rămas.
+  cat > "${STATE_DIR}/scripts/sync-isaac-assets.sh" <<'SYNCASSETS'
+#!/bin/bash
+# Oglindește conținutul Isaac Sim din bucketul public Omniverse în directorul local.
+#
+# `--no-sign-request` este obligatoriu: bucketul este public, iar cererea semnată ar cere o
+# identitate AWS pe care instanța o are doar dacă i s-a dat una.
+#
+# Usage: sync-isaac-assets.sh [secțiune ...]
+set -uo pipefail
+
+URL="${ISAAC_CONTENT_URL:-https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0}"
+DEST="${ISAAC_CONTENT_DIR:-/opt/cncdt/isaac-assets}"
+SECTIONS="${*:-${ISAAC_CONTENT_SECTIONS:-Robots Props Materials Sensors}}"
+
+# Gazda poate fi `bucket.s3.<regiune>.amazonaws.com`, `bucket.s3-<regiune>.amazonaws.com` sau
+# `bucket.s3.amazonaws.com` (us-east-1). În `s3://` intră doar numele bucket-ului: varianta cu
+# gazda întreagă dă „NoSuchBucket".
+HOST=""
+case "${URL}" in
+  s3://*) BUCKET="$(printf '%s' "${URL}" | cut -d/ -f3)" ;;
+  *)      HOST="$(printf '%s' "${URL}" | cut -d/ -f3)"; BUCKET="${HOST%%.s3*}" ;;
+esac
+PREFIX="$(printf '%s' "${URL}" | cut -d/ -f4-)"
+
+REGION="${ISAAC_CONTENT_REGION:-}"
+if [ -z "${REGION}" ] && [ -n "${HOST}" ]; then
+  REGION="$(printf '%s' "${HOST}" | sed -n 's/.*\.s3[.-]\([a-z0-9-]*\)\.amazonaws\.com$/\1/p')"
+fi
+REGION="${REGION:-us-west-2}"
+
+mkdir -p "${DEST}"
+status=0
+for section in ${SECTIONS}; do
+  echo "=== ${section} $(date -u +%H:%M:%S) ==="
+  if ! aws s3 sync --no-sign-request --region "${REGION}" --only-show-errors \
+    "s3://${BUCKET}/${PREFIX}/Isaac/${section}/" "${DEST}/Isaac/${section}/"; then
+    echo "ATENȚIE: secțiunea ${section} a eșuat" >&2
+    status=1
+  fi
+done
+
+du -sh "${DEST}" 2>/dev/null || true
+if [ "${status}" -eq 0 ]; then
+  # Markerul este citit de bootstrap ca să nu repornească sincronizarea.
+  date -u +%FT%TZ > "${DEST}/.complete"
+  echo "=== GATA $(date -u +%H:%M:%S) ==="
+else
+  rm -f "${DEST}/.complete"
+  echo "=== INCOMPLET $(date -u +%H:%M:%S) ===" >&2
+fi
+exit "${status}"
+SYNCASSETS
+  chmod +x "${STATE_DIR}/scripts/sync-isaac-assets.sh"
+
+  # Starea oglinzii. Este folosită și de `make sim-assets` (prin SSM) și de autotestare.
+  cat > "${STATE_DIR}/scripts/content-status.sh" <<'CONTENTSTATUS'
+#!/bin/bash
+# Starea oglinzii de conținut Isaac Sim. Cu `--start`, pornește sincronizarea detașat dacă
+# oglinda este incompletă și nu rulează deja.
+set -uo pipefail
+
+DIR="${ISAAC_CONTENT_DIR:-/opt/cncdt/isaac-assets}"
+START="${1:-}"
+
+if [ -d "${DIR}/Isaac" ]; then
+  echo "dimensiune: $(du -sh "${DIR}" 2>/dev/null | cut -f1)"
+  echo "secțiuni:   $(ls "${DIR}/Isaac" 2>/dev/null | tr '\n' ' ')"
+else
+  echo "dimensiune: 0 (oglinda lipsește)"
+fi
+
+if pgrep -f sync-isaac-assets.sh >/dev/null 2>&1; then
+  echo "sincronizare: rulează"
+  exit 0
+fi
+
+if [ -f "${DIR}/.complete" ]; then
+  echo "sincronizare: oprită, oglinda este completă"
+  exit 0
+fi
+
+if [ "${START}" = "--start" ]; then
+  setsid nohup /opt/cncdt/scripts/sync-isaac-assets.sh \
+    </dev/null >>/var/log/cncdt-isaac-assets.log 2>&1 &
+  echo "sincronizare: pornită în fundal (~10 GB, jurnal /var/log/cncdt-isaac-assets.log)"
+  echo "              reia comanda pentru progres"
+else
+  echo "sincronizare: oprită (rulați 'make sim-assets' ca s-o porniți)"
+fi
+exit 0
+CONTENTSTATUS
+  chmod +x "${STATE_DIR}/scripts/content-status.sh"
+
+  # Rescrie configurațiile din imagine cu rădăcini locale. Scriptul rulează în afara
+  # containerului: citește fișierele din imagine cu un container efemer și le scrie în
+  # ISAAC_CONFIG_DIR, de unde sunt montate peste cele originale.
+  cat > "${STATE_DIR}/scripts/patch-isaac-content.sh" <<'PATCH'
+#!/bin/bash
+# Pregătește configurațiile care mută browserele de conținut pe oglinda locală.
+#
+# Fiecare fișier rezultat este montat read-only peste cel din imagine, deci extensia însăși
+# rămâne scriibilă (browserul de asset-uri își scrie cache-ul în directorul extensiei).
+# Directorul din imagine este detectat la rulare: între versiuni, extensiile se mută între
+# `exts/` și `extscache/`.
+#
+# Usage: patch-isaac-content.sh [--check]
+set -euo pipefail
+
+IMAGE="${ISAAC_IMAGE:?ISAAC_IMAGE lipsește}"
+MOUNT="${ISAAC_CONTENT_MOUNT:-/isaac-assets}"
+URL="${ISAAC_CONTENT_URL:-https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0}"
+OUT="${ISAAC_CONFIG_DIR:-/opt/cncdt/isaac-config}"
+CONTENT_DIR="${ISAAC_CONTENT_DIR:-/opt/cncdt/isaac-assets}"
+# O intrare poate fi o secțiune întreagă sau o sub-cale (de exemplu Environments/Simple_Warehouse).
+SECTIONS="$(printf '%s' "${ISAAC_CONTENT_SECTIONS:-Robots Props Materials Sensors}" | tr ',' ' ')"
+CHECK_ONLY="${1:-}"
+
+EXTENSIONS="isaacsim.asset.browser isaacsim.gui.content_browser isaacsim.storage.native"
+
+log() { printf '[patch-isaac-content] %s\n' "$*"; }
+
+if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
+  log "descărcare imagine ${IMAGE}"
+  docker pull "${IMAGE}"
+fi
+
+# O singură rulare de container enumeră căile existente.
+found="$(docker run --rm -e "EXTS=${EXTENSIONS}" --entrypoint bash "${IMAGE}" -c '
+  for ext in ${EXTS}; do
+    for base in /isaac-sim/exts /isaac-sim/extscache; do
+      path="${base}/${ext}/config/extension.toml"
+      [ -f "${path}" ] && { echo "${ext} ${path}"; break; }
+    done
+  done' 2>/dev/null)"
+
+if [ -z "${found}" ]; then
+  log "ATENȚIE: nicio configurație de conținut găsită în ${IMAGE}; browserele rămân pe cloud"
+  exit 1
+fi
+
+mkdir -p "${OUT}"
+: > "${OUT}/mounts"
+
+while read -r ext path; do
+  [ -n "${ext}" ] || continue
+  target="${OUT}/${ext}.toml"
+  docker run --rm --entrypoint cat "${IMAGE}" "${path}" > "${target}"
+
+  # Înlocuirea se face pe textul din imagine, nu prin adăugarea unei chei: TOML nu acceptă
+  # chei duplicate, iar o cheie adăugată la final ar fi ignorată sau ar rupe parsarea.
+  URL="${URL}" MOUNT="${MOUNT}" CONTENT_DIR="${CONTENT_DIR}" SECTIONS="${SECTIONS}" \
+    python3 - "${target}" <<'PY'
+import os
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+url = os.environ["URL"]
+mount = os.environ["MOUNT"]
+sections = os.environ["SECTIONS"].split()
+
+# O secțiune acoperă și directorul ei de nivel 1: „Environments/Simple_Warehouse" ține
+# directorul „Environments" în listă.
+kept = {section.split("/")[0] for section in sections}
+
+lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+out = []
+replaced = 0
+dropped = []
+in_folders = False
+
+for line in lines:
+    if re.match(r'^\s*exts\."[^"]+"\.folders\s*=\s*\[', line):
+        in_folders = True
+        out.append(line)
+        continue
+
+    localized = line.replace(url, mount)
+
+    if in_folders:
+        if line.strip().startswith("]"):
+            in_folders = False
+            out.append(line)
+            continue
+        entry = re.match(r'\s*"([^"]+)"\s*,?\s*$', localized)
+        if entry and entry.group(1).startswith(f"{mount}/"):
+            # Calea din listă este <mount>/Isaac/<secțiune>; numele de comparat este <secțiune>.
+            parts = entry.group(1)[len(mount):].lstrip("/").split("/")
+            name = parts[1] if len(parts) > 1 and parts[0] == "Isaac" else parts[0]
+            # Un director nemirrorat ar apărea în browser, dar listarea lui ar eșua.
+            if name not in kept:
+                dropped.append(name)
+                continue
+
+    replaced += line.count(url)
+    out.append(localized)
+
+text = "".join(out)
+# Thumbnail-urile se oglindesc și ele (directoarele `.thumbs/`), dar filtrul rămâne pe
+# „arată tot": un asset fără thumbnail nu trebuie să dispară din browser.
+text, hidden = re.subn(
+    r'(?m)^(\s*exts\."isaacsim\.asset\.browser"\.data\.hide_file_without_thumbnails\s*=\s*)true\s*$',
+    r"\1false",
+    text,
+)
+
+path.write_text(text, encoding="utf-8")
+summary = f"  {path.name}: {replaced} rădăcini locale"
+if hidden:
+    summary += ", filtre de thumbnail dezactivate"
+if dropped:
+    summary += f", rădăcini nemirrorate scoase din listă ({', '.join(sorted(set(dropped)))})"
+print(summary)
+PY
+
+  echo "${target}:${path}" >> "${OUT}/mounts"
+done <<<"${found}"
+
+# Aliasul este citit de `omni.kit.browser.folder.core` din ${omni_global_config}/omniverse.toml
+# și înlocuiește prefixul URL-urilor cloud la crearea folderelor. Prinde astfel și asset-urile
+# cerute de alte componente (Conveyor Track Builder, exemple), nu doar listele din cele două
+# browsere.
+cat > "${OUT}/omniverse.toml" <<ALIAS
+# Generat de patch-isaac-content.sh. Mută rădăcina de conținut cloud pe oglinda locală.
+[aliases]
+"${URL}" = "${MOUNT}"
+ALIAS
+echo "${OUT}/omniverse.toml:/root/.nvidia-omniverse/config/omniverse.toml" >> "${OUT}/mounts"
+
+log "configurații pregătite în ${OUT} ($(wc -l < "${OUT}/mounts") montări)"
+
+# Amprenta stării pentru care s-a făcut patch-ul: arborele de directoare oglindit plus lista
+# de secțiuni cerută. start-isaac.sh o compară și reface patch-ul când apare o secțiune nouă.
+dirs="$(cd "${CONTENT_DIR}/Isaac" 2>/dev/null && find . -maxdepth 2 -type d | sort | tr '\n' ' ')" || true
+printf '%s|%s\n' "${dirs}" "${SECTIONS}" > "${OUT}/fingerprint"
+
+if [ "${CHECK_ONLY}" = "--check" ]; then
+  cat "${OUT}/mounts"
+fi
+exit 0
+PATCH
+  chmod +x "${STATE_DIR}/scripts/patch-isaac-content.sh"
+
+  if [ "${ISAAC_CONTENT_MIRROR}" != "true" ]; then
+    log "oglinda de conținut este dezactivată (isaac_content_mirror=false)"
+    return 0
+  fi
+
+  # Configurațiile se citesc din imagine, deci patch-ul așteaptă prima descărcare a ei
+  # (install_extension_deps o aduce, iar start-isaac.sh reface patch-ul dacă lipsește).
+  if docker image inspect "${ISAAC_IMAGE}" >/dev/null 2>&1; then
+    if ! ISAAC_IMAGE="${ISAAC_IMAGE}" "${STATE_DIR}/scripts/patch-isaac-content.sh"; then
+      log "ATENȚIE: configurațiile de conținut nu au putut fi pregătite; browserele rămân pe cloud"
+    fi
+  else
+    log "imaginea ${ISAAC_IMAGE} nu este încă locală; configurațiile de conținut se scriu la prima pornire"
+  fi
+
+  if [ -f "${ISAAC_CONTENT_DIR}/.complete" ]; then
+    log "oglinda de conținut există deja ($(du -sh "${ISAAC_CONTENT_DIR}" 2>/dev/null | cut -f1))"
+    return 0
+  fi
+
+  log "pornesc sincronizarea conținutului în fundal (secțiuni: ${ISAAC_CONTENT_SECTIONS}); jurnal: /var/log/cncdt-isaac-assets.log"
+  # `setsid` detașează procesul, iar redirectarea completă a descriptorilor împiedică
+  # cloud-init să aștepte după el la finalul bootstrap-ului. Descărcarea nu are nevoie de
+  # imaginea Docker, deci poate porni imediat.
+  setsid env ISAAC_CONTENT_URL="${ISAAC_CONTENT_URL}" \
+    ISAAC_CONTENT_DIR="${ISAAC_CONTENT_DIR}" \
+    ISAAC_CONTENT_SECTIONS="${ISAAC_CONTENT_SECTIONS}" \
+    "${STATE_DIR}/scripts/sync-isaac-assets.sh" \
+    </dev/null >>/var/log/cncdt-isaac-assets.log 2>&1 &
+  chown -R ubuntu:ubuntu "${ISAAC_CONTENT_DIR}" "${ISAAC_CONFIG_DIR}"
+}
+
+# ---------------------------------------------------------------- 9. dependențe de extensie
+# `mapbox-earcut` triangulează fețele pieselor cu găuri interioare și nu vine cu Isaac Sim.
+# Se instalează cu `--target` într-un director de pe gazdă, montat apoi read-only în container:
+# stratul de scriere al containerului se pierde la fiecare recreare.
+install_extension_deps() {
+  local marker="${STATE_DIR}/pylibs/.installed"
+  if [ -f "${marker}" ]; then
+    log "dependențele de extensie sunt deja instalate"
+    return 0
+  fi
+
+  log "descărcare imagine ${ISAAC_IMAGE} (poate dura 10-20 de minute)"
+  docker pull "${ISAAC_IMAGE}"
+
+  log "instalare mapbox-earcut în ${STATE_DIR}/pylibs"
+  mkdir -p "${STATE_DIR}/pylibs"
+  # `--no-deps` este obligatoriu: altfel pip aduce numpy 2.x în același director, iar
+  # PYTHONPATH-ul din container îl pune înaintea numpy-ului 1.26 al lui Isaac Sim. Modulele
+  # compilate ale lui Isaac Sim sunt legate de ABI-ul numpy 1.x, deci ar crăpa la import.
+  if docker run --rm --entrypoint /isaac-sim/python.sh \
+    -v "${STATE_DIR}/pylibs:/target" \
+    "${ISAAC_IMAGE}" -m pip install --no-cache-dir --no-deps --target /target mapbox-earcut; then
+    rm -rf "${STATE_DIR}/pylibs"/numpy "${STATE_DIR}/pylibs"/numpy-*.dist-info "${STATE_DIR}/pylibs"/numpy.libs
+    touch "${marker}"
+    chown -R ubuntu:ubuntu "${STATE_DIR}/pylibs"
+  else
+    log "ATENȚIE: instalarea mapbox-earcut a eșuat; generarea pieselor în Isaac Sim nu va funcționa"
+  fi
+}
+
+# ---------------------------------------------------------------- 10. final
+# Parsarea configurației se face după instalarea pachetelor, pentru că folosește jq.
+parse_config() {
+  local config
+  config="$(printf '%s' "${CONFIG_B64}" | base64 -d)"
+
+  PROJECT="$(jq -r '.project' <<<"${config}")"
+  ENVIRONMENT="$(jq -r '.environment' <<<"${config}")"
+  ASSETS_BUCKET="$(jq -r '.assets_bucket' <<<"${config}")"
+  ISAAC_IMAGE="$(jq -r '.isaac_image' <<<"${config}")"
+  ENTRYPOINT_SCRIPT="$(jq -r '.entrypoint_script' <<<"${config}")"
+  SIGNALING_PORT="$(jq -r '.signaling_port' <<<"${config}")"
+  ENABLE_TURN="$(jq -r '.enable_turn' <<<"${config}")"
+  TURN_RELAY_RANGE="$(jq -r '.turn_relay_range' <<<"${config}")"
+  AUTOSTART_SIM="$(jq -r '.autostart_sim' <<<"${config}")"
+  ENABLE_DCV="$(jq -r '.enable_dcv // true' <<<"${config}")"
+  DCV_PORT="$(jq -r '.dcv_port // 8443' <<<"${config}")"
+  DCV_PASSWORD_PARAMETER="$(jq -r '.dcv_password_parameter' <<<"${config}")"
+  LIVESTREAM_PUBLIC_ADDRESS="$(jq -r '.livestream_public_address // true' <<<"${config}")"
+  INSTALL_CW_AGENT="$(jq -r '.install_cloudwatch_agent' <<<"${config}")"
+  ISAAC_CONTENT_MIRROR="$(jq -r '.isaac_content_mirror // true' <<<"${config}")"
+  ISAAC_CONTENT_URL="$(jq -r '.isaac_content_url // empty' <<<"${config}")"
+  ISAAC_CONTENT_SECTIONS="$(jq -r '(.isaac_content_sections // ["Robots","Props","Materials","Sensors"]) | join(" ")' <<<"${config}")"
+  DATA_VOLUME_ID="$(jq -r '.data_volume_id // empty' <<<"${config}")"
+  ISAAC_CONTENT_URL="${ISAAC_CONTENT_URL:-https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0}"
+  export PROJECT ENVIRONMENT ISAAC_IMAGE ENTRYPOINT_SCRIPT ENABLE_DCV DCV_PORT DCV_PASSWORD_PARAMETER
+
+  jq -r '.extra_commands // empty' <<<"${config}" > /tmp/cncdt-extra.sh
+  log "configurație încărcată: ${PROJECT}/${ENVIRONMENT}, imagine ${ISAAC_IMAGE}"
+}
+
+main() {
+  install_base_packages
+  parse_config
+  # Înainte de orice scriere în /opt/cncdt: de aici încolo starea trăiește pe volumul de date.
+  mount_data_volume
+  install_nvidia_runtime
+  prepare_workspace
+  prepare_isaac_content
+  configure_turn
+  install_cloudwatch_agent
+  install_graphical_desktop
+
+  if [ -n "${ASSETS_BUCKET}" ] && [ "${ASSETS_BUCKET}" != "null" ]; then
+    log "descărcare asset-uri din s3://${ASSETS_BUCKET}/sim-assets/latest/"
+    if aws s3 sync "s3://${ASSETS_BUCKET}/sim-assets/latest/" /opt/cncdt/assets/ --only-show-errors; then
+      chown -R ubuntu:ubuntu /opt/cncdt/assets
+    else
+      log "ATENȚIE: sincronizarea asset-urilor a eșuat (bucket gol sau prefix inexistent)"
+    fi
+  fi
+
+  # Comenzi suplimentare injectate din Terraform (fișier scris de parse_config).
+  if [ -s /tmp/cncdt-extra.sh ]; then
+    log "rulare comenzi suplimentare"
+    bash /tmp/cncdt-extra.sh
+  fi
+
+  if [ "${AUTOSTART_SIM}" = "true" ]; then
+    install_extension_deps
+    log "pornire automată Isaac Sim"
+    if sudo -u ubuntu -H \
+      ISAAC_IMAGE="${ISAAC_IMAGE}" \
+      ENTRYPOINT_SCRIPT="${ENTRYPOINT_SCRIPT}" \
+      SIGNALING_PORT="${SIGNALING_PORT}" \
+      LIVESTREAM_PUBLIC_ADDRESS="${LIVESTREAM_PUBLIC_ADDRESS}" \
+      ISAAC_CONTENT_SECTIONS="${ISAAC_CONTENT_SECTIONS}" \
+      /opt/cncdt/scripts/start-isaac.sh; then
+      log "container Isaac Sim pornit"
+    else
+      log "ATENȚIE: pornirea Isaac Sim a eșuat; rulați manual /opt/cncdt/scripts/start-isaac.sh"
+    fi
+  fi
+
+  touch "${MARKER}"
+  log "bootstrap finalizat"
+}
+
+main "$@"

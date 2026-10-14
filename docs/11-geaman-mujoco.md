@@ -1,0 +1,339 @@
+# Geamăn digital MuJoCo: telemetrie pentru antrenare
+
+Plan de implementare pentru al doilea geamăn al celulei CNC. Decizia arhitecturală stă în
+[ADR 0012](adr/0012-geaman-mujoco-pentru-generare-de-telemetrie.md); documentul de față spune
+**ce** se construiește, în ce ordine și cum se verifică.
+
+Stare: plan, fără cod. Faza 0 (documentația) este singura terminată.
+
+## Cuprins
+
+1. [Scop și non-scop](#1-scop-și-non-scop)
+2. [Scena: componente și reprezentarea în MJCF](#2-scena-componente-și-reprezentarea-în-mjcf)
+3. [Motorul de uzură](#3-motorul-de-uzură)
+4. [Telemetrie și contracte](#4-telemetrie-și-contracte)
+5. [Detecția anomaliilor și timpul de anticipare](#5-detecția-anomaliilor-și-timpul-de-anticipare)
+6. [Interfața de control](#6-interfața-de-control)
+7. [Structura de fișiere](#7-structura-de-fișiere)
+8. [Faze și criterii de acceptare](#8-faze-și-criterii-de-acceptare)
+9. [Riscuri și capcane](#9-riscuri-și-capcane)
+10. [Decizii lăsate deschise](#10-decizii-lăsate-deschise)
+
+## 1. Scop și non-scop
+
+**Scop.** O celulă CNC simulată care rulează headless, pe CPU, ore întregi, și scoate două
+lucruri: telemetrie brută compatibilă cu hot path-ul și ferestre gata de antrenare pentru un
+detector de anomalii. Uzura este non-liniară, produce eșecuri mecanice reale în simulare, iar
+episoadele de eșec sunt etichetate, ca să se poată măsura un preaviz.
+
+**Non-scop.** Fidelitatea vizuală, interfața operatorului (rămâne Isaac Sim, cu DCV și WebRTC),
+fizica așchierii, înlocuirea pipeline-ului existent, orice resursă AWS nouă.
+
+## 2. Scena: componente și reprezentarea în MJCF
+
+Fiecare componentă din promptul de cerință are corespondent în MJCF. MuJoCo nu are bandă
+transportoare nativă, deci banda este un geom de tip cutie plus un modul de forțe tangențiale
+aplicate corpurilor aflate în contact cu ea.
+
+| Componentă | Reprezentare MJCF | Senzori | Actuatori / forțe |
+| --- | --- | --- | --- |
+| Bandă 1 (alimentare) | plan înclinat/cutie cu `friction` ridicat; bucăți de material spawning la capăt | viteză de suprafață, alunecare, număr de piese | forță tangențială per pas, aplicată prin `data.xfrc_applied` corpurilor în contact |
+| Braț 1, deservirea mașinii | Franka Emika Panda (7 DoF + griper) din `mujoco-menagerie`; preia piesa de pe banda 1, o încarcă în CNC, apoi o descarcă și o așază pe banda 2 | efort/curent pe articulații, forță de strângere, contact cu piesa | `position`/`motor` pe articulații, actuator pe degetele griperului |
+| Mașină CNC, 3 axe | 3 articulații prismatice (X, Y, Z) + corp de ax + piesă prinsă; stările din contract, fără așchiere | vibrație RMS și vârf, sarcină ax, temperatură, avans | profil de sarcină și vibrație aplicat ca forță pe corpul axului, în funcție de stare și uzură |
+| Braț 2 (sortare) | același model Panda, pe latura sudică a benzii 2, cu cutiile dincolo de bandă | ca la brațul 1 | ca la brațul 1 |
+| Bandă 2 (evacuare) | ca banda 1, cu un singur sens de mers, spre vest | viteză, număr de piese | ca la banda 1 |
+| Cutiile Accepted / Trash | două cutii (geoms) alăturate, pe latura nordică a benzii 2, adică dincolo de bandă față de braț + pistă de numărare pe piese | numărul de piese pe cutie | — |
+| Camere | o cameră fixă de inspecție a calității, deasupra benzii 2, înainte de brațul 2 (rolul `sorting` din `cnc.qa.snapshot.v1.json`: verdictul ei decide ruta), plus câte o cameră pe flanșa fiecărui braț, pentru prindere | cadru RGB offscreen + scor de calitate | — |
+
+Stările mașinii CNC sunt exact enumerația din `cnc.telemetry.v1.json`: `IDLE`, `LOADING`,
+`CUTTING`, `UNLOADING`, `INSPECTING`. Ciclul complet — bandă 1 → braț 1 → CNC → braț 1 →
+bandă 2 (inspecție) → braț 2 → cutie — produce `cycle_id` și `part_id` cu aceleași formate
+(`cyc-000001`, `part-000001`).
+
+Randarea camerei se face cu `mujoco.Renderer` la rezoluție mică (implicit 160×120). Pentru
+sesiunile în care interesează doar telemetria, randarea se oprește complet, iar degradarea
+imaginii se aplică doar cadrelor cerute (inspecție), ca să nu plătească timp de generare.
+Verificat: randarea offscreen funcționează fără fereastră, pe CPU, în afara Kit.
+
+### Poziționarea în celulă: grid de 0,5 m
+
+![Planul celulei CNC, văzut de sus](diagrams/cnc-cell-layout.png)
+
+Celula are 6,0 × 4,0 m, cu originea (0, 0) în colțul sud-vest, **+X spre est** și **+Y spre
+nord**. Gridul are celule de 0,5 m: **coloanele A–L** spre est, **rândurile 1–8** spre nord, deci
+fiecare element are o referință scurtă — brațul 1 stă în `F6`, mașina ocupă `G5–J7`, banda 2 în
+`B4–J5`, brațul 2 în `F4`, cutiile în `E5–E6` și `F5–G6`, iar camera de inspecție în `G4`.
+Conversia la lumea MuJoCo este identitatea: planul `(x, y)` devine lumea
+`(x, y)`, cu +Z în sus, deci scena preia cifrele ca atare.
+
+Desenul și tabelele de mai jos ies din aceeași listă de coordonate
+(`docs/diagrams/cell_layout.py`), regenerată cu `make cell-layout`; nimic nu se transcrie manual,
+ca planul și scena să nu se poată contrazice.
+
+| Element | Centru (x, y) | Amprentă (m) | Celule de grid |
+| --- | --- | --- | --- |
+| Bandă 1 (alimentare) | (1,60, 3,30) | 2,4 × 0,4 | A7–F7 |
+| Braț 1 (Panda #1) | (2,95, 2,65) | bază 0,25 Ø | F6 |
+| Cameră pe brațul 1 (flanșă) | (3,17, 2,42) | punct | G5 |
+| Mașină CNC 3 axe | (4,10, 2,90) | 1,4 × 1,0 | G5–J7 |
+| Bandă 2 (evacuare, un singur sens) | (2,70, 2,00) | 3,8 × 0,4 | B4–J5 |
+| Braț 2 (Panda #2) | (2,70, 1,55) | bază 0,25 Ø | F4 |
+| Cameră pe brațul 2 (flanșă) | (2,45, 1,72) | punct | E4 |
+| Cutie piese bune (Accepted) | (2,30, 2,40) | 0,4 × 0,4 | E5–E6 |
+| Cutie rebut (Trash) | (2,90, 2,40) | 0,4 × 0,4 | F5–G6 |
+| Cameră de inspecție a calității | (3,20, 1,55) | punct, zonă 0,70 Ø | G4 |
+
+Fiecare țintă de prindere cade în raza de 0,855 m a brațului care o deservește, măsurată în plan:
+
+| Braț | Țintă | Distanță în plan (m) | În raza de 0,855 m |
+| --- | --- | --- | --- |
+| Braț 1 | preluare de pe banda 1 | 0,70 | da |
+| Braț 1 | încărcare/descărcare CNC | 0,63 | da |
+| Braț 1 | așezare pe banda 2 | 0,79 | da |
+| Braț 2 | preluare de pe banda 2 | 0,45 | da |
+| Braț 2 | piesă bună în cutie | 0,83 | da |
+| Braț 2 | rebut în cutie | 0,83 | da |
+
+Fluxul materialului, desenat punctat pe plan: banda 1 intră din `A7` spre est și lasă piesa la
+capătul ei, în `F7`; brațul 1 o ridică, o încarcă în mașină pe fața vestică, iar după ce mașina
+termină o descarcă tot el și o așază pe banda 2, în `G5`. Banda 2 merge într-un singur sens,
+spre vest, iar pe drum piesa trece prin dreptul camerei de inspecție a calității (`G4`), care
+stă deasupra ei: verdictul e gata înainte ca piesa să ajungă la brațul 2, aflat pe latura sudică
+a benzii, în `F4`, și care o ridică din `F5`. Verdictul hotărâște cutia — `E5–E6` pentru piese
+bune, `F5–G6` pentru rebut —, iar cutiile stau dincolo de bandă, pe latura nordică. Brațul 2
+ridică și lasă piesa în același sector, spre nord, deci întoarcerea dintre ținta de preluare și
+cele două cutii scade la circa 43°, față de 180° cât ar fi cu cutiile de aceeași parte cu brațul.
+Pistonul de rejecție din scena Isaac Sim nu se dublează aici: clasificarea o face brațul 2, din
+verdictul camerei.
+
+Înălțimile propuse, pentru când se scrie MJCF-ul: suprafețele de lucru ale benzilor la 0,85 m,
+masa mașinii la 0,75 m, capacul de protecție la 1,90 m, cutiile pe podea cu marginea la 0,35 m,
+baza brațelor pe piedestal la 0,55 m, camerele la 2,20 m, orientate în jos. Culoarele libere:
+0,60 m între capătul benzii 1 și fața vestică a mașinii, 0,20 m între marginea nordică a benzii
+2 și fața sudică a mașinii (brațul 1 lucrează pe deasupra benzii, nu prin culoar), 0,25 m între
+marginea sudică a benzii 2 și axul brațului 2, adică 0,13 m până la piedestalul lui. Brațul 1
+are 0,63 m până la axul mașinii și 0,79 m până la locul de așezare pe banda 2, iar brațul 2 are
+0,45 m până la punctul de preluare și 0,83 m până la fiecare cutie. Ambele brațe lucrează pe
+deasupra benzilor, nu prin culoarele dintre ele; distanța mică dintre axul brațului 2 și banda 2
+se verifică la montaj, în scenă, nu din plan.
+
+Ce nu spune planul: înălțimile relative dintre brațe și ținte (raza de 0,855 m este proiectată în
+plan, deci o țintă poate părea la îndemână și să fie prea sus) și geometria interioară a mașinii.
+Amândouă se verifică abia în scenă, la faza 2.
+
+## 3. Motorul de uzură
+
+Cod pur, fără MuJoCo, ca să poată fi testat și reproductibil. Cinci mecanisme:
+
+**a) Sănătate cu rată de uzură crescătoare.** Pentru fiecare componentă `i`, sănătatea
+`h_i ∈ (0, 1]` pornește de la 1 și scade cu
+
+```
+dh_i/dt = -k_i · (1 + α_i · u_i) · h_i^{p_i},   u_i = sarcina normalizată, p_i ∈ (0, 1)
+```
+
+Exponentul `p_i < 1` face uzura lentă la început și accelerată spre avarie, adică exact
+comportamentul non-liniar cerut. Constantele `k_i` se aleg pe timpi nominali, nu pe valori de
+catalog: la sarcină nominală, CNC-ul ajunge la „degradat" în ~30 de minute de așchiere, brațele
+în ~90 de minute de mișcare, banda în câteva ore. Toate se scalează dintr-o singură variabilă de
+mediu, care comprimă timpul de viață fără să atingă ceasul (ADR 0007).
+
+**b) Drift de calibrare.** `drift_i = d_i · (1 - h_i)`, aplicat ca abatere lentă: viteza benzii
+scade cu până la 8%, articulațiile capătă un offset de poziție, axele CNC capătă eroare de
+poziționare. Driftul este cel care face uzura vizibilă în medii și deviații, nu doar în nivel.
+
+**c) Zgomot dependent de uzură.** `σ_i = σ0_i + s_i · (1 - h_i)`, adăugat peste mărimile
+senzorilor (vibrație, curent de articulație, viteză de bandă), cu sămânță fixă.
+
+**d) Eșecuri discrete.** Hazard crescător `λ_i(t) = λ0_i · exp(γ_i · (1 - h_i))`, evaluat per
+pas, cu generator cu sămânță. Evenimentele sunt cele cerute: piesa scăpată din griper, blocaj de
+ax CNC (mașina trece pe `IDLE` forțat până la reparație), alunecare de bandă. Fiecare eveniment
+scrie o linie în jurnalul de evenimente (`ts`, componentă, tip, `h`), care este **eticheta**
+pentru detector.
+
+**e) Degradarea camerei.** Blur gaussian cu rază proporțională cu `1 - h_camera`, zgomot aditiv
+pe pixel, ocazional cadru lipsă. Scorul de calitate (`1 - (1 - h_camera)` ponderat cu blurul
+aplicat) intră în metadatele cadrului.
+
+**Legătura cu fizica**. Uzura nu rămâne o cifră în telemetrie, ci schimbă simularea:
+
+| Componentă | Efect fizic | Ce se vede în date |
+| --- | --- | --- |
+| Bandă | coeficient de forță tangențială scade cu `h`, viteza reală scade cu driftul | viteză medie și deviație, timpi de ciclu mai lungi |
+| Brațe | `gear` redus și `frictionloss` crescut proporțional cu `1 - h` | curent/efort mai mare, cicluri mai lente |
+| Griper | forță de strângere și frecare reduse | rată de piese scăpate, evenimente |
+| CNC | amplitudinea profilului de vibrație și de sarcină crește, timpul de ciclu crește | `vibration_rms`, `vibration_peak`, `spindle_load_*`, `temp_c_mean` |
+| Cameră | blur și zgomot crescătoare | scor de calitate, verzi la inspecția vizuală |
+
+**Acțiuni de operator** (în oglindă cu `degradation/model.py`): `inject_tool_wear`,
+`inject_joint_friction`, `replace_tool`, `repair_joints`, plus două noi, locale:
+`inject_fault_burst(componentă, magnitudine, durată)` — scade sănătatea brusc și ridică temporar
+rata de uzură, scenariul pe care detectorul trebuie să îl prindă — și
+`set_wear_rate(multiplier)`, care comprimă sau întinde viața mașinii.
+
+## 4. Telemetrie și contracte
+
+Două ieșiri, amândouă pe contracte existente.
+
+**Eșantion brut, ~10 Hz**, scris în JSONL (și publicabil pe MQTT, pentru paritate cu calea
+live), cu exact câmpurile din `telemetry/schemas/cnc.telemetry.v1.json`. Nu se adaugă câmpuri:
+schema are `additionalProperties: false`, iar Lambda-ul de feature engineering oricum aruncă
+câmpurile din afara contractului.
+
+**Ferestre de 60 s**, scrise în Parquet (sau CSV pentru inspecție rapidă), cu exact cele 26 de
+coloane din `cncdt_ml.schema.ENRICHED_COLUMNS`, produse de funcțiile existente
+`cncdt_ml/features.py::compute_window_features` și `enriched_record`. Partiționarea pe disc
+respectă `dt_year/dt_month/dt_day/dt_hour`, ca fișierele să poată fi citite cu aceleași
+interogări Athena ca datele din lake.
+
+Două mărimi nu au coloană în contract: uzura benzii de alimentare și calitatea camerei. Pentru
+bandă se emit eșantioane brute normale, cu `device_id` propriu
+(`cnc-cell-01-conveyor`), pe câmpurile care există deja. Calitatea camerei rămâne deocamdată în
+metadatele locale ale sesiunii, pentru că nu are nicio coloană în contract. Dacă modelul le cere
+în lake, urmează bump `1.0.0 → 1.1.0` simultan în tabelul din Terraform, în
+`telemetry/schemas/` și în `cncdt_ml/schema.py` — cele trei se schimbă împreună, altfel
+Firehose cade la conversia Parquet.
+
+Fișierele unei sesiuni:
+
+```
+runs/<scenario>/<seed>/
+  samples.jsonl        # eșantioane brute, 10 Hz
+  windows.parquet      # ferestre de 60 s, coloanele din contract
+  events.csv           # etichete: momentul eșecurilor și al injectărilor
+  wear.csv             # traiectoria sănătății per componentă (diagnostic)
+  session.json         # parametrii, versiunea mujoco, sămânța, durata simulată
+```
+
+## 5. Detecția anomaliilor și timpul de anticipare
+
+**Vectorul de caracteristici** este cel din contract, plus mărimi strict locale, disponibile
+pentru experiment: `spindle_load_mean/p95/std`, `vibration_rms/peak/std`, `tool_wear_index`,
+`joint_friction_index`, `coolant_flow_lpm`, `temp_c_mean`, `axis_feed_mean`,
+`joint_effort_mean/max`, `sample_count`, `machine_state`, plus `cycle_time_s` și
+`belt_speed_std`, care există în simulare și nu în schema publicată.
+
+**Antrenare**: RCF local, doar pe ferestre din sesiuni sănătoase, cu aceleași hiperparametri
+pentru toate componentele. **Scor**: fiecare fereastră nouă primește un scor de anomalie.
+**Alarmă**: scor peste percentila 99 a distribuției sănătoase, pe două ferestre consecutive.
+
+**Evaluare pe episoade etichetate**, raportată ca tabel, nu ca impresie:
+
+| Metrică | Definiție | Țintă |
+| --- | --- | --- |
+| Preaviz median | `t(eșec) - t(alarmă)`, în secunde de ceas real | ≥ 120 s |
+| Rată de detecție | episoade cu alarmă înainte de eșec / episoade totale | ≥ 0,9 |
+| Alarmă falsă | alarme pe oră în sesiuni sănătoase | ≤ 1 / 8 h |
+
+Două precizări de onestitate, care se repetă și în `ml/models/`:
+
+1. **RCF nu prezice.** Este un detector nesupervizat de puncte anormale; preavizul vine din
+   faptul că traiectoria de uzură este monotonă și lentă, deci fereastra devine anormală cu
+   minute înainte ca mașina să cedeze, plus din regula de alarmă. „Cu câteva minute înainte" se
+   obține prin proiectarea semnalului de uzură, nu prin algoritm.
+2. **Dacă se cere predicție în sens strict**, adică `P(eșec în următoarele H minute)`, modelul
+   potrivit este supervizat, pe aceleași ferestre, cu eticheta din `events.csv`. Infrastructura
+   de date este aceeași; `ml/src/cncdt_ml/labels.py` există deja pentru partea de etichetare.
+
+Pentru AWS, `mujoco` se înlocuiește cu un export de ferestre în S3: aceleași coloane, același
+`$schema`, deci antrenarea SageMaker RCF și inferența din `ml/training/predictive_maintenance/`
+și `ml/inference/predictive_maintenance/` se scriu fără să atingă simularea.
+
+## 6. Interfața de control
+
+Vocabularul reutilizează `cnc.control.v1.json` acolo unde există deja comanda
+(`inject_tool_wear`, `inject_joint_friction`, `replace_tool`, `repair_joints`, `pause`,
+`resume`, `reset`). Comenzile noi — `inject_fault_burst`, `set_wear_rate`, `reset_wear` — sunt
+locale geamănului, pentru că schema de control este închisă (`additionalProperties: false`) și
+un nume nou acolo cere bump de versiune plus alinierea Lambda-ului de comenzi.
+
+Trei intrări, toate locale:
+
+1. **Consolă (REPL)** — merge headless, în CI, în rulări de noapte: `fault grip cnc 0.4`,
+   `repair all`, `rate 20`, `status`.
+2. **Viewer MuJoCo** — când există display (macOS de dezvoltare, sesiunea DCV a instanței):
+   panou cu butoane pentru injectare, reparație, rată de uzură. Necesită fereastră, deci nu
+   rulează în CI.
+3. **Endpoint HTTP local** (`127.0.0.1`), pentru scenarii scriptate: aceleași comenzi ca în
+   REPL, plus un `GET /status` care întoarce sănătatea componentelor și ultimul scor de anomalie.
+
+Panoul rămâne o unealtă de dezvoltare. Operarea se uită în dashboard-urile CloudWatch (ADR 0005).
+
+## 7. Structura de fișiere
+
+```
+simulation/mujoco/
+  README.md              # cum se rulează, ce iese, ce nu este modelat
+  requirements.txt       # mujoco==3.15.0, mujoco-menagerie==2026.10.1, numpy (+ RCF în faza 4)
+  scene/cell.xml         # asamblarea scenei, include modelele din mujoco_menagerie
+  cncdt_mj/
+    wear.py              # motorul de uzură (pur, numpy)
+    faults.py            # injectare bruscă, reparație, rată de uzură (pur)
+    telemetry.py         # eșantion brut + ferestre, pe contract (pur)
+    detector.py          # RCF local + regula de alarmă (pur, numpy)
+    report.py            # preaviz, rată de detecție, alarme false (pur)
+    belt.py              # forțe tangențiale de bandă
+    camera.py            # randare offscreen + degradare
+    sensors.py           # din MjData în mărimi de proces
+    cell.py              # ciclul, stările mașinii, legarea uzurii de fizică
+    control.py           # REPL, endpoint local, punte către viewer
+    run.py               # punctul de intrare: sesiune, scenariu, sămânță, ieșire
+tests/unit/
+  test_mj_wear.py        # non-liniaritate, monotonie, mărginire, reproductibilitate
+  test_mj_telemetry.py   # conformitate cu contractul, ferestre, partiții
+  test_mj_detector.py    # prag, alarmă susținută, preaviz pe episod sintetic
+  test_mujoco_scene.py   # încarcă MJCF și face pași (importorskip)
+```
+
+Regula din `AGENTS.md` se respectă: identificatorii în engleză, comentariile de design în
+română, logica pură separată de cea care atinge motorul de fizică.
+
+## 8. Faze și criterii de acceptare
+
+| Fază | Ce se livrează | Criteriu de acceptare |
+| --- | --- | --- |
+| 0 | ADR 0012 + documentul de față | revizuite, fără cod |
+| 1 | `wear.py`, `telemetry.py`, `report.py` + teste pure | `pytest` verde fără MuJoCo instalat; uzura e monotonă, mărginită și se accelerează la sănătate mică; ferestrele au exact coloanele din contract |
+| 2 | `scene/cell.xml`, `belt.py`, `cell.py`, `run.py` | o sesiune de 10 minute simulează un ciclu complet (bandă 1 → braț 1 → CNC → braț 1 → bandă 2 → braț 2 → cutie) fără piese pierdute în geometrie; timpul de generare se măsoară și se notează în README |
+| 3 | scrierea sesiunii (JSONL, Parquet, events, wear) | aceeași sămânță produce fișiere identice; un test de paritate compară vectorii de caracteristici cu cei din scena Isaac Sim pe scenariu nominal |
+| 4 | `detector.py` + evaluare | tabelul de metrici din secțiunea 5, generat de o comandă, pe minimum 20 de episoade de eșec și 8 ore sănătoase |
+| 5 | `control.py` + degradarea camerei | injectarea și reparația din REPL se văd în telemetrie în aceeași fereastră; cadrul de cameră degradat păstrează piesa detectabilă până la `h` critic |
+| 6 | (opțional) SageMaker RCF + card de model | antrenare din ferestrele exportate, card în `ml/models/`, cost justificat în PR |
+
+Fiecare fază se poate opri fără să lase ceva rupt: faza 1 nu are dependențe de MuJoCo, faza 2 nu
+atinge contractele publicate.
+
+## 9. Riscuri și capcane
+
+- **Banda cere forțe proprii.** MuJoCo nu are bandă nativă; modulul de forțe tangențiale trebuie
+  să fie stabil la pas mare, altfel piesele tremură sau cad prin geometrie. Se validează cu un
+  test de transport: o piesă parcurge banda în timpul așteptat, la trei pași de integrare
+  diferiți.
+- **Determinismul are limite.** Aceeași versiune de MuJoCo, același nucleu, aceeași sămânță dau
+  rezultate identice; o altă versiune poate schimba ultimele zecimale. De aceea versiunea se
+  fixează în `requirements.txt`, iar `session.json` o notează.
+- **Două Python-uri.** Kit (Isaac Sim) și proiectul rulează pe versiuni diferite de Python.
+  Geamănul MuJoCo nu se importă din extensia Isaac Sim, nici invers; comunicarea, dacă va fi
+  nevoie, se face prin fișiere sau prin rețea.
+- **Licențele modelelor.** Modelul Panda din `mujoco-menagerie` este Apache-2.0; fiecare model
+  folosit se verifică la adoptare, iar atribuirea se păstrează.
+- **Preavizul se măsoară în ceas real.** La 60 s per fereastră, „câteva minute" înseamnă cel
+  puțin două ferestre; sesiunile de evaluare trebuie să dureze real sau să folosească o rată de
+  uzură mărită, cu mențiunea explicită în raport.
+- **Divergența dintre geamănuri.** Cel mai probabil mod de a strica proiectul este să ajustezi
+  uzura într-un geamăn și să uiți celălalt. Testul de paritate din faza 3 este plasa de
+  siguranță; dacă el cade des, semnul este că motoarele trebuie unificate.
+- **Volumul de date.** 10 Hz × 6 dispozitive ≈ 5,2 milioane de eșantioane pe zi. Parquet cu
+  compresie și partiționare pe oră ține lucrurile rezonabile, dar sesiunile de noapte se
+  planifică pe disc, nu pe bunăvoință.
+
+## 10. Decizii lăsate deschise
+
+1. **Unificarea motoarelor de uzură** (geamăn MuJoCo și extensia Isaac Sim) — se decide după
+   faza 3, când contractul de caracteristici e dovedit stabil.
+2. **Bump de schemă pentru uzura benzii și calitatea camerei** — se decide după faza 4, în
+   funcție de dacă detectorul le cere în lake.
+3. **Predicție supervizată peste RCF** — se decide după faza 4, când se vede cât preaviz dă
+   detecția nesupervizată.
+4. **Paralelizare pe GPU (MJX sau MuJoCo Warp)** — se decide când timpul de generare devine
+   limita reală a antrenării.

@@ -1,0 +1,50 @@
+# Rularea Isaac Sim într-un container, local sau pe o instanță GPU.
+#
+# Local:   docker compose -f simulation/docker/docker-compose.isaac.yml up -d
+# Instanță: aceleași variabile, injectate de /opt/cncdt/scripts/start-isaac.sh
+#
+# Notă: `network_mode: host` este necesar. Semnalizarea si media WebRTC folosesc mai multe
+# porturi, iar maparea port cu port nu acoperă negocierea ICE.
+
+services:
+  isaac-sim:
+    image: ${ISAAC_SIM_IMAGE:-nvcr.io/nvidia/isaac-sim:latest}
+    container_name: ${ISAAC_SIM_CONTAINER_NAME:-isaac-sim}
+    network_mode: host
+    ipc: host
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      PRIVACY_CONSENT: "Y"
+      OMNI_KIT_ACCEPT_EULA: "Y"
+      ISAAC_SIM_SIGNALING_PORT: "${ISAAC_SIGNALING_PORT:-8211}"
+      # Publiște metrice și loguri către AWS, dacă instanța are rol IAM.
+      AWS_REGION: "${AWS_REGION:-us-east-1}"
+      # Broker MQTT: AWS IoT Core în cloud, broker local în dezvoltare.
+      CNCDT_MQTT_HOST: "${CNCDT_MQTT_HOST:-localhost}"
+      CNCDT_MQTT_PORT: "${CNCDT_MQTT_PORT:-8883}"
+      CNCDT_TELEMETRY_TOPIC: "${CNCDT_TELEMETRY_TOPIC:-cncdt/dev/cnc/cell-a/telemetry}"
+    volumes:
+      # Asset-uri (USD, texturi). Montate read-only: simularea nu scrie în ele.
+      - ${CNCDT_ASSET_DIR:-../assets}:/assets:ro
+      - ${CNCDT_SIM_DIR:-..}:/sim:ro
+      - isaac-kit-cache:/isaac-sim/kit/cache
+      - isaac-ov-cache:/root/.cache/ov
+      - isaac-gl-cache:/root/.cache/nvidia/GLCache
+      - isaac-compute-cache:/root/.nv/ComputeCache
+      - ./logs:/logs
+    # `deploy.resources` este ignorat de `docker run`, dar respectat de Compose v2 cu GPU.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: ["bash", "-lc", "${ISAAC_ENTRYPOINT:-./isaac-sim.streaming.sh}"]
+
+volumes:
+  isaac-kit-cache:
+  isaac-ov-cache:
+  isaac-gl-cache:
+  isaac-compute-cache:

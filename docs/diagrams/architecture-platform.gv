@@ -1,0 +1,53 @@
+digraph "CNC Digital Twin — platforma: modele, operare, guvernanță" {
+	graph [fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 label="CNC Digital Twin — platforma: modele, operare, guvernanță" newrank=true nodesep=0.9 pad=0.5 rankdir=LR ranksep=1.4 splines=spline]
+	node [fixedsize=true fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 height=1.4 imagescale=true labelloc=b shape=box style=rounded width=1.4]
+	edge [color="#7B8894"]
+	"2722ea14668743929a3802f88dbd2a01" [label="S3 data lake
+Parquet partiționat pe oră" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/storage/simple-storage-service-s3.png" shape=none]
+	cce6009ce4b1416ea35cfdfad8d4dc6e [label="Athena
+interogări ad-hoc" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/analytics/athena.png" shape=none]
+	"795f164fb47740749ef0b66dc261e7a0" [label="Studio + Data Wrangler
+rețetă generată din cod" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/ml/sagemaker-notebook.png" shape=none]
+	dbd1d7fe76ef44788a91edf1cb8e93cf [label="EFS home Studio
+persistă la destroy" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/storage/elastic-file-system-efs.png" shape=none]
+	aada03de0d4546f1936772039bf2446f [label="AWS Backup
+plan zilnic EFS" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/storage/backup.png" shape=none]
+	"29950bedebd3478ea54f24fbc209cf49" [label="Antrenare
+metrice în Experiments
+ML1 anomalii · ML2 viziune" height=2.7 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/ml/sagemaker-training-job.png" shape=none]
+	"8ccb154eea2d432eb30e11e912a3e58d" [label="S3 modele
+models/<nume>/<versiune>/" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/storage/simple-storage-service-s3.png" shape=none]
+	d7e9dee0588b45a59044462acb3dc158 [label="SageMaker endpoint
+ML1 anomalii + ML2 viziune
+cu data capture" height=2.7 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/ml/sagemaker.png" shape=none]
+	subgraph "cluster_Operare (`observability`, ADR 0005 și ADR 0008)" {
+		graph [bgcolor="#E5F5FD" fontname="Sans-Serif" fontsize=12 label="Operare (`observability`, ADR 0005 și ADR 0008)" labeljust=l margin=20 pencolor="#AEB6BE" rankdir=LR shape=box style=rounded]
+		"7f1a70b3b8734867bf2b6189b423b9ba" [label="CloudWatch
+dashboard infra + fabrică" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/management/cloudwatch.png" shape=none]
+		a639d2f824e94d01a1c9f21bf9e61f8f [label="Alarme
+degradare · RUL · pipeline" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/management/cloudwatch-alarm.png" shape=none]
+		"00abcbc66ada40d187ff606160f8bffa" [label="SNS
+email + SMS" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/integration/simple-notification-service-sns.png" shape=none]
+	}
+	subgraph "cluster_Guvernanță și identitate (ADR 0001 și ADR 0006)" {
+		graph [bgcolor="#E5F5FD" fontname="Sans-Serif" fontsize=12 label="Guvernanță și identitate (ADR 0001 și ADR 0006)" labeljust=l margin=20 pencolor="#AEB6BE" rankdir=LR shape=box style=rounded]
+		"835462efc6244c0ba2319f86c0f85bed" [label="Rol de operator
+asumat din admin, fără chei statice" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/security/identity-and-access-management-iam.png" shape=none]
+		f52d15b46c554f3f9d99e99f5e2d96a7 [label="Terraform
+stacks: access · sim · platform" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/onprem/iac/terraform.png" shape=none]
+	}
+	"2722ea14668743929a3802f88dbd2a01" -> "795f164fb47740749ef0b66dc261e7a0" [label="caracteristici offline" dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"2722ea14668743929a3802f88dbd2a01" -> cce6009ce4b1416ea35cfdfad8d4dc6e [label="interogări exploratorii" dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"795f164fb47740749ef0b66dc261e7a0" -> "29950bedebd3478ea54f24fbc209cf49" [label="ferestre glisante
++ etichete" dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"29950bedebd3478ea54f24fbc209cf49" -> "8ccb154eea2d432eb30e11e912a3e58d" [label="model.tar.gz" dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"8ccb154eea2d432eb30e11e912a3e58d" -> d7e9dee0588b45a59044462acb3dc158 [label="promovare
+(ambele modele)" dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 style=dashed]
+	"795f164fb47740749ef0b66dc261e7a0" -> dbd1d7fe76ef44788a91edf1cb8e93cf [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	dbd1d7fe76ef44788a91edf1cb8e93cf -> aada03de0d4546f1936772039bf2446f [label="plan de backup" dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	d7e9dee0588b45a59044462acb3dc158 -> "7f1a70b3b8734867bf2b6189b423b9ba" [label="metrice de invocare" dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"7f1a70b3b8734867bf2b6189b423b9ba" -> a639d2f824e94d01a1c9f21bf9e61f8f [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	a639d2f824e94d01a1c9f21bf9e61f8f -> "00abcbc66ada40d187ff606160f8bffa" [label=notificare dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"835462efc6244c0ba2319f86c0f85bed" -> f52d15b46c554f3f9d99e99f5e2d96a7 [label="rulează" dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	f52d15b46c554f3f9d99e99f5e2d96a7 -> "795f164fb47740749ef0b66dc261e7a0" [label="provisionează" dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 style=dashed]
+}

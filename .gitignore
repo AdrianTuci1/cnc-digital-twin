@@ -1,0 +1,95 @@
+# --- secrets & local config ---
+.env
+.env.*
+!.env.example
+*.pem
+*.ppk
+!infra/terraform/**/*.pub
+.secrets/
+
+# --- terraform ---
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+*.tfplan
+*.tfplan.json
+plan.out
+# stack `sim` folosește state local, dar cheile de provider nu se comită
+infra/terraform/stacks/sim/.terraform.lock.hcl.bak
+
+# --- python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+htmlcov/
+.coverage
+coverage.xml
+
+# --- ml artifacts ---
+ml/experiments/runs/
+ml/experiments/mlruns/
+ml/experiments/data/
+ml/artifacts/
+*.pt
+*.pth
+*.onnx
+*.joblib
+*.pkl
+*.h5
+*.safetensors
+model.tar.gz
+
+# --- simulation ---
+simulation/assets/**/*.usd
+simulation/assets/**/*.usda
+simulation/assets/**/*.usdz
+simulation/assets/**/*.png
+simulation/assets/**/*.jpg
+# Arhive de asset-uri descărcate (snapshot-uri Isaac Sim), nu surse: se refac din origine.
+simulation/assets/**/*.zip
+simulation/logs/
+simulation/cache/
+!simulation/assets/.gitkeep
+!simulation/assets/**/.gitkeep
+
+# --- node ---
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# --- editors / os ---
+.DS_Store
+.idea/
+*.swp
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+
+# --- misc ---
+tmp/
+*.log
+!.github/**/*.log
+# MuJoCo scrie aici avertismentele de compilare (attach, integrator) când e rulat din rădăcină.
+MUJOCO_LOG.TXT
+
+# stare locală twinctl (tuneluri, staging pentru push)
+.twinctl/
+
+# tfvars generate local de twinctl
+*.auto.tfvars
+infra/terraform/stacks/*/envs/*.backend.hcl

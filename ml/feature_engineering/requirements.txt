@@ -1,0 +1,8 @@
+# Dependențe suplimentare pentru feature engineering.
+#
+# Nu sunt necesare pentru `build_features.py` în modul JSON Lines / CSV: acela folosește
+# doar biblioteca standard. Sunt necesare pentru Parquet și pentru rezolvarea imaginii
+# containerului Data Wrangler.
+
+pyarrow>=15.0        # citire și scriere Parquet
+sagemaker>=2.200     # rezolvarea imaginii Data Wrangler (alternativă: --image-uri)

@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1658" height="944" viewBox="0 0 1658 944" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#e07b39"/></marker><marker id="arrow-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#555"/></marker></defs>
+<rect x="0.0" y="0.0" width="1658.0" height="944.0" rx="0" fill="#ffffff" stroke="#ffffff" stroke-width="1.6"/>
+<text x="88.0" y="40.0" font-size="19" text-anchor="start" fill="#111" font-weight="bold" opacity="1.00">Celula CNC, plan de sus: geamăn MuJoCo</text>
+<text x="88.0" y="64.0" font-size="13" text-anchor="start" fill="#444" font-weight="normal" opacity="1.00">grid de 0,5 m; originea (0,0) în colțul sud-vest; +X spre est, +Y spre nord; gabarit 6,0 × 4,0 m</text>
+<rect x="88.0" y="96.0" width="1140.0" height="760.0" rx="0" fill="#fafbfc" stroke="#333" stroke-width="1.6"/>
+<line x1="183.0" y1="856.0" x2="183.0" y2="96.0" stroke="#dde2e8" stroke-width="1.0"/>
+<line x1="278.0" y1="856.0" x2="278.0" y2="96.0" stroke="#c3cad3" stroke-width="1.0"/>
+<line x1="373.0" y1="856.0" x2="373.0" y2="96.0" stroke="#dde2e8" stroke-width="1.0"/>
+<line x1="468.0" y1="856.0" x2="468.0" y2="96.0" stroke="#c3cad3" stroke-width="1.0"/>
+<line x1="563.0" y1="856.0" x2="563.0" y2="96.0" stroke="#dde2e8" stroke-width="1.0"/>
+<line x1="658.0" y1="856.0" x2="658.0" y2="96.0" stroke="#c3cad3" stroke-width="1.0"/>
+<line x1="753.0" y1="856.0" x2="753.0" y2="96.0" stroke="#dde2e8" stroke-width="1.0"/>
+<line x1="848.0" y1="856.0" x2="848.0" y2="96.0" stroke="#c3cad3" stroke-width="1.0"/>
+<line x1="943.0" y1="856.0" x2="943.0" y2="96.0" stroke="#dde2e8" stroke-width="1.0"/>
+<line x1="1038.0" y1="856.0" x2="1038.0" y2="96.0" stroke="#c3cad3" stroke-width="1.0"/>
+<line x1="1133.0" y1="856.0" x2="1133.0" y2="96.0" stroke="#dde2e8" stroke-width="1.0"/>
+<line x1="88.0" y1="761.0" x2="1228.0" y2="761.0" stroke="#dde2e8" stroke-width="1.0"/>
+<line x1="88.0" y1="666.0" x2="1228.0" y2="666.0" stroke="#c3cad3" stroke-width="1.0"/>
+<line x1="88.0" y1="571.0" x2="1228.0" y2="571.0" stroke="#dde2e8" stroke-width="1.0"/>
+<line x1="88.0" y1="476.0" x2="1228.0" y2="476.0" stroke="#c3cad3" stroke-width="1.0"/>
+<line x1="88.0" y1="381.0" x2="1228.0" y2="381.0" stroke="#dde2e8" stroke-width="1.0"/>
+<line x1="88.0" y1="286.0" x2="1228.0" y2="286.0" stroke="#c3cad3" stroke-width="1.0"/>
+<line x1="88.0" y1="191.0" x2="1228.0" y2="191.0" stroke="#dde2e8" stroke-width="1.0"/>
+<text x="135.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">A</text>
+<text x="135.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">A</text>
+<text x="230.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">B</text>
+<text x="230.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">B</text>
+<text x="325.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">C</text>
+<text x="325.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">C</text>
+<text x="420.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">D</text>
+<text x="420.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">D</text>
+<text x="515.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">E</text>
+<text x="515.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">E</text>
+<text x="610.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">F</text>
+<text x="610.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">F</text>
+<text x="705.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">G</text>
+<text x="705.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">G</text>
+<text x="800.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">H</text>
+<text x="800.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">H</text>
+<text x="895.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">I</text>
+<text x="895.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">I</text>
+<text x="990.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">J</text>
+<text x="990.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">J</text>
+<text x="1085.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">K</text>
+<text x="1085.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">K</text>
+<text x="1180.5" y="88.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">L</text>
+<text x="1180.5" y="874.0" font-size="12" text-anchor="middle" fill="#8a939d" font-weight="normal" opacity="1.00">L</text>
+<text x="78.0" y="812.5" font-size="12" text-anchor="end" fill="#8a939d" font-weight="normal" opacity="1.00">1</text>
+<text x="1238.0" y="812.5" font-size="12" text-anchor="start" fill="#8a939d" font-weight="normal" opacity="1.00">1</text>
+<text x="78.0" y="717.5" font-size="12" text-anchor="end" fill="#8a939d" font-weight="normal" opacity="1.00">2</text>
+<text x="1238.0" y="717.5" font-size="12" text-anchor="start" fill="#8a939d" font-weight="normal" opacity="1.00">2</text>
+<text x="78.0" y="622.5" font-size="12" text-anchor="end" fill="#8a939d" font-weight="normal" opacity="1.00">3</text>
+<text x="1238.0" y="622.5" font-size="12" text-anchor="start" fill="#8a939d" font-weight="normal" opacity="1.00">3</text>
+<text x="78.0" y="527.5" font-size="12" text-anchor="end" fill="#8a939d" font-weight="normal" opacity="1.00">4</text>
+<text x="1238.0" y="527.5" font-size="12" text-anchor="start" fill="#8a939d" font-weight="normal" opacity="1.00">4</text>
+<text x="78.0" y="432.5" font-size="12" text-anchor="end" fill="#8a939d" font-weight="normal" opacity="1.00">5</text>
+<text x="1238.0" y="432.5" font-size="12" text-anchor="start" fill="#8a939d" font-weight="normal" opacity="1.00">5</text>
+<text x="78.0" y="337.5" font-size="12" text-anchor="end" fill="#8a939d" font-weight="normal" opacity="1.00">6</text>
+<text x="1238.0" y="337.5" font-size="12" text-anchor="start" fill="#8a939d" font-weight="normal" opacity="1.00">6</text>
+<text x="78.0" y="242.5" font-size="12" text-anchor="end" fill="#8a939d" font-weight="normal" opacity="1.00">7</text>
+<text x="1238.0" y="242.5" font-size="12" text-anchor="start" fill="#8a939d" font-weight="normal" opacity="1.00">7</text>
+<text x="78.0" y="147.5" font-size="12" text-anchor="end" fill="#8a939d" font-weight="normal" opacity="1.00">8</text>
+<text x="1238.0" y="147.5" font-size="12" text-anchor="start" fill="#8a939d" font-weight="normal" opacity="1.00">8</text>
+<rect x="164.0" y="191.0" width="456.0" height="76.0" rx="3" fill="#d3dbe5" stroke="#5b6b7f" stroke-width="1.6"/>
+<line x1="180.0" y1="210.0" x2="604.0" y2="210.0" stroke="#5b6b7f" stroke-width="2.0" marker-end="url(#arrow-gray)"/>
+<text x="392.0" y="122.6" font-size="13" text-anchor="middle" fill="#31414f" font-weight="normal" opacity="1.00">Bandă 1: alimentare</text>
+<rect x="240.0" y="438.0" width="722.0" height="76.0" rx="3" fill="#d3dbe5" stroke="#5b6b7f" stroke-width="1.6"/>
+<line x1="946.0" y1="457.0" x2="256.0" y2="457.0" stroke="#5b6b7f" stroke-width="2.0" marker-end="url(#arrow-gray)"/>
+<text x="848.0" y="536.8" font-size="13" text-anchor="middle" fill="#31414f" font-weight="normal" opacity="1.00">Bandă 2: evacuare, un singur sens</text>
+<rect x="734.0" y="210.0" width="266.0" height="190.0" rx="3" fill="#a6cbea" stroke="#2f6ba8" stroke-width="1.6"/>
+<rect x="487.0" y="362.0" width="76.0" height="76.0" rx="3" fill="#aed7a8" stroke="#3f7a37" stroke-width="1.6"/>
+<rect x="601.0" y="362.0" width="76.0" height="76.0" rx="3" fill="#ecaaaa" stroke="#9b3b3b" stroke-width="1.6"/>
+<text x="867.0" y="301.0" font-size="14" text-anchor="middle" fill="#1d4467" font-weight="bold" opacity="1.00">Mașină CNC 3 axe</text>
+<text x="867.0" y="321.0" font-size="12" text-anchor="middle" fill="#315f86" font-weight="normal" opacity="1.00">stare: idle / cutting</text>
+<circle cx="648.5" cy="352.5" r="162.4" fill="none" stroke="#a85f13" stroke-width="1.1" stroke-dasharray="4 6" opacity="0.5"/>
+<circle cx="648.5" cy="352.5" r="22.8" fill="#f4b071" stroke="#a85f13" stroke-width="1.6"/>
+<text x="192.5" y="352.5" font-size="13" text-anchor="start" fill="#7a4408" font-weight="bold" opacity="1.00">Braț 1 (Panda #1)</text>
+<text x="192.5" y="372.5" font-size="11" text-anchor="start" fill="#8a5a1f" font-weight="normal" opacity="1.00">încarcă și descarcă CNC, așază piesa pe banda 2</text>
+<line x1="439.5" y1="356.5" x2="621.7" y2="354.5" stroke="#a85f13" stroke-width="1.0" stroke-dasharray="3 3"/>
+<line x1="648.5" y1="352.5" x2="690.3" y2="396.2" stroke="#8a63b8" stroke-width="1.0" stroke-dasharray="2 2" opacity="0.80"/>
+<path d="M 690.3 382.9 L 703.6 396.2 L 690.3 409.5 L 677.0 396.2 Z" fill="#e6dbf6" stroke="#8a63b8" stroke-width="1.4"/>
+<circle cx="601.0" cy="561.5" r="162.4" fill="none" stroke="#a85f13" stroke-width="1.1" stroke-dasharray="4 6" opacity="0.5"/>
+<circle cx="601.0" cy="561.5" r="22.8" fill="#f4b071" stroke="#a85f13" stroke-width="1.6"/>
+<text x="192.5" y="561.5" font-size="13" text-anchor="start" fill="#7a4408" font-weight="bold" opacity="1.00">Braț 2 (Panda #2)</text>
+<text x="192.5" y="581.5" font-size="11" text-anchor="start" fill="#8a5a1f" font-weight="normal" opacity="1.00">ridică piesa de pe banda 2, o lasă în cutiile de dincolo de bandă</text>
+<line x1="439.5" y1="565.5" x2="574.2" y2="563.5" stroke="#a85f13" stroke-width="1.0" stroke-dasharray="3 3"/>
+<line x1="601.0" y1="561.5" x2="553.5" y2="529.2" stroke="#8a63b8" stroke-width="1.0" stroke-dasharray="2 2" opacity="0.80"/>
+<path d="M 553.5 515.9 L 566.8 529.2 L 553.5 542.5 L 540.2 529.2 Z" fill="#e6dbf6" stroke="#8a63b8" stroke-width="1.4"/>
+<line x1="135.5" y1="808.5" x2="249.5" y2="808.5" stroke="#555" stroke-width="1.4" marker-end="url(#arrow-gray)"/>
+<text x="259.0" y="812.5" font-size="11" text-anchor="start" fill="#555" font-weight="normal" opacity="1.00">X est</text>
+<line x1="135.5" y1="808.5" x2="135.5" y2="694.5" stroke="#555" stroke-width="1.4" marker-end="url(#arrow-gray)"/>
+<text x="141.5" y="685.0" font-size="11" text-anchor="start" fill="#555" font-weight="normal" opacity="1.00">Y nord</text>
+<circle cx="135.5" cy="808.5" r="3" fill="#555"/>
+<text x="129.5" y="822.5" font-size="11" text-anchor="end" fill="#555" font-weight="normal" opacity="1.00">0,0</text>
+<circle cx="696.0" cy="561.5" r="66.5" fill="none" stroke="#6a3f9b" stroke-width="1.2" stroke-dasharray="2 4" opacity="0.8"/>
+<path d="M 696.0 542.5 L 715.0 561.5 L 696.0 580.5 L 677.0 561.5 Z" fill="#cdb0ea" stroke="#6a3f9b" stroke-width="1.4"/>
+<line x1="769.8" y1="594.0" x2="717.0" y2="561.5" stroke="#6a3f9b" stroke-width="1.0" stroke-dasharray="3 3"/>
+<text x="775.8" y="590.0" font-size="12" text-anchor="start" fill="#59308a" font-weight="normal" opacity="1.00">Cameră inspecție calitate</text>
+<circle cx="601.0" cy="229.0" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
+<circle cx="753.0" cy="295.5" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
+<circle cx="734.0" cy="476.0" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
+<circle cx="601.0" cy="476.0" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
+<circle cx="544.0" cy="415.2" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
+<circle cx="658.0" cy="415.2" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
+<text x="525.0" y="339.2" font-size="12" text-anchor="middle" fill="#2f5c2a" font-weight="bold" opacity="1.00">Piese bune (Accepted)</text>
+<text x="639.0" y="339.2" font-size="12" text-anchor="middle" fill="#8a2f2f" font-weight="bold" opacity="1.00">Rebuts (Trash)</text>
+<polyline points="192.5,229.0 601.0,229.0 753.0,295.5 734.0,476.0 601.0,476.0" fill="none" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<polyline points="601.0,476.0 544.0,415.2" fill="none" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<polyline points="601.0,476.0 658.0,415.2" fill="none" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<line x1="88.0" y1="902.0" x2="1228.0" y2="902.0" stroke="#666" stroke-width="1.0"/>
+<text x="658.0" y="918.0" font-size="12" text-anchor="middle" fill="#555" font-weight="normal" opacity="1.00">6,0 m</text>
+<line x1="58.0" y1="856.0" x2="58.0" y2="96.0" stroke="#666" stroke-width="1.0"/>
+<text x="50.0" y="476.0" font-size="12" text-anchor="middle" fill="#555" font-weight="normal" opacity="1.00">4,0 m</text>
+<text x="1268.0" y="96.0" font-size="15" text-anchor="start" fill="#111" font-weight="bold" opacity="1.00">Legendă</text><rect x="1268.0" y="111.0" width="20.0" height="14.0" rx="3" fill="#d3dbe5" stroke="#5b6b7f" stroke-width="1.6"/><text x="1298.0" y="122.0" font-size="12" text-anchor="start" fill="#222" font-weight="normal" opacity="1.00">Bandă transportoare</text><text x="1298.0" y="140.0" font-size="11" text-anchor="start" fill="#777" font-weight="normal" opacity="1.00">săgeata din interior: sensul de mers</text><rect x="1268.0" y="145.0" width="20.0" height="14.0" rx="3" fill="#f4b071" stroke="#a85f13" stroke-width="1.6"/><text x="1298.0" y="156.0" font-size="12" text-anchor="start" fill="#222" font-weight="normal" opacity="1.00">Braț robot (Franka Panda)</text><text x="1298.0" y="174.0" font-size="11" text-anchor="start" fill="#777" font-weight="normal" opacity="1.00">cercul punctat: rază de atingere 0,855 m</text><rect x="1268.0" y="179.0" width="20.0" height="14.0" rx="3" fill="#a6cbea" stroke="#2f6ba8" stroke-width="1.6"/><text x="1298.0" y="190.0" font-size="12" text-anchor="start" fill="#222" font-weight="normal" opacity="1.00">Mașină CNC, 3 axe</text><text x="1298.0" y="208.0" font-size="11" text-anchor="start" fill="#777" font-weight="normal" opacity="1.00">stare, fără așchiere efectivă</text><rect x="1268.0" y="213.0" width="20.0" height="14.0" rx="3" fill="#aed7a8" stroke="#3f7a37" stroke-width="1.6"/><text x="1298.0" y="224.0" font-size="12" text-anchor="start" fill="#222" font-weight="normal" opacity="1.00">Cutie piese bune</text><text x="1298.0" y="242.0" font-size="11" text-anchor="start" fill="#777" font-weight="normal" opacity="1.00">dincolo de banda 2, pe latura opusă brațului</text><rect x="1268.0" y="247.0" width="20.0" height="14.0" rx="3" fill="#ecaaaa" stroke="#9b3b3b" stroke-width="1.6"/><text x="1298.0" y="258.0" font-size="12" text-anchor="start" fill="#222" font-weight="normal" opacity="1.00">Cutie rebut</text><text x="1298.0" y="276.0" font-size="11" text-anchor="start" fill="#777" font-weight="normal" opacity="1.00">același rând de cutii, lângă cutia de piese bune</text><rect x="1268.0" y="281.0" width="20.0" height="14.0" rx="3" fill="#cdb0ea" stroke="#6a3f9b" stroke-width="1.6"/><text x="1298.0" y="292.0" font-size="12" text-anchor="start" fill="#222" font-weight="normal" opacity="1.00">Cameră de inspecție a calității</text><text x="1298.0" y="310.0" font-size="11" text-anchor="start" fill="#777" font-weight="normal" opacity="1.00">separată de brațe; verdictul decide ruta piesei</text><rect x="1268.0" y="315.0" width="20.0" height="14.0" rx="3" fill="#e6dbf6" stroke="#8a63b8" stroke-width="1.6"/><text x="1298.0" y="326.0" font-size="12" text-anchor="start" fill="#222" font-weight="normal" opacity="1.00">Cameră pe braț (pe flanșă)</text><text x="1298.0" y="344.0" font-size="11" text-anchor="start" fill="#777" font-weight="normal" opacity="1.00">fiecare braț are una, ca să poată ridica piesa</text><circle cx="1278.0" cy="362.0" r="4.5" fill="#1b1b1b" stroke="#fff" stroke-width="1.4"/><text x="1298.0" y="366.0" font-size="12" text-anchor="start" fill="#222" font-weight="normal" opacity="1.00">Țintă de prindere</text><line x1="1268.0" y1="384.0" x2="1288.0" y2="384.0" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/><text x="1298.0" y="388.0" font-size="12" text-anchor="start" fill="#222" font-weight="normal" opacity="1.00">Fluxul materialului</text><text x="1298.0" y="410.0" font-size="11" text-anchor="start" fill="#b06024" font-weight="normal" opacity="1.00">banda 1 → braț 1 → CNC → braț 1 →</text><text x="1298.0" y="426.0" font-size="11" text-anchor="start" fill="#b06024" font-weight="normal" opacity="1.00">banda 2 (inspecție) → braț 2 → cutie</text><text x="1268.0" y="456.0" font-size="12" text-anchor="start" fill="#444" font-weight="normal" opacity="1.00">Grid: coloanele A-L spre est, rândurile 1-8</text><text x="1268.0" y="473.0" font-size="12" text-anchor="start" fill="#444" font-weight="normal" opacity="1.00">spre nord, o celulă = 0,5 m. Referința unui</text><text x="1268.0" y="490.0" font-size="12" text-anchor="start" fill="#444" font-weight="normal" opacity="1.00">element se citește ca F6 sau G5-J7.</text><text x="1268.0" y="520.0" font-size="12" text-anchor="start" fill="#444" font-weight="normal" opacity="1.00">Coordonatele sunt identice în lumea MuJoCo:</text><text x="1268.0" y="537.0" font-size="12" text-anchor="start" fill="#444" font-weight="normal" opacity="1.00">(x, y) din plan devine (x, y) în scenă, +Z în sus.</text><text x="1268.0" y="567.0" font-size="12" text-anchor="start" fill="#444" font-weight="normal" opacity="1.00">Verificat: fiecare țintă de prindere cade în raza</text><text x="1268.0" y="584.0" font-size="12" text-anchor="start" fill="#444" font-weight="normal" opacity="1.00">de 0,855 m a brațului care o deservește.</text>
+</svg>

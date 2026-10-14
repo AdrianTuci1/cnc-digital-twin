@@ -1,0 +1,30 @@
+# Extensia Kit a celulei CNC.
+#
+# Încărcare: Isaac Sim → Window → Extensions → căutați „cncdt.cnc_cell".
+# Pentru dezvoltare, adăugați directorul simulation/extensions la
+# „Extension Search Paths" (Window → Extensions → roata dințată → Settings).
+
+[package]
+version = "0.1.0"
+title = "CNC Cell Digital Twin"
+description = "Celulă CNC simulată: panou de control, degradare controlată și telemetrie către AWS IoT Core."
+authors = ["CNC Digital Twin"]
+category = "Simulation"
+keywords = ["cnc", "digital-twin", "telemetry", "predictive-maintenance"]
+
+# Modulul Python al extensiei. Numele coincide cu calea cncdt/cnc_cell.
+[[python.module]]
+name = "cncdt.cnc_cell"
+
+[dependencies]
+"omni.ui" = {}
+"omni.usd" = {}
+"omni.kit.commands" = {}
+"omni.physx" = {}
+
+# Opționale: se folosesc doar când sunt disponibile.
+# "omni.replicator.core" = {}    # captura de imagini pentru inspecția de calitate
+
+[settings]
+# Extensia este activă implicit la pornirea aplicației.
+exts."cncdt.cnc_cell".enabled = true
