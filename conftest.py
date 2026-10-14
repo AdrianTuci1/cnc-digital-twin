@@ -8,7 +8,10 @@ Testele importă trei familii de module, care în producție trăiesc în locuri
   acestea stau la rădăcină, deci testele le importă cu aceleași nume (``lambdas``,
   ``lambdas/feature_engineering``);
 - ``cncdt.cnc_cell`` — extensia Isaac Sim (``simulation/extensions/cncdt.cnc_cell``);
-  modulele pure nu cer Isaac Sim.
+  modulele pure nu cer Isaac Sim;
+- ``cncdt_mj`` — geamănul MuJoCo (``simulation/mujoco``); părțile pure (``layout``, ``part``,
+  ``checks``) nu cer ``mujoco``, iar scena se validează din venv-ul geamănului, cu
+  ``make mj-check``.
 
 Numele generice (``core``, ``handler``) sunt intenționate: reproduc exact ceea ce vede
 runtime-ul Lambda. Directoarele celorlalte Lambda-uri **nu** se adaugă la ``sys.path``: au și
@@ -29,6 +32,7 @@ SEARCH_PATHS = (
     "lambdas",
     "lambdas/feature_engineering",
     "simulation/extensions/cncdt.cnc_cell",
+    "simulation/mujoco",
 )
 
 for _relative in SEARCH_PATHS:

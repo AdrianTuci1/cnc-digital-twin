@@ -12,6 +12,24 @@ from typing import Iterable
 #: Separatorul dintre numele corpurilor într-o pereche de contact (`scene.contact_pairs`).
 PAIR_SEPARATOR = "↔"
 
+# Pragurile verificării. Stau aici, nu în `view.py`, fiindcă sunt reguli pure: testele din
+# `.venv`-ul proiectului le pot citi fără motorul de fizică, iar `view.py --check` le
+# folosește pe aceleași.
+
+#: Cât de aproape are voie să ajungă un braț de camera de inspecție, în orice configurație, în
+#: metri. Sub atât, o poziție neprevăzută a brațului atinge consola.
+MIN_CAMERA_CLEARANCE_M = 0.02
+
+#: Cât de fin trebuie să vadă camera de inspecție piesa, în pixeli pe milimetru. Sub atât, cel
+#: mai fin defect din catalog — o gaură dezaxată cu 2,5 mm — cade sub ~9 pixeli.
+MIN_INSPECTION_PX_PER_MM = 3.0
+
+#: Toleranța la compararea yaw-ului cerut cu cel citit înapoi din scenă, în grade.
+YAW_TOLERANCE_DEG = 0.1
+
+#: Cât are voie să se miște o piesă la așezarea pe bandă, în metri.
+MAX_SETTLE_DRIFT_M = 0.005
+
 
 def _arm_of(name: str, prefixes: tuple[str, ...]) -> str | None:
     """Prefixul brațului căruia îi aparține un corp, ori ``None`` dacă nu e al niciunui braț."""

@@ -39,21 +39,12 @@ RENDERS_DIR = MUJOCO_DIR / "renders"
 #: Cadrul general al celulei, din camera liberă: centrul celulei, de sus și dinspre sud-est.
 FREE_CAMERA = {"lookat": (3.0, 2.0, 0.8), "distance": 8.5, "azimuth": 135.0, "elevation": -28.0}
 
-#: Cât de aproape are voie să ajungă un braț de camera de inspecție, în orice configurație.
-MIN_CAMERA_CLEARANCE_M = 0.02
-
-#: Cât de fin trebuie să vadă camera de inspecție piesa. Sub atât, cel mai mic defect din catalog
-#: — o gaură dezaxată cu 2,5 mm — cade sub ~9 pixeli și nicio clasă nu mai e separabilă.
-MIN_INSPECTION_PX_PER_MM = 3.0
-
-#: Toleranța la compararea yaw-ului cerut cu cel citit înapoi din scenă, în grade.
-YAW_TOLERANCE_DEG = 0.1
-
-#: Dacă o piesă se mișcă mai mult de atât la așezare, geometria ei nu stă pe bandă.
-MAX_SETTLE_DRIFT_M = 0.005
-
 #: Prefixele corpurilor brațelor, pentru regula de contact (`checks.arm_foreign_contacts`).
 ARM_PREFIXES = tuple(f"{prefix}_" for prefix, _ in scene.ARM_MOUNTS)
+
+# Pragurile verificării (`MIN_CAMERA_CLEARANCE_M`, `MIN_INSPECTION_PX_PER_MM`,
+# `YAW_TOLERANCE_DEG`, `MAX_SETTLE_DRIFT_M`) stau în `cncdt_mj/checks.py`: sunt reguli pure, iar
+# testele din `.venv`-ul proiectului le împart cu scriptul de față.
 
 
 def write_png(path: Path, image: np.ndarray) -> None:
@@ -176,9 +167,9 @@ def check(args: argparse.Namespace) -> int:
         sampled = clearance["sampled"][arm]
         print(f"  distanța minimă la {arm:<5}: {distance:.3f} m la poziția nominală, "
               f"{sampled:.3f} m pe {clearance['samples']} configurații eșantionate")
-        if sampled < MIN_CAMERA_CLEARANCE_M:
+        if sampled < checks.MIN_CAMERA_CLEARANCE_M:
             failures.append(f"camera intră în calea {arm} ({sampled:.3f} m < "
-                            f"{MIN_CAMERA_CLEARANCE_M:.3f} m)")
+                            f"{checks.MIN_CAMERA_CLEARANCE_M:.3f} m)")
 
     machined = next(body for body, place in metadata["placements"].items()
                     if place["state"] == layout.STATE_MACHINED)
@@ -189,9 +180,9 @@ def check(args: argparse.Namespace) -> int:
           f"diametru {framing['diameter_px']:.0f} px ({framing['px_per_mm']:.1f} px/mm)")
     if not framing["in_frame"]:
         failures.append("piesa nu intră în cadrul camerei de inspecție")
-    elif framing["px_per_mm"] < MIN_INSPECTION_PX_PER_MM:
+    elif framing["px_per_mm"] < checks.MIN_INSPECTION_PX_PER_MM:
         failures.append(f"camera de inspecție vede prea grosier ({framing['px_per_mm']:.1f} px/mm "
-                        f"< {MIN_INSPECTION_PX_PER_MM:.1f} px/mm)")
+                        f"< {checks.MIN_INSPECTION_PX_PER_MM:.1f} px/mm)")
 
     print("\nMaterial: două stări, amândouă pe benzi")
     for body, place in metadata["placements"].items():
@@ -201,9 +192,10 @@ def check(args: argparse.Namespace) -> int:
         print(f"  {'':<22} yaw cerut {place['yaw_deg']:.1f}°, "
               f"yaw citit din scenă {state['yaw_deg'][body]:.1f}°, "
               f"mișcare la așezare {state['drift_m'][body] * 1000:.1f} mm")
-        if abs(part.yaw_delta_deg(state["yaw_deg"][body], place["yaw_deg"])) > YAW_TOLERANCE_DEG:
+        yaw_error = part.yaw_delta_deg(state["yaw_deg"][body], place["yaw_deg"])
+        if abs(yaw_error) > checks.YAW_TOLERANCE_DEG:
             failures.append(f"yaw-ul lui {body} nu se citește înapoi din scenă")
-        if state["drift_m"][body] > MAX_SETTLE_DRIFT_M:
+        if state["drift_m"][body] > checks.MAX_SETTLE_DRIFT_M:
             failures.append(f"{body} nu s-a așezat pe bandă (s-a mișcat "
                             f"{state['drift_m'][body] * 1000:.1f} mm)")
     print(f"  eticheta piesei mașinate: {metadata['part']}")
