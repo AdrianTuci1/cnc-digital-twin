@@ -68,8 +68,12 @@
 
     <!-- Banda 1: alimentare, un singur sens spre est. Suprafața de lucru sus la 0,85 m. -->
     <body name="belt_in" pos="{belt_in_cx} {belt_in_cy} {belt_in_slab_z}">
+      <!-- Platforma benzilor are frecare mică, scrisă cu `priority="1"` ca să nu fie înlocuită
+           de frecarea piesei: forța care târăște piesa este aplicată extern, de `cncdt_mj/belt.py`,
+           iar o frecare de contact mare ar anula-o (piesa nu s-ar mișca deloc). Șinele păstrează
+           frecarea mare, ca piesa să nu alunece lateral. Vezi README.md. -->
       <geom name="belt_in_slab" type="box" size="{belt_in_hx} {belt_in_hy} {belt_slab_hz}"
-            material="belt_mat" friction="1.0 0.01 0.001"/>
+            material="belt_mat" friction="0.05 0.01 0.001" priority="1"/>
       <geom name="belt_in_rail_south" type="box" size="{belt_in_hx} {belt_rail_hy} {belt_rail_hz}"
             pos="0 {neg_belt_in_rail_dy} {belt_rail_dz}" material="frame_mat"/>
       <geom name="belt_in_rail_north" type="box" size="{belt_in_hx} {belt_rail_hy} {belt_rail_hz}"
@@ -82,12 +86,22 @@
             pos="{neg_belt_in_leg_dx} {belt_in_leg_dy} {belt_leg_dz}" material="frame_mat"/>
       <geom name="belt_in_leg_ne" type="box" size="{belt_leg_hxy} {belt_leg_hxy} {belt_leg_hz}"
             pos="{belt_in_leg_dx} {belt_in_leg_dy} {belt_leg_dz}" material="frame_mat"/>
+      <!-- Opritorul: peretele din capătul cursei, așezat astfel încât piesa oprită de el să stea
+           în dreptul țintei de preluare. Fără el, piesa ar cădea de la capătul benzii, iar locul
+           de preluare ar depinde de frecare. Cota lui o dă `layout.belt_stopper_geometry()`. -->
+      <geom name="belt_in_stopper" type="box"
+            size="{belt_stopper_hx} {belt_in_stopper_hy} {belt_stopper_hz}"
+            pos="{belt_in_stopper_dx} 0 {belt_in_stopper_z}" material="frame_mat"/>
     </body>
 
     <!-- Banda 2: evacuare, un singur sens spre vest, aceeași înălțime de lucru. -->
     <body name="belt_out" pos="{belt_out_cx} {belt_out_cy} {belt_out_slab_z}">
+      <!-- Platforma benzilor are frecare mică, scrisă cu `priority="1"` ca să nu fie înlocuită
+           de frecarea piesei: forța care târăște piesa este aplicată extern, de `cncdt_mj/belt.py`,
+           iar o frecare de contact mare ar anula-o (piesa nu s-ar mișca deloc). Șinele păstrează
+           frecarea mare, ca piesa să nu alunece lateral. Vezi README.md. -->
       <geom name="belt_out_slab" type="box" size="{belt_out_hx} {belt_out_hy} {belt_slab_hz}"
-            material="belt_mat" friction="1.0 0.01 0.001"/>
+            material="belt_mat" friction="0.05 0.01 0.001" priority="1"/>
       <geom name="belt_out_rail_south" type="box" size="{belt_out_hx} {belt_rail_hy} {belt_rail_hz}"
             pos="0 {neg_belt_out_rail_dy} {belt_rail_dz}" material="frame_mat"/>
       <geom name="belt_out_rail_north" type="box" size="{belt_out_hx} {belt_rail_hy} {belt_rail_hz}"
@@ -100,6 +114,9 @@
             pos="{neg_belt_out_leg_dx} {belt_out_leg_dy} {belt_leg_dz}" material="frame_mat"/>
       <geom name="belt_out_leg_ne" type="box" size="{belt_leg_hxy} {belt_leg_hxy} {belt_leg_hz}"
             pos="{belt_out_leg_dx} {belt_out_leg_dy} {belt_leg_dz}" material="frame_mat"/>
+      <geom name="belt_out_stopper" type="box"
+            size="{belt_stopper_hx} {belt_out_stopper_hy} {belt_stopper_hz}"
+            pos="{belt_out_stopper_dx} 0 {belt_out_stopper_z}" material="frame_mat"/>
     </body>
 
     <!-- Mașina CNC: cabinet, masă la 0,75 m, universal, capac de protecție până la 1,90 m.

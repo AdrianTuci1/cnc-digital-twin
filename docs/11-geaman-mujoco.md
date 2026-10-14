@@ -5,11 +5,13 @@ Plan de implementare pentru al doilea geamăn al celulei CNC. Decizia arhitectur
 **ce** se construiește, în ce ordine și cum se verifică.
 
 Stare: faza 0 (documentația) s-a terminat, iar din faza 2 există scena MJCF din
-`simulation/mujoco/`, cu piesa generată, cele două brațe și camera de inspecție. Verificarea ei,
-`view.py --check`, este **verde**: țintele cad în raza brațelor, camera de inspecție are piesa în
-cadru la 3,6 px/mm și rămâne la peste 5 cm de brațe pe configurațiile eșantionate. Din faza 2
-lipsesc `belt.py`, `cell.py` și `run.py`, iar testele geamănului și țintele Makefile sunt încă de
-scris; starea amănunțită stă în `simulation/mujoco/README.md`.
+`simulation/mujoco/`, cu piesa generată, cele două brațe și camera de inspecție, plus transportul
+pe benzi (`belt.py`, `cell.py`) cu opritoare fizice. Verificarea scenei, `view.py --check`, este
+**verde**: țintele cad în raza brațelor, camera de inspecție are piesa în cadru la 3,6 px/mm și
+rămâne la peste 5 cm de brațe pe configurațiile eșantionate, iar amândouă piesele parcurg banda la
+viteza de suprafață și se opresc la opritor. Din faza 2 lipsesc prinderea, stările mașinii și
+`run.py`; testele geamănului și țintele Makefile sunt scrise. Starea amănunțită stă în
+`simulation/mujoco/README.md`.
 Uzura, telemetria, detectorul, interfața de control și randarea degradată sunt deocamdată doar
 pe hârtie.
 
@@ -39,16 +41,19 @@ fizica așchierii, înlocuirea pipeline-ului existent, orice resursă AWS nouă.
 ## 2. Scena: componente și reprezentarea în MJCF
 
 Fiecare componentă din promptul de cerință are corespondent în MJCF. MuJoCo nu are bandă
-transportoare nativă, deci banda este un geom de tip cutie plus un modul de forțe tangențiale
-aplicate corpurilor aflate în contact cu ea.
+transportoare nativă, deci banda este un geom de tip cutie cu frecare mică, peste care un modul de
+forțe tangențiale împinge corpurile aflate în contact cu ea; piesa se oprește la un geom de opritor,
+nu la o condiție din cod. Capcana măsurată: cu frecare mare pe platformă, frecarea statică anulează
+forța aplicată și piesa stă pe loc, deci platforma are `priority="1"` și frecare mică, iar aderența
+benzii o dă exclusiv forța exterioară.
 
 | Componentă | Reprezentare MJCF | Senzori | Actuatori / forțe |
 | --- | --- | --- | --- |
-| Bandă 1 (alimentare) | plan înclinat/cutie cu `friction` ridicat; bucăți de material spawning la capăt | viteză de suprafață, alunecare, număr de piese | forță tangențială per pas, aplicată prin `data.xfrc_applied` corpurilor în contact |
+| Bandă 1 (alimentare) | cutie (platformă cu frecare mică și prioritară, șine cu frecare mare) plus geom de opritor la capătul cursei; piesa se așază în amonte | viteză de suprafață, alunecare, număr de piese | forță tangențială per pas, aplicată prin `data.xfrc_applied` corpurilor în contact, cu limita `mu * N` |
 | Braț 1, deservirea mașinii | Franka Emika Panda (7 DoF + griper) din `mujoco-menagerie`; preia piesa de pe banda 1, o încarcă în CNC, apoi o descarcă și o așază pe banda 2 | efort/curent pe articulații, forță de strângere, contact cu piesa | `position`/`motor` pe articulații, actuator pe degetele griperului |
 | Mașină CNC, 3 axe | 3 articulații prismatice (X, Y, Z) + corp de ax + piesă prinsă; stările din contract, fără așchiere | vibrație RMS și vârf, sarcină ax, temperatură, avans | profil de sarcină și vibrație aplicat ca forță pe corpul axului, în funcție de stare și uzură |
 | Braț 2 (sortare) | același model Panda, pe latura sudică a benzii 2, cu cutiile dincolo de bandă | ca la brațul 1 | ca la brațul 1 |
-| Bandă 2 (evacuare) | ca banda 1, cu un singur sens de mers, spre vest | viteză, număr de piese | ca la banda 1 |
+| Bandă 2 (evacuare) | ca banda 1, cu un singur sens de mers, spre vest, și opritorul ei la ținta de preluare a brațului 2 | viteza, numărul de piese | ca la banda 1 |
 | Cutiile Accepted / Trash | două cutii (geoms) alăturate, pe latura nordică a benzii 2, adică dincolo de bandă față de braț + pistă de numărare pe piese | numărul de piese pe cutie | — |
 | Camere | o cameră fixă de inspecție a calității, deasupra benzii 2, înainte de brațul 2 (rolul `sorting` din `cnc.qa.snapshot.v1.json`: verdictul ei decide ruta), plus câte o cameră pe flanșa fiecărui braț, pentru prindere | cadru RGB offscreen + scor de calitate | — |
 
@@ -314,8 +319,10 @@ simulation/mujoco/          # există
     __init__.py             # căile pachetului
     layout.py               # așezarea în plan (din docs/diagrams/cell_layout.py) și înălțimile; fără MuJoCo
     part.py                 # blocul brut și piesa din generatorul procedural; fără MuJoCo
+    belt.py                 # direcțiile benzilor, viteza de suprafață, forța cu limita de frecare; fără MuJoCo
     checks.py               # regulile verificării pe nume de corpuri (contacte normale); fără MuJoCo
-    scene.py                # compunerea: cell.xml plus cele două brațe; singurul care importă mujoco
+    scene.py                # compunerea: cell.xml plus cele două brațe; importă mujoco
+    cell.py                 # contactul cu banda, viteza piesei, forța scrisă în data.xfrc_applied; importă mujoco
 ```
 
 ```
@@ -325,10 +332,9 @@ simulation/mujoco/cncdt_mj/  # de scris, în fazele 1-5
   telemetry.py              # eșantion brut + ferestre, pe contract (pur)
   detector.py               # RCF local + regula de alarmă (pur, numpy)
   report.py                 # preaviz, rată de detecție, alarme false (pur)
-  belt.py                   # forțe tangențiale de bandă
   camera.py                 # randare offscreen + degradare
   sensors.py                # din MjData în mărimi de proces
-  cell.py                   # ciclul, stările mașinii, legarea uzurii de fizică
+  cell.py                   # are transportul pe benzi; lipsesc ciclul, stările mașinii și legarea uzurii de fizică
   control.py                # REPL, endpoint local, punte către viewer
   run.py                    # punctul de intrare: sesiune, scenariu, sămânță, ieșire
 tests/unit/
@@ -363,10 +369,11 @@ importă din `.venv`-ul proiectului, unde `mujoco` nu există.
 | 6 | (opțional) SageMaker RCF + card de model | antrenare din ferestrele exportate, card în `ml/models/`, cost justificat în PR |
 
 Starea de azi: din faza 2 există partea de scenă — `layout.py`, `part.py`, `checks.py`, `scene.py`,
-`scene/cell.xml` și `view.py`, verificate cu `view.py --check`, care este verde, plus testele
-geamănului, `tests/unit/test_mujoco_scene.py` — dar **criteriul nu este atins**: `belt.py`,
-`cell.py` și `run.py` lipsesc, deci ciclul complet și „fără piese pierdute în geometrie" nu se pot
-dovedi.
+`scene/cell.xml` și `view.py` — plus transportul pe benzi (`belt.py`, `cell.py`, cu opritoare fizice
+și viewer cu benzile pornite), verificate cu `view.py --check`, care este verde, și testele
+geamănului, `tests/unit/test_mujoco_scene.py` — dar **criteriul nu este atins**: lipsesc prinderea
+piesei, stările mașinii CNC și `run.py`, deci ciclul complet și „fără piese pierdute în geometrie"
+nu se pot dovedi.
 
 Fiecare fază se poate opri fără să lase ceva rupt: faza 1 nu are dependențe de MuJoCo, faza 2 nu
 atinge contractele publicate.

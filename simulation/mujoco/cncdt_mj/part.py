@@ -52,6 +52,14 @@ BLANK_THICKNESS_MM = 18.0
 ALLOWANCE_RADIUS_MM = BLANK_RADIUS_MM - NOMINAL_GEAR.outer_radius
 ALLOWANCE_THICKNESS_MM = BLANK_THICKNESS_MM - NOMINAL_GEAR.thickness
 
+#: Raza nominală a materialului care merge pe fiecare bandă, în metri: blocul brut intră pe banda
+#: 1, roata mașinată iese pe banda 2. Opritoarele de la capătul cursei se așază din ea
+#: (`layout.belt_stopper_geometry`), iar punctul de oprire iese la ținta de preluare.
+BELT_PART_RADIUS_M: Mapping[str, float] = {
+    "belt_in": BLANK_RADIUS_MM * MESH_SCALE,
+    "belt_out": NOMINAL_GEAR.outer_radius * MESH_SCALE,
+}
+
 #: Împrăștierea poziției blocului pe bandă și urma de siguranță până la marginea benzii.
 BLANK_JITTER_M = 0.03
 BLANK_EDGE_MARGIN_M = 0.005
@@ -144,6 +152,43 @@ def random_xy(seed: int, nominal_xy: tuple[float, float],
     y = nominal_xy[1] + rng.uniform(-jitter_m, jitter_m)
     limit = radius_m + BLANK_EDGE_MARGIN_M
     return (min(max(x, x0 + limit), x1 - limit), min(max(y, y0 + limit), y1 - limit))
+
+
+def on_belt_xy(x: float, y: float, bounds: tuple[float, float, float, float],
+               radius_m: float) -> tuple[float, float]:
+    """O poziție cerută explicit pe bandă, verificată: piesa trebuie să încapă întreagă pe ea.
+
+    Se folosește când poziția de start vine de la cineva (de pildă o piesă lăsată mai în amonte,
+    ca transportul să aibă ce arăta): o piesă așezată cu o parte în afara benzii cade la primul
+    pas, iar căderea ar părea un defect de fizică.
+    """
+    x0, x1, y0, y1 = bounds
+    limit = radius_m + BLANK_EDGE_MARGIN_M
+    if not (x0 + limit <= x <= x1 - limit and y0 + limit <= y <= y1 - limit):
+        raise ValueError(
+            f"poziția ({x:.3f}, {y:.3f}) m lasă piesa de rază {radius_m:.3f} m peste capătul "
+            f"benzii {bounds}")
+    return (float(x), float(y))
+
+
+def stopped_xy(seed: int, stop_x: float, nominal_y: float,
+               bounds: tuple[float, float, float, float], radius_m: float,
+               jitter_m: float = BLANK_JITTER_M, stream: str = "stopped") -> tuple[float, float]:
+    """Poziția unei piese oprite de opritorul benzii: cota din lungul benzii este fixă.
+
+    Odată ce piesa ajunge la opritor, împrăștierea din lungul benzii dispare: acolo o ține
+    peretele, nu frecarea. Ce rămâne aleator este cota laterală, iar rotația se trage separat
+    (:func:`random_yaw_deg`). Poziția rămâne limitată la amprenta benzii, ca piesa să stea
+    întreagă pe ea.
+    """
+    x0, x1, y0, y1 = bounds
+    limit = radius_m + BLANK_EDGE_MARGIN_M
+    if not (x0 + limit <= stop_x <= x1 - limit):
+        raise ValueError(
+            f"opritorul de la {stop_x:.3f} m lasă piesa peste capătul benzii {bounds}")
+    rng = random.Random(f"{seed}:{stream}:y")
+    y = nominal_y + rng.uniform(-jitter_m, jitter_m)
+    return (stop_x, min(max(y, y0 + limit), y1 - limit))
 
 
 def random_yaw_deg(seed: int, stream: str = "part") -> float:

@@ -22,6 +22,7 @@ import mujoco_menagerie
 import numpy as np
 
 from . import MUJOCO_DIR
+from . import belt
 from . import layout
 from . import part
 
@@ -77,24 +78,34 @@ def scene_template(camera_z: float | None = None) -> str:
 
 def placements(variant: part.PartVariant, blank: part.BlankStock, seed: int = part.DEFAULT_SEED,
                blank_xy: tuple[float, float] | None = None, blank_yaw_deg: float | None = None,
-               part_yaw_deg: float | None = None) -> dict[str, dict[str, Any]]:
+               part_yaw_deg: float | None = None,
+               part_xy: tuple[float, float] | None = None) -> dict[str, dict[str, Any]]:
     """Unde și cum stau cele două stări de material, cu parametri peste valorile din plan.
 
     Blocul brut primește poziție și rotație aleatoare, ca marfa reală de pe bandă; piesa mașinată
     stă sub camera de inspecție și primește doar yaw, fiindcă poziția ei acolo este cea care face
-    cadrul util. Toate cele trei se pot fixa explicit, ca scena să fie reproductibilă.
+    cadrul util. Toate se pot fixa explicit, ca scena să fie reproductibilă; poziția explicită a
+    piesei mașinate se verifică față de amprenta benzii 2.
     """
     nominal = {item.state: item for item in layout.part_placements()}
     blank_place = nominal[layout.STATE_BLANK]
     machined_place = nominal[layout.STATE_MACHINED]
 
     if blank_xy is None:
-        blank_xy = part.random_xy(seed, (blank_place.x, blank_place.y), blank_place.bounds,
-                                  blank.radius_m, stream="blank")
+        blank_xy = part.stopped_xy(seed, blank_place.x, blank_place.y, blank_place.bounds,
+                                  blank.radius_m)
     if blank_yaw_deg is None:
         blank_yaw_deg = part.random_yaw_deg(seed, "blank")
     if part_yaw_deg is None:
         part_yaw_deg = part.random_yaw_deg(seed, "part")
+    if part_xy is None:
+        part_xy = (machined_place.x, machined_place.y)
+    else:
+        key = belt.belt_at(machined_place.x, machined_place.y)
+        if key is None:
+            raise ValueError("piesa mașinată nu are bandă nominală în plan")
+        part_xy = part.on_belt_xy(part_xy[0], part_xy[1], machined_place.bounds,
+                                  part.BELT_PART_RADIUS_M[key])
 
     return {
         blank_place.body: {
@@ -110,7 +121,7 @@ def placements(variant: part.PartVariant, blank: part.BlankStock, seed: int = pa
         machined_place.body: {
             "state": machined_place.state,
             "note": machined_place.note,
-            "pos": (machined_place.x, machined_place.y,
+            "pos": (float(part_xy[0]), float(part_xy[1]),
                     part.rest_z_m(variant, machined_place.surface_z)),
             "yaw_deg": float(part_yaw_deg),
         },
@@ -176,7 +187,7 @@ def _add_parts(spec: mujoco.MjSpec, variant: part.PartVariant, blank: part.Blank
 def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
                blank_shape: str = part.BLANK_SHAPES[0],
                blank_xy: tuple[float, float] | None = None, blank_yaw_deg: float | None = None,
-               part_yaw_deg: float | None = None,
+               part_yaw_deg: float | None = None, part_xy: tuple[float, float] | None = None,
                camera_z: float | None = None) -> tuple[mujoco.MjSpec, dict[str, Any]]:
     """Scena completă, ca `MjSpec`, plus metadatele pieselor (poziție, yaw, etichetă).
 
@@ -185,7 +196,7 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
     panda_dir = Path(mujoco_menagerie.get(PANDA_MODEL).path())
     variant = part.load_variant(seed, defect)
     blank = part.blank_stock(blank_shape)
-    places = placements(variant, blank, seed, blank_xy, blank_yaw_deg, part_yaw_deg)
+    places = placements(variant, blank, seed, blank_xy, blank_yaw_deg, part_yaw_deg, part_xy)
 
     spec = mujoco.MjSpec.from_string(scene_template(camera_z))
     # Meshele modelului copil se caută relativ la directorul lui, nu al fișierului părinte.

@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from cncdt_mj import REPO_ROOT, checks, layout, part
+from cncdt_mj import REPO_ROOT, belt, checks, layout, part
 
 MUJOCO_DIR = REPO_ROOT / "simulation" / "mujoco"
 PACKAGE_DIR = MUJOCO_DIR / "cncdt_mj"
@@ -197,11 +197,33 @@ def test_celor_doua_stari_de_material_li_se_stie_locul() -> None:
     blank = placements[layout.STATE_BLANK]
     machined = placements[layout.STATE_MACHINED]
     pick = layout.target("belt1_pick")
-    assert (blank.x, blank.y) == (pytest.approx(float(pick["x"])), pytest.approx(float(pick["y"])))
+    assert blank.x == pytest.approx(belt.belt("belt_in").stop_x()), (
+        "blocul brut stă lipit de opritor, adică în dreptul țintei de preluare")
+    assert blank.y == pytest.approx(float(pick["y"]))
     assert blank.surface_z == layout.BELT_SURFACE_Z
     assert machined.x == pytest.approx(float(layout.CAMERAS[0]["x"]))
     assert machined.y == pytest.approx(layout.center(layout.BELT_OUT)[1])
     assert machined.surface_z == layout.BELT_SURFACE_Z
+
+
+def test_piesa_oprita_sta_fix_pe_sensul_benzii() -> None:
+    """La opritor, cota din lungul benzii nu mai e aleatoare: o ține peretele."""
+    place = next(item for item in layout.part_placements() if item.state == layout.STATE_BLANK)
+    item = belt.belt("belt_in")
+    radius = part.blank_stock().radius_m
+    stop = item.stop_x()
+    x0, x1, y0, y1 = place.bounds
+    xy = part.stopped_xy(part.DEFAULT_SEED, stop, place.y, place.bounds, radius)
+    assert xy[0] == stop
+    assert y0 + radius <= xy[1] <= y1 - radius
+    assert abs(xy[1] - place.y) <= part.BLANK_JITTER_M
+    assert part.stopped_xy(part.DEFAULT_SEED, stop, place.y, place.bounds, radius) == xy
+    # Lateral, două semințe diferite pot da cote diferite; în lungul benzii, niciodată.
+    other = part.stopped_xy(part.DEFAULT_SEED + 1, stop, place.y, place.bounds, radius)
+    assert other[0] == stop
+    # Un opritor care lasă piesa peste capătul benzii este refuzat, nu strecurat.
+    with pytest.raises(ValueError):
+        part.stopped_xy(part.DEFAULT_SEED, x1, place.y, place.bounds, radius)
 
 
 def test_imprastierea_piesei_ramane_pe_banda() -> None:
@@ -225,6 +247,99 @@ def test_fiecare_tinta_cade_in_raza_bratului() -> None:
         name = str(item["name"])
         assert layout.reach_ok(name), (
             f"{name}: {layout.target_distance(name):.3f} m peste raza {layout.ARM_REACH_M} m")
+
+
+# ---------------------------------------------------------------- benzile
+
+
+def test_benzile_merg_in_sensurile_din_document() -> None:
+    """O bandă alimentează spre est, cealaltă evacuă spre vest; documentul spune la fel."""
+    text = _document()
+    assert "banda 1 intră din `A7` spre est" in text
+    assert "Banda 2 merge într-un singur sens, spre vest" in text
+    assert belt.belt("belt_in").direction == (1.0, 0.0)
+    assert belt.belt("belt_out").direction == (-1.0, 0.0)
+    assert belt.belt("belt_in").key == "belt_in"
+
+
+def test_viteza_de_suprafata_are_sensul_benzii() -> None:
+    """Viteza de suprafață este parametru, ca driftul de uzură să poată intra ca factor."""
+    for item in belt.belts():
+        vx, vy = item.surface_velocity()
+        assert math.copysign(1.0, vx) == item.direction[0]
+        assert vy == 0.0
+        assert math.hypot(vx, vy) == pytest.approx(item.surface_speed_mps)
+        worn = item.surface_velocity(speed_scale=0.92)
+        assert math.hypot(*worn) == pytest.approx(0.92 * math.hypot(vx, vy))
+
+
+def test_forta_de_antrenare_este_limitata_de_frecare() -> None:
+    """Banda trage proporțional cu diferența de viteză, dar niciodată peste limita de frecare."""
+    item = belt.belt("belt_in")
+    mass = 1.0
+    at_rest = item.drag_force(mass, (0.0, 0.0))
+    assert at_rest[0] == pytest.approx(
+        belt.BELT_DRAG_GAIN_N_PER_KG_MPS * mass * item.surface_speed_mps)
+    assert at_rest[0] < item.friction * mass * belt.GRAVITY_MPS2, (
+        "la frecare nominală banda trebuie să prindă piesa, nu să alunece pe ea")
+    # Apăsare mică: forța scade la limita de frecare.
+    light = item.drag_force(mass, (0.0, 0.0), normal_force_n=1.0)
+    assert math.hypot(*light) == pytest.approx(1.0)
+    assert light[0] < at_rest[0]
+    # Fără apăsare nu există frecare, deci nici forță.
+    assert item.drag_force(mass, (0.0, 0.0), normal_force_n=0.0) == (0.0, 0.0)
+    # Piesa deja la viteza benzii nu mai este împinsă.
+    assert item.drag_force(mass, item.surface_velocity())[0] == pytest.approx(0.0)
+    # Piesa mai rapidă decât banda este frânată, nu accelerată.
+    assert item.drag_force(mass, (2 * item.surface_speed_mps, 0.0))[0] < 0.0
+
+
+def test_banda_franeaza_alunecarea_laterala() -> None:
+    """Frecarea se opune oricărei alunecări, nu doar celei din lungul benzii."""
+    item = belt.belt("belt_out")
+    force = item.drag_force(1.0, (item.surface_velocity()[0], 0.5))
+    assert force[1] < 0.0
+    slipping = item.drag_force(1.0, (item.surface_velocity()[0], 0.5), normal_force_n=1.0)
+    assert math.hypot(*slipping) == pytest.approx(1.0)
+
+
+def test_punctul_de_pe_banda_se_recunoaste() -> None:
+    """Recunoașterea în plan: centrul fiecărei benzi, plus un punct din culoarul liber."""
+    for item in belt.belts():
+        x0, x1, y0, y1 = item.footprint
+        assert belt.belt_at((x0 + x1) / 2, (y0 + y1) / 2) == item.key
+        assert belt.belt_at(x0, y0) == item.key
+    assert belt.belt_at(4.10, 2.90) is None, "punctul de sub mașină nu e pe nicio bandă"
+    assert belt.belt_at(1.60, 3.30 - 0.25) is None, "între benzi nu e bandă"
+
+
+def test_opritorul_opreste_piesa_in_tinta_din_plan() -> None:
+    """Piesa oprită de perete stă exact în dreptul țintei de preluare, pe bandă."""
+    cases = (
+        # Banda 1: piesa intră pe la capătul vestic și e dusă spre est.
+        ("belt_in", part.blank_stock().radius_m, belt.belt("belt_in").footprint[0]),
+        # Banda 2: piesa e așezată de brațul 1 la punctul de așezare și merge spre vest.
+        ("belt_out", part.NOMINAL_GEAR.outer_radius * part.MESH_SCALE,
+         float(layout.target("belt2_drop")["x"])),
+    )
+    geometry = layout.scene_geometry()
+    for key, radius, entry_x in cases:
+        item = belt.belt(key)
+        stop = item.stop_x()
+        target_x = float(layout.target(layout.BELT_STOP_TARGETS[key])["x"])
+        assert stop == pytest.approx(target_x + item.direction[0] * layout.STOPPER_EDGE_CLEARANCE)
+        x0, x1, _, _ = item.footprint
+        assert x0 + radius < stop < x1 - radius, (
+            f"{key}: piesa oprită la {stop:.3f} m ar atârna peste capătul benzii")
+        # Fața din amonte a peretelui din scenă este exact unde ajunge marginea piesei oprite.
+        wall_cx = layout.center((layout.BELT_IN if key == "belt_in" else layout.BELT_OUT))[0] \
+            + geometry[f"{key}_stopper_dx"]
+        wall_face = wall_cx - item.direction[0] * geometry["belt_stopper_hx"]
+        assert wall_face == pytest.approx(stop + item.direction[0] * radius)
+        assert geometry[f"{key}_stopper_z"] > layout.BELT_SLAB_HALF_Z, "opritorul stă pe bandă"
+        # Piesa intră în amonte de opritor, iar forța benzii o împinge spre el.
+        assert (entry_x - stop) * item.direction[0] < 0, f"{key}: intrarea nu e în amonte"
+        assert math.copysign(1.0, item.drag_force(1.0, (0.0, 0.0))[0]) == item.direction[0]
 
 
 # ---------------------------------------------------------------- yaw-ul și contactele
@@ -274,21 +389,25 @@ def _imported_top_levels(source: str) -> set[str]:
     return names
 
 
+#: Modulele care ating motorul: se validează rulând `view.py --check`, din venv-ul geamănului.
+ENGINE_MODULES = ("scene.py", "cell.py")
+
+
 def test_modulele_pure_nu_importa_motorul() -> None:
-    """`layout`, `part` și `checks` se importă fără `mujoco`, deci se pot testa în `.venv`."""
+    """`layout`, `part`, `belt` și `checks` se importă fără `mujoco`, deci merg testate în `.venv`."""
     for path in sorted(PACKAGE_DIR.glob("*.py")):
-        if path.name == "scene.py":
+        if path.name in ENGINE_MODULES:
             continue
         imported = _imported_top_levels(_read(path))
         assert "mujoco" not in imported, (
             f"{path.name} importă mujoco; scena se validează din venv-ul geamănului (ADR 0012)")
 
 
-def test_scena_este_singurul_modul_care_atinge_motorul() -> None:
-    """Compunerea atinge motorul; restul pachetului rămâne pur."""
+def test_doar_modulele_de_motor_ating_motorul() -> None:
+    """Lista modulelor care ating motorul este explicită: orice modul nou trebuie declarat aici."""
     touching = {path.name for path in PACKAGE_DIR.glob("*.py")
                 if "mujoco" in _imported_top_levels(_read(path))}
-    assert touching == {"scene.py"}
+    assert touching == set(ENGINE_MODULES)
 
 
 def test_sablonul_scenei_are_sursa_pentru_fiecare_cota() -> None:

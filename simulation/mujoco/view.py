@@ -8,8 +8,10 @@ Trei moduri, toate pe aceeași scenă compusă de `cncdt_mj.scene`:
   yaw-ul citit din scenă și contactele. Iese cu cod 1 dacă vreo verificare cade.
 * `--render` — scrie un PNG offscreen, implicit `renders/cell.png`; cu `--camera camera_quality`
   scrie cadrul de inspecție, la rezoluția lui (`renders/inspection.png`).
-* `--view` — deschide viewer-ul interactiv. Pe macOS viewer-ul merge doar sub `mjpython`, deci
-  scriptul spune asta explicit și refuză să pornească sub `python`.
+* `--view` — deschide viewer-ul interactiv, cu benzile pornite: forța de antrenare se rescrie la
+  fiecare pas (`cell.apply_belt_forces`), iar ceasul se ține în ritm real, ca transportul să se
+  vadă. `--no-belts` îngheață transportul, `--speed` schimbă ritmul de rulare. Pe macOS viewer-ul
+  merge doar sub `mjpython`, deci scriptul spune asta explicit și refuză să pornească sub `python`.
 
 Se rulează din venviul geamănului (`simulation/mujoco/.venv`), care este singurul loc unde
 `mujoco` există (ADR 0012).
@@ -18,8 +20,11 @@ Se rulează din venviul geamănului (`simulation/mujoco/.venv`), care este singu
 from __future__ import annotations
 
 import argparse
+import math
+import os
 import struct
 import sys
+import time
 import zlib
 from pathlib import Path
 
@@ -31,7 +36,7 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import checks, layout, part, scene  # noqa: E402
+from cncdt_mj import belt, cell, checks, layout, part, scene  # noqa: E402
 
 #: Unde se scriu cadrele; directorul e comis, ca dovada vizuală să fie în repo.
 RENDERS_DIR = MUJOCO_DIR / "renders"
@@ -41,6 +46,9 @@ FREE_CAMERA = {"lookat": (3.0, 2.0, 0.8), "distance": 8.5, "azimuth": 135.0, "el
 
 #: Prefixele corpurilor brațelor, pentru regula de contact (`checks.arm_foreign_contacts`).
 ARM_PREFIXES = tuple(f"{prefix}_" for prefix, _ in scene.ARM_MOUNTS)
+
+#: La cât timp simulat se tipărește o linie de transport în viewer.
+REPORT_PERIOD_S = 1.0
 
 # Pragurile verificării (`MIN_CAMERA_CLEARANCE_M`, `MIN_INSPECTION_PX_PER_MM`,
 # `YAW_TOLERANCE_DEG`, `MAX_SETTLE_DRIFT_M`) stau în `cncdt_mj/checks.py`: sunt reguli pure, iar
@@ -71,13 +79,25 @@ def build(args: argparse.Namespace) -> tuple[mujoco.MjModel, mujoco.MjData, dict
             seed=args.seed,
             defect=args.defect,
             blank_shape=args.blank_shape,
-            blank_xy=None if args.blank_x is None or args.blank_y is None
-            else (args.blank_x, args.blank_y),
+            blank_xy=requested_xy(args.blank_x, args.blank_y, layout.STATE_BLANK),
             blank_yaw_deg=args.blank_yaw_deg,
             part_yaw_deg=args.part_yaw_deg,
+            part_xy=requested_xy(args.part_x, args.part_y, layout.STATE_MACHINED),
             camera_z=args.camera_z,
         )
     return model, mujoco.MjData(model), metadata, list(warnings)
+
+
+def requested_xy(x: float | None, y: float | None, state: str) -> tuple[float, float] | None:
+    """Poziția cerută prin `--blank-x`/`--part-x` și perechea lor, cu planul ca rezervă.
+
+    Cota care nu se dă rămâne cea nominală din plan: altfel `--blank-x 0.6` singur ar fi ignorat
+    tăcut, fiindcă scena are nevoie de amândouă coordonatele.
+    """
+    if x is None and y is None:
+        return None
+    place = next(item for item in layout.part_placements() if item.state == state)
+    return (place.x if x is None else x, place.y if y is None else y)
 
 
 def prepare(model: mujoco.MjModel, data: mujoco.MjData, metadata: dict,
@@ -111,6 +131,18 @@ def camera_arguments(args: argparse.Namespace) -> tuple[str | None, int, int]:
     return args.camera, args.width or width, args.height or height
 
 
+def configure_free_camera(camera: mujoco.MjvCamera) -> None:
+    """Așază camera liberă pe celulă: centrul ei, de sus și dinspre sud-est.
+
+    Se folosește și la randare, și la deschiderea viewer-ului, ca fereastra să pornească pe aceeași
+    priveliște ca `renders/cell.png`, nu pe încadrarea implicită a MuJoCo.
+    """
+    camera.lookat[:] = FREE_CAMERA["lookat"]
+    camera.distance = FREE_CAMERA["distance"]
+    camera.azimuth = FREE_CAMERA["azimuth"]
+    camera.elevation = FREE_CAMERA["elevation"]
+
+
 def render(model: mujoco.MjModel, data: mujoco.MjData, path: Path, camera: str | None,
            width: int, height: int) -> None:
     """Randează un cadru offscreen și îl scrie ca PNG."""
@@ -118,10 +150,7 @@ def render(model: mujoco.MjModel, data: mujoco.MjData, path: Path, camera: str |
         if camera is None:
             free = mujoco.MjvCamera()
             mujoco.mjv_defaultFreeCamera(model, free)
-            free.lookat[:] = FREE_CAMERA["lookat"]
-            free.distance = FREE_CAMERA["distance"]
-            free.azimuth = FREE_CAMERA["azimuth"]
-            free.elevation = FREE_CAMERA["elevation"]
+            configure_free_camera(free)
             renderer.update_scene(data, camera=free)
         else:
             renderer.update_scene(data, camera=camera)
@@ -216,25 +245,74 @@ def check(args: argparse.Namespace) -> int:
     return 0
 
 
+def transport_line(model: mujoco.MjModel, data: mujoco.MjData,
+                   parts: tuple[str, ...]) -> str:
+    """O linie cu ce se întâmplă acum: ce piesă e pe ce bandă, cu ce viteză și cât mai are până
+    la opritor.
+
+    Viewer-ul își are peisajul propriu, dar transportul se citește mai bine din cifre: linia se
+    tipărește în terminal la fiecare `REPORT_PERIOD_S` secunde de timp simulat. Distanța rămasă
+    este pe direcția de mers a benzii, deci pozitiv înseamnă că piesa mai are de mers.
+    """
+    carrying = cell.carried_parts(model, data, parts)
+    positions = cell.part_positions(model, data, parts)
+    cells = []
+    for body in parts:
+        x, y, _ = positions[body]
+        speed = math.hypot(*cell.part_velocity(model, data, body))
+        key = carrying.get(body)
+        if key is None:
+            cells.append(f"{body}: ({x:.3f}, {y:.3f}) v={speed:.3f} m/s, în afara benzii")
+            continue
+        item = belt.belt(key)
+        remaining = (item.stop_x() - x) * item.direction[0]
+        cells.append(f"{body}: ({x:.3f}, {y:.3f}) v={speed:.3f} m/s pe {key}, "
+                     f"mai are {remaining:+.3f} m până la opritor")
+    return f"t={data.time:6.2f} s | " + " | ".join(cells)
+
+
 def view(args: argparse.Namespace) -> int:
-    """Viewer-ul interactiv; pe macOS are nevoie de `mjpython`."""
-    if sys.platform == "darwin" and Path(sys.executable).name != "mjpython":
+    """Viewer-ul interactiv, cu benzile pornite; pe macOS are nevoie de `mjpython`."""
+    if sys.platform == "darwin" and "MJPYTHON_BIN" not in os.environ:
         print("Pe macOS viewer-ul MuJoCo merge doar sub `mjpython`, fiindcă fereastra trebuie\n"
-              "creată pe firul principal:\n"
+              "creată pe firul principal. Semnul că rulăm sub el este `MJPYTHON_BIN`, nu numele\n"
+              "din `sys.executable`: acolo scrie tot interpretul din venv.\n"
               f"  {Path(sys.executable).parent / 'mjpython'} view.py --view\n"
               "Fără afișaj, folosește `--check` și `--render`.", file=sys.stderr)
         return 2
-    model, data, metadata, _ = build(args)
-    steps = args.steps or 0
-    with scene.warn_capture() as warnings:
+    model, data, metadata, build_warnings = build(args)
+    with scene.warn_capture() as captured:
         scene.apply_nominal(model, data, metadata["placements"])
-    print(f"Avertismente la încărcare: {len(warnings)}")
-    for message in warnings:
+    messages = list(build_warnings) + list(captured)
+    print(f"Avertismente la încărcare: {len(messages)}")
+    for message in messages:
         print(f"  {message}")
+    parts = cell.part_bodies(model)
+    if args.belts:
+        print(f"Benzile sunt pornite la {belt.BELT_SURFACE_SPEED_MPS:.3f} m/s; opritoarele stau la "
+              f"{layout.belt_stop_x('belt_in'):.3f} m (banda 1) și "
+              f"{layout.belt_stop_x('belt_out'):.3f} m (banda 2).")
+    else:
+        print("Benzile sunt oprite; `--belts` le pornește.")
+    print(f"Ritm de rulare {args.speed:g}x față de timpul real." if args.speed > 0.0
+          else "Rulare cât de repede merge (fără ritm real).")
+    steps = args.steps or 0
+    started = time.monotonic()
+    next_report = 0.0
     with mujoco.viewer.launch_passive(model, data) as viewer:
+        configure_free_camera(viewer.cam)
         while viewer.is_running():
+            if args.belts:
+                cell.apply_belt_forces(model, data)
             mujoco.mj_step(model, data)
+            if args.speed > 0.0:
+                delay = started + data.time / args.speed - time.monotonic()
+                if delay > 0.0:
+                    time.sleep(delay)
             viewer.sync()
+            if args.belts and data.time >= next_report:
+                print(transport_line(model, data, parts), flush=True)
+                next_report = data.time + REPORT_PERIOD_S
             steps -= 1
             if args.steps and steps <= 0:
                 break
@@ -274,9 +352,20 @@ def main(argv: list[str] | None = None) -> int:
                        help="yaw-ul blocului brut (implicit: aleator, din sămânță)")
     parser.add_argument("--part-yaw-deg", type=float, default=None,
                        help="yaw-ul piesei mașinate pe banda 2 (implicit: aleator, din sămânță)")
+    parser.add_argument("--part-x", type=float, default=None,
+                       help="poziția X a piesei mașinate pe banda 2, verificată față de amprenta "
+                            "benzii (implicit: sub camera de inspecție, din plan)")
+    parser.add_argument("--part-y", type=float, default=None,
+                       help="poziția Y a piesei mașinate pe banda 2 (implicit: axa benzii)")
     parser.add_argument("--camera-z", type=float, default=None,
                        help="cota centrului optic al camerei de inspecție "
                             f"(implicit {layout.inspection_camera_z():.2f} m)")
+    parser.add_argument("--belts", action=argparse.BooleanOptionalAction, default=True,
+                       help="în viewer, benzile sunt pornite (implicit); `--no-belts` le oprește, "
+                            "ca scena să stea pe loc")
+    parser.add_argument("--speed", type=float, default=1.0,
+                       help="ritmul de rulare în viewer față de timpul real (implicit 1; "
+                            "0 rulează cât de repede merge)")
     args = parser.parse_args(argv)
 
     if args.view:
