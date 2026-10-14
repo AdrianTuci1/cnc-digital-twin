@@ -110,9 +110,9 @@ din scenă (comparat pe cerc, deci 348,5° și −11,5° sunt același unghi).
 
 Țintele de prindere, măsurate **în spațiu** de la baza brațului, față de raza de 0,855 m din plan:
 brațul 1 ajunge la 0,758 m (preluare bandă 1), 0,671 m (mașină) și 0,846 m (așezare bandă 2);
-brațul 2 la 0,541 m (preluare bandă 2) și 0,850 m (fiecare cutie). Planul măsoară doar în plan, iar
-`docs/11-geaman-mujoco.md` spune explicit că o țintă poate părea la îndemână în desen și să fie
-prea sus — verificarea de aici este cea în spațiu.
+brațul 2 la 0,541 m (preluare bandă 2), 0,837 m (cutia de piese bune) și 0,789 m (cutia de rebut).
+Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md` spune explicit că o țintă poate părea
+la îndemână în desen și să fie prea sus — verificarea de aici este cea în spațiu.
 
 Se mai verifică trei lucruri la camera de inspecție: degajarea față de ambele brațe (poziția
 nominală plus `--samples` configurații eșantionate, prag 0,02 m), încadrarea piesei — distanța,

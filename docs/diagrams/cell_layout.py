@@ -5,8 +5,9 @@
 Fluxul materialului, în ordine: banda 1 alimentează dinspre vest, brațul 1 preia piesa și o
 încarcă în mașină; după ce mașina termină, tot brațul 1 o descarcă și o așază pe banda 2, care
 merge într-un singur sens spre vest. Brațul 2 stă la marginea sudică a benzii 2, iar cutiile sunt
-de partea cealaltă a benzii, pe latura nordică: brațul ridică piesa de pe bandă și o lasă în
-cutia potrivită fără să se întoarcă, fiindcă ambele ținte cad în același sector, spre nord.
+de partea cealaltă a benzii, pe latura nordică, cu marginea sus la nivelul benzii: brațul ia piesa
+de pe bandă și o lasă în cutia potrivită fără să se întoarcă și fără să urce, fiindcă ambele ținte
+cad în același sector, spre nord.
 Camera de inspecție a calității este separată de brațe și privește banda 2 înainte de brațul 2,
 ca verdictul să fie gata când piesa ajunge la el: axul ei optic stă peste bandă, iar capul
 atârnă de o consolă prinsă de mașină, pe deasupra anvelopei brațelor. Fiecare braț are în plus
@@ -53,9 +54,14 @@ BELT_IN = dict(name="infeed_conveyor", kind="belt", x=0.4, y=3.1, w=2.4, h=0.4, 
 BELT_OUT = dict(name="outfeed_conveyor", kind="belt", x=0.8, y=1.8, w=3.8, h=0.4, direction=-1,
                 caption="Bandă 2: evacuare, un singur sens", caption_at=(4.0, 1.68))
 CNC = dict(name="cnc_3axis", kind="cnc", x=3.4, y=2.4, w=1.4, h=1.0)
-# Cutiile stau lipite de latura nordică a benzii 2, adică dincolo de bandă față de brațul 2.
+# Cutiile stau lipite de latura nordică a benzii 2, adică dincolo de bandă față de brațul 2, cu
+# marginea de sus la nivelul suprafeței benzii, ca piesa să treacă din bandă în cutie fără să
+# urce. Cota le ridică până la umărul brațului 1, care lucrează deasupra capătului de est al
+# fâșiei: cu ampuantele de 0,40 × 0,40 din prima variantă, pereții cutiei de rebut intrau 45 mm
+# în verigile brațului 1, iar punctele de așezare ieșeau la 0,879 m de baza brațului 2, adică
+# peste raza de 0,855 m. De aceea cutia de rebut e mai îngustă și mai la vest.
 BIN_OK = dict(name="bin_accepted", kind="accepted", x=2.1, y=2.2, w=0.4, h=0.4)
-BIN_NG = dict(name="bin_trash", kind="trash", x=2.7, y=2.2, w=0.4, h=0.4)
+BIN_NG = dict(name="bin_trash", kind="trash", x=2.5, y=2.2, w=0.3, h=0.4)
 
 ARMS = [
     dict(key="arm1", name="arm1_cnc", x=2.95, y=2.65, reach=0.855,
@@ -87,16 +93,19 @@ TARGETS = [
     dict(name="cnc_chuck", key="arm1", x=3.5, y=2.95, label="încărcare/descărcare CNC"),
     dict(name="belt2_drop", key="arm1", x=3.4, y=2.0, label="așezare pe banda 2"),
     dict(name="belt2_pick", key="arm2", x=2.7, y=2.0, label="preluare de pe banda 2"),
-    dict(name="bin_ok", key="arm2", x=2.4, y=2.32, label="piesă bună în cutie"),
-    dict(name="bin_ng", key="arm2", x=3.0, y=2.32, label="rebut în cutie"),
+    # Punctul de așezare din fiecare cutie este locul cel mai apropiat de axul brațului 2 care
+    # lasă piesa de rază 0,052 m la 8 mm de pereți; la cutia de piese bune cade lângă colțul de
+    # sud-est, la cea de rebut chiar la nord de braț.
+    dict(name="bin_ok", key="arm2", x=2.42, y=2.28, label="piesă bună în cutie"),
+    dict(name="bin_ng", key="arm2", x=2.7, y=2.28, label="rebut în cutie"),
 ]
 
 # Fluxul materialului, ca polilinie punctată: bandă 1 -> braț 1 -> CNC -> braț 1 -> bandă 2
 # (trece prin dreptul camerei de inspecție) -> braț 2 -> cutia potrivită.
 FLOW = [(0.55, 3.3), (2.7, 3.3), (3.5, 2.95), (3.4, 2.0), (2.7, 2.0)]
 FLOW_BRANCHES = [
-    [(2.7, 2.0), (2.4, 2.32)],
-    [(2.7, 2.0), (3.0, 2.32)],
+    [(2.7, 2.0), (2.42, 2.28)],
+    [(2.7, 2.0), (2.7, 2.28)],
 ]
 
 PLAN_W = CELL_W * SCALE
@@ -295,9 +304,12 @@ def build_svg() -> str:
         svg.append('<circle cx="%.1f" cy="%.1f" r="4.5" fill="#1b1b1b" stroke="#ffffff" '
                    'stroke-width="1.4"/>' % (px(target["x"]), py(target["y"])))
 
-    # Cutiile stau dincolo de bandă, pe latura opusă brațului 2: etichetele intră deasupra.
-    svg.append(text(px(2.3), py(2.72), "Piese bune (Accepted)", 12, "middle", "#2f5c2a", "bold"))
-    svg.append(text(px(2.9), py(2.72), "Rebuts (Trash)", 12, "middle", "#8a2f2f", "bold"))
+    # Cutiile stau dincolo de bandă, pe latura opusă brațului 2. Sunt înguste și alăturate, deci
+    # textele lungi nu încap unul lângă altul: intră unul peste altul, fiecare pe centrul cutiei
+    # lui, ca să nu rămână în urmă când i se schimbă amprenta.
+    for item, label, color, y in ((BIN_OK, "Piese bune (Accepted)", "#2f5c2a", 2.76),
+                                  (BIN_NG, "Rebuts (Trash)", "#8a2f2f", 2.62)):
+        svg.append(text(px(item["x"] + item["w"] / 2), py(y), label, 12, "middle", color, "bold"))
 
     # Fluxul materialului.
     svg.append(polyline(FLOW, marker=True))

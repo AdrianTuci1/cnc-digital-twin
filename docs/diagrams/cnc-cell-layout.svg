@@ -70,7 +70,7 @@
 <text x="848.0" y="536.8" font-size="13" text-anchor="middle" fill="#31414f" font-weight="normal" opacity="1.00">Bandă 2: evacuare, un singur sens</text>
 <rect x="734.0" y="210.0" width="266.0" height="190.0" rx="3" fill="#a6cbea" stroke="#2f6ba8" stroke-width="1.6"/>
 <rect x="487.0" y="362.0" width="76.0" height="76.0" rx="3" fill="#aed7a8" stroke="#3f7a37" stroke-width="1.6"/>
-<rect x="601.0" y="362.0" width="76.0" height="76.0" rx="3" fill="#ecaaaa" stroke="#9b3b3b" stroke-width="1.6"/>
+<rect x="563.0" y="362.0" width="57.0" height="76.0" rx="3" fill="#ecaaaa" stroke="#9b3b3b" stroke-width="1.6"/>
 <text x="867.0" y="301.0" font-size="14" text-anchor="middle" fill="#1d4467" font-weight="bold" opacity="1.00">Mașină CNC 3 axe</text>
 <text x="867.0" y="321.0" font-size="12" text-anchor="middle" fill="#315f86" font-weight="normal" opacity="1.00">stare: idle / cutting</text>
 <circle cx="648.5" cy="352.5" r="162.4" fill="none" stroke="#a85f13" stroke-width="1.1" stroke-dasharray="4 6" opacity="0.5"/>
@@ -103,13 +103,13 @@
 <circle cx="753.0" cy="295.5" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
 <circle cx="734.0" cy="476.0" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
 <circle cx="601.0" cy="476.0" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
-<circle cx="544.0" cy="415.2" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
-<circle cx="658.0" cy="415.2" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
-<text x="525.0" y="339.2" font-size="12" text-anchor="middle" fill="#2f5c2a" font-weight="bold" opacity="1.00">Piese bune (Accepted)</text>
-<text x="639.0" y="339.2" font-size="12" text-anchor="middle" fill="#8a2f2f" font-weight="bold" opacity="1.00">Rebuts (Trash)</text>
+<circle cx="547.8" cy="422.8" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
+<circle cx="601.0" cy="422.8" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
+<text x="525.0" y="331.6" font-size="12" text-anchor="middle" fill="#2f5c2a" font-weight="bold" opacity="1.00">Piese bune (Accepted)</text>
+<text x="591.5" y="358.2" font-size="12" text-anchor="middle" fill="#8a2f2f" font-weight="bold" opacity="1.00">Rebuts (Trash)</text>
 <polyline points="192.5,229.0 601.0,229.0 753.0,295.5 734.0,476.0 601.0,476.0" fill="none" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
-<polyline points="601.0,476.0 544.0,415.2" fill="none" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
-<polyline points="601.0,476.0 658.0,415.2" fill="none" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<polyline points="601.0,476.0 547.8,422.8" fill="none" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<polyline points="601.0,476.0 601.0,422.8" fill="none" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
 <line x1="88.0" y1="902.0" x2="1228.0" y2="902.0" stroke="#666" stroke-width="1.0"/>
 <text x="658.0" y="918.0" font-size="12" text-anchor="middle" fill="#555" font-weight="normal" opacity="1.00">6,0 m</text>
 <line x1="58.0" y1="856.0" x2="58.0" y2="96.0" stroke="#666" stroke-width="1.0"/>

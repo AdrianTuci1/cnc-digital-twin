@@ -63,8 +63,11 @@ BELT_SURFACE_Z = 0.85
 MACHINE_TABLE_Z = 0.75
 #: Capacul de protecție: `docs/11-geaman-mujoco.md` §2.
 MACHINE_COVER_Z = 1.90
-#: Marginea de sus a cutiilor: `docs/11-geaman-mujoco.md` §2.
-BIN_RIM_Z = 0.35
+#: Marginea de sus a cutiilor: `docs/11-geaman-mujoco.md` §2. Stă la nivelul suprafeței benzii,
+#: ca piesa să treacă din bandă în cutie fără să urce. Cota este și limita de atingere a
+#: brațului 2 — vârful se ridică peste baza lui (0,55 m) —, deci punctele de așezare din cutii
+#: stau lipite de pereții de sud și de est (`docs/diagrams/cell_layout.py`).
+BIN_RIM_Z = BELT_SURFACE_Z
 #: Baza brațelor, pe piedestal: `docs/11-geaman-mujoco.md` §2.
 ARM_BASE_Z = 0.55
 #: Înălțimea documentată a camerelor, orientate în jos: `docs/11-geaman-mujoco.md` §2.
@@ -109,7 +112,8 @@ DOCUMENTED_HEIGHTS: tuple[DocumentedHeight, ...] = (
     DocumentedHeight("belt_surface", BELT_SURFACE_Z, "benz", "suprafețele de lucru ale benzilor"),
     DocumentedHeight("machine_table", MACHINE_TABLE_Z, "mașin", "masa mașinii"),
     DocumentedHeight("machine_cover", MACHINE_COVER_Z, "capac", "capacul de protecție"),
-    DocumentedHeight("bin_rim", BIN_RIM_Z, "marginea", "cutiile pe podea, cu marginea"),
+    DocumentedHeight("bin_rim", BIN_RIM_Z, "marginea",
+                     "cutiile pe podea, cu marginea la nivelul suprafeței benzii 2"),
     DocumentedHeight("arm_base", ARM_BASE_Z, "piedestal", "baza brațelor pe piedestal"),
     DocumentedHeight("camera", CAMERA_Z, "camer", "camerele"),
 )
