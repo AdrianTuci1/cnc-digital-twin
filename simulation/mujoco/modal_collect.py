@@ -239,6 +239,9 @@ def main(families: str = "", cycles: int = 25, rate: float = 20.0, seed: int = 1
                 for index, family in enumerate(family_list)]
     total = sum(len(seeds) for _, seeds in sessions)
     name = run or "run-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    # Revisia se citește la lansare, nu la urcare: containerele primesc codul acum, iar între
+    # timp un commit de documentație ar intra în manifest fără să fi trecut prin simulare.
+    revision = git_revision()
     injections = split_list(inject)
     print(f"[modal] rularea {name}: {total} sesiuni, {cycles} cicluri, rata {rate}, "
           f"fără cadre, în {len(sessions)} familii", flush=True)
@@ -262,5 +265,5 @@ def main(families: str = "", cycles: int = 25, rate: float = 20.0, seed: int = 1
           f"{sum(row['bytes'] for row in rows) / 1024 / 1024:.2f} MB", flush=True)
 
     published = publish_run.remote(run=name, bucket=bucket, require_wear=require_wear,
-                                   revision=git_revision(), keep_local=keep_local)
+                                   revision=revision, keep_local=keep_local)
     print(f"[modal] gata: {published} în s3://{bucket}/training-data/mujoco/", flush=True)
