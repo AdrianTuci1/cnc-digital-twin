@@ -2,7 +2,7 @@
 """Urcă în bucket corpusul de antrenament al geamănului: senzorii și cadrele unei colectări.
 
 Planul îl scrie `cncdt_mj/export.py` (pur, testabil), iar aici se execută: fiecare sesiune urcă
-recursiv sub `datasets/mujoco/dt=<zi>/<rulare>/<familie>-<sămânță>/`, plus un `manifest.json` la
+recursiv sub `training-data/mujoco/dt=<zi>/<rulare>/<familie>-<sămânță>/`, plus un `manifest.json` la
 rădăcina rulării, care spune ce conține corpusul, cu ce versiune de contract a fost scris și de
 unde se citește.
 

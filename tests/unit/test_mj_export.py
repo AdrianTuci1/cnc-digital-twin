@@ -196,8 +196,8 @@ def test_command_uploads_the_session_directory_recursively(run_dir: Path) -> Non
 def test_prefix_and_run_name_can_be_forced(run_dir: Path) -> None:
     """O colectare se poate urca sub alt prefix ori cu alt nume de rulare."""
     plan = export.plan_export(run_dir, "exemplu-data-lake", dt="2026-01-02", run="run-test",
-                              prefix="datasets/mujoco/")
-    assert plan.prefix == "datasets/mujoco/dt=2026-01-02/run-test"
+                              prefix="training-data/mujoco/")
+    assert plan.prefix == "training-data/mujoco/dt=2026-01-02/run-test"
 
 
 # ---------------------------------------------------------------- manifestul

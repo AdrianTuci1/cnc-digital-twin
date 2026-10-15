@@ -391,8 +391,8 @@ make mj-publish                            # urcă sesiunile deja scrise în sim
 sub prefixul corpusului:
 
 ```
-datasets/mujoco/dt=<zi>/run-<UTC>/manifest.json
-datasets/mujoco/dt=<zi>/run-<UTC>/<familie>-<sămânță>/{samples.jsonl, frames.jsonl, …, frames/}
+training-data/mujoco/dt=<zi>/run-<UTC>/manifest.json
+training-data/mujoco/dt=<zi>/run-<UTC>/<familie>-<sămânță>/{samples.jsonl, frames.jsonl, …, frames/}
 ```
 
 `datasets/` este un prefix propriu, nu `raw/`. `raw/telemetry/` este Parquet de ferestre de 60 s,
@@ -658,7 +658,7 @@ discrete și primește acțiunile de operator. Testele pure sunt `tests/unit/tes
 Din faza 3 există scrierea sesiunii: `make mj-record` parcurge un ciclu pe fiecare familie și scrie
 cele șapte ieșiri (cinci cadre pe ciclu), iar `samples.jsonl` respectă întocmai contractul.
 Există și **colectarea cu urcare în bucket**: `make mj-collect` scrie sesiunile într-un director de
-rulare propriu și le urcă sub `datasets/mujoco/dt=<zi>/run-<UTC>/`, cu manifestul corpusului
+rulare propriu și le urcă sub `training-data/mujoco/dt=<zi>/run-<UTC>/`, cu manifestul corpusului
 lângă ele; `cncdt_mj/export.py` verifică sesiunile înainte, iar `publish.py` urcă prin AWS CLI
 (secțiunea 4, „Colectarea și urcarea în bucket").
 Criteriul **nu este atins**: ciclul atinge punctele, dar nu prinde piesa (falcile doar o ating,

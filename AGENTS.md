@@ -18,7 +18,7 @@ Acest document descrie regulile de lucru în repository. Citiți-l înainte de a
 | `infra/terraform/stacks/<nume>` | Compoziție: cheamă module, fixează valorile de mediu. Aici se adaugă resurse noi, nu în module. `access` și `sim` au state local, `platform` are backend S3. |
 | `simulation/extensions/` | Extensia Isaac Sim (Python, Kit). Se validează doar rulând în Isaac Sim. |
 | `simulation/extensions/cncdt.cnc_cell/cncdt/cnc_cell/parts/` | Generatorul procedural de piese și manifestul de etichete. Modul pur (numpy + mapbox-earcut), testat fără Isaac Sim. |
-| `simulation/mujoco/` | Al doilea geamăn al celulei, pe MuJoCo (ADR 0012). Venv propriu, ignorat de git: `make mj-venv`; scena se validează cu `make mj-check`, testele care ating motorul cu `make mj-test`. `layout.py`, `part.py`, `checks.py`, `telemetry.py`, `wear.py` și `export.py` rămân pure, ca `make test` să ruleze fără `mujoco`. Colectarea de antrenament (senzori + camere) se urcă în bucketul data lake cu `make mj-collect`, sub `datasets/mujoco/`. |
+| `simulation/mujoco/` | Al doilea geamăn al celulei, pe MuJoCo (ADR 0012). Venv propriu, ignorat de git: `make mj-venv`; scena se validează cu `make mj-check`, testele care ating motorul cu `make mj-test`. `layout.py`, `part.py`, `checks.py`, `telemetry.py`, `wear.py` și `export.py` rămân pure, ca `make test` să ruleze fără `mujoco`. Colectarea de antrenament (senzori + camere) se urcă în bucketul data lake cu `make mj-collect`, sub `training-data/mujoco/`. |
 | `lambdas/<nume>/handler.py` | Punctul de intrare Lambda. Logica pură (fără boto3) stă într-un modul `*_core.py` cu nume unic (`core.py` este deja folosit de feature engineering), ca să fie testabilă. |
 | `ml/src/cncdt_ml/` | Cod comun partajat de Lambda, feature engineering și antrenare. Contractul de date stă în `schema.py`. |
 | `ml/feature_engineering/` | Data Wrangler: rețeta generată din cod, fluxurile exportate, `run_flow.py`, `build_features.py`. |
@@ -113,7 +113,7 @@ clientului WebRTC, desktopul DCV, panoul de control din Isaac Sim sau dashboard-
 - **Glue este doar registru de schemă.** Nu adăugați job-uri, crawlere sau transformări Glue.
   Feature engineering-ul offline se face cu Data Wrangler (vezi `docs/adr/0003`), iar hot
   path-ul este Lambda-ul. Motivul: `docs/adr/0002`.
-- **Corpusul de antrenament al geamănului are prefix propriu, `datasets/mujoco/`.** Nu se urcă
+- **Corpusul de antrenament al geamănului are prefix propriu, `training-data/mujoco/`.** Nu se urcă
   sub `raw/telemetry/` (acolo e Parquet de ferestre, scris de Firehose și citit de tabelul Glue)
   și nici sub `raw/qa-snapshots/` (fiecare scriere acolo cheamă Lambda-ul de inspecție). Urcarea
   se face cu `make mj-collect`, prin **AWS CLI**, cu credențialele rolului de operator: `boto3`

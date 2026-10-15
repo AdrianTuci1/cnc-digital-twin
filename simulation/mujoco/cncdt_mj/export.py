@@ -11,8 +11,8 @@ verifica din `.venv`-ul proiectului, iar urcarea propriu-zisă este treaba lui `
 Așezarea în bucket, sub bucketul data lake din `docs/01-architecture.md`:
 
 ```
-datasets/mujoco/dt=<zi>/<rulare>/manifest.json
-datasets/mujoco/dt=<zi>/<rulare>/<familie>-<sămânță>/{samples.jsonl, frames.jsonl, …, frames/}
+training-data/mujoco/dt=<zi>/<rulare>/manifest.json
+training-data/mujoco/dt=<zi>/<rulare>/<familie>-<sămânță>/{samples.jsonl, frames.jsonl, …, frames/}
 ```
 
 `datasets/` este un prefix propriu, nu `raw/`. `raw/telemetry/` este Parquet de ferestre, scris de
@@ -42,7 +42,7 @@ from typing import Any, Mapping
 from . import telemetry
 
 #: Prefixul corpusului de antrenament al geamănului, sub bucketul data lake.
-DATASETS_PREFIX = "datasets/mujoco"
+DATASETS_PREFIX = "training-data/mujoco"
 
 #: Fișierele care intră în corpus, pe lângă cadre: exact ce scrie `run.py`.
 CORPUS_FILES: tuple[str, ...] = (

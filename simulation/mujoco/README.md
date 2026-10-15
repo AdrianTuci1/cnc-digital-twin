@@ -293,8 +293,8 @@ propriu (`runs/run-<UTC>/<familie>-<sămânță>/`, `MJ_COLLECT_CYCLES` cicluri 
 urcă tot sub prefixul corpusului, senzorii și cadrele împreună:
 
 ```
-datasets/mujoco/dt=<zi>/run-<UTC>/manifest.json      # ce conține corpusul, cu ce contract și de unde se citește
-datasets/mujoco/dt=<zi>/run-<UTC>/<familie>-<sămânță>/{samples.jsonl, frames.jsonl, …, frames/}
+training-data/mujoco/dt=<zi>/run-<UTC>/manifest.json      # ce conține corpusul, cu ce contract și de unde se citește
+training-data/mujoco/dt=<zi>/run-<UTC>/<familie>-<sămânță>/{samples.jsonl, frames.jsonl, …, frames/}
 ```
 
 Prefixul `datasets/` este al corpusului offline, nu al căii live: `raw/telemetry/` este Parquet de
@@ -315,7 +315,7 @@ refuză, iar fără `--upload` comanda doar citește și tipărește planul:
 
 # Urcare directă, dintr-un director de rulare anume, sub un prefix ales.
 .venv/bin/python simulation/mujoco/publish.py --run-dir simulation/mujoco/runs \
-    --bucket "$DATA_LAKE_BUCKET" --prefix datasets/mujoco --upload
+    --bucket "$DATA_LAKE_BUCKET" --prefix training-data/mujoco --upload
 ```
 
 `publish.py` are nevoie doar de biblioteca standard, deci merge din `.venv`-ul proiectului: nu are
@@ -500,7 +500,7 @@ Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
    neschimbat. Tot acolo intră și degradarea camerei (`blur` proporțional cu `1 - h_camera`), care
    azi nu există: cadrele ies curate.
 3. **Publicarea live.** `run.py` scrie fișiere, iar `make mj-collect` le urcă offline, în
-   `datasets/mujoco/`; urcarea cadrelor sub `raw/qa-snapshots/` și publicarea eșantioanelor pe MQTT
+   `training-data/mujoco/`; urcarea cadrelor sub `raw/qa-snapshots/` și publicarea eșantioanelor pe MQTT
    se leagă în pasul următor. Contractele sunt identice, deci nimic din fișierele sesiunii nu se
    schimbă atunci. Detalii: `docs/11-geaman-mujoco.md` §4.
 4. **Mișcarea laterală a pieselor pe bandă nu e măsurată la impact.** Într-o cursă lungă, o piesă

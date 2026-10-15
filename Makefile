@@ -200,7 +200,7 @@ MJ_FAMILIES ?= wheel_100 flange_72 bushing_68 wheel_60 pinion_56
 MJ_RECORD_CYCLES ?= 1
 
 # Colectarea de date de antrenament: `make mj-collect` scrie sesiunile într-un director de rulare
-# propriu și le urcă în bucketul data lake, sub `datasets/mujoco/dt=<zi>/<rulare>/`. Senzorii
+# propriu și le urcă în bucketul data lake, sub `training-data/mujoco/dt=<zi>/<rulare>/`. Senzorii
 # (`samples.jsonl`), camerele (`frames/`, `frames.jsonl`) și etichetele (`wear.jsonl`,
 # `events.jsonl`) ajung împreună, plus un `manifest.json` la rădăcina rulării.
 #   MJ_COLLECT_CYCLES  câte cicluri pe familie (implicit 5)
