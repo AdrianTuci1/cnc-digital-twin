@@ -199,7 +199,19 @@ MJ_FAMILIES ?= wheel_100 flange_72 bushing_68 wheel_60 pinion_56
 # fișierele; o sesiune de antrenare vrea zeci, deci se dă de pe linia de comandă.
 MJ_RECORD_CYCLES ?= 1
 
-.PHONY: mj-venv mj-check mj-render mj-demo mj-record mj-test
+# Colectarea de date de antrenament: `make mj-collect` scrie sesiunile într-un director de rulare
+# propriu și le urcă în bucketul data lake, sub `datasets/mujoco/dt=<zi>/<rulare>/`. Senzorii
+# (`samples.jsonl`), camerele (`frames/`, `frames.jsonl`) și etichetele (`wear.jsonl`,
+# `events.jsonl`) ajung împreună, plus un `manifest.json` la rădăcina rulării.
+#   MJ_COLLECT_CYCLES  câte cicluri pe familie (implicit 5)
+#   MJ_COLLECT_SEED    sămânța primului ciclu; familiile folosesc semințe vecine
+DATA_LAKE_BUCKET  ?=
+MJ_COLLECT_CYCLES ?= 5
+MJ_COLLECT_SEED   ?= 100
+MJ_RUN_NAME       ?=
+MJ_PUBLISH_PY     := $(PY)
+
+.PHONY: mj-venv mj-check mj-render mj-demo mj-record mj-test mj-collect mj-publish mj-collect-plan
 mj-venv: ## Creează venv-ul geamănului MuJoCo și instalează requirements.txt
 	$(PY) -m venv $(ROOT)/$(MJ_DIR)/.venv
 	$(MJ_PY) -m pip install --quiet --upgrade pip
@@ -233,6 +245,30 @@ mj-record: ## Colectează o sesiune de antrenare (telemetrie + cadre) în simula
 			|| exit 1; \
 	done
 	@echo "sesiunile sunt în $(MJ_DIR)/runs (ignorate de git); vezi docs/11-geaman-mujoco.md §4"
+
+mj-collect: ## Colectează date de antrenament (senzori + camere) și le urcă în bucketul data lake
+	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
+	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'terraform output -raw data_lake_bucket' (stack-ul platform)"; exit 1; }
+	@run="$$(date -u +run-%Y%m%dT%H%M%S)"; \
+	 echo "== colectare în $(MJ_DIR)/runs/$$run"; \
+	 for family in $(MJ_FAMILIES); do \
+		echo "== familia $$family"; \
+		cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/run.py --family $$family \
+			--cycles $(MJ_COLLECT_CYCLES) --seed $(MJ_COLLECT_SEED) \
+			--out $(MJ_DIR)/runs/$$run/$$family-$(MJ_COLLECT_SEED) || exit 1; \
+	 done; \
+	 cd $(ROOT) && $(MJ_PUBLISH_PY) $(MJ_DIR)/publish.py --run-dir $(MJ_DIR)/runs/$$run \
+		--bucket "$(DATA_LAKE_BUCKET)" $(if $(MJ_RUN_NAME),--run $(MJ_RUN_NAME),) --upload
+
+mj-publish: ## Urcă în bucket sesiunile deja scrise în simulation/mujoco/runs
+	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'terraform output -raw data_lake_bucket' (stack-ul platform)"; exit 1; }
+	cd $(ROOT) && $(MJ_PUBLISH_PY) $(MJ_DIR)/publish.py --run-dir $(MJ_DIR)/runs \
+		--bucket "$(DATA_LAKE_BUCKET)" $(if $(MJ_RUN_NAME),--run $(MJ_RUN_NAME),) --upload
+
+mj-collect-plan: ## Tipărește ce ar urca `make mj-collect`, fără să atingă bucketul
+	cd $(ROOT) && $(MJ_PUBLISH_PY) $(MJ_DIR)/publish.py --run-dir $(MJ_DIR)/runs \
+		--bucket "$(if $(DATA_LAKE_BUCKET),$(DATA_LAKE_BUCKET),exemplu-data-lake)" \
+		$(if $(MJ_RUN_NAME),--run $(MJ_RUN_NAME),) --json
 
 # ---------------------------------------------------------------- acces (rol de operator)
 # Stack-ul `access` are state local și se aplică o singură dată per cont, cu profilul de ADMIN,

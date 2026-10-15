@@ -32,10 +32,18 @@ make mj-test     # testele geamănului care ating motorul, din venv-ul lui
 make mj-render   # scrie renders/cell.png și renders/inspection.png
 make mj-demo     # rulează ciclul brațelor și tipărește cifrele fiecărei opriri
 make mj-record   # colectează sesiuni de antrenare, câte una pe familie, în runs/
+make mj-collect  # colectează (MJ_COLLECT_CYCLES cicluri pe familie) și urcă în bucketul data lake
+make mj-collect-plan   # tipărește ce ar urca `make mj-collect`, fără să atingă bucketul
+make mj-publish  # urcă în bucket sesiunile deja scrise în runs/
 make mj-check MJ_SAMPLES=2000   # degajarea camerei, pe mai multe configurații de braț
 make mj-demo MJ_FAMILIES="wheel_100 pinion_56"   # doar familiile cerute, ca proba să fie scurtă
 make mj-record MJ_RECORD_CYCLES=20   # sesiune de antrenare: 20 de cicluri pe familie
+make mj-collect MJ_COLLECT_CYCLES=20 MJ_COLLECT_SEED=100   # colectare lungă, urcată direct
 ```
+
+`make mj-collect` are nevoie de `DATA_LAKE_BUCKET` în `.env` (ieșirea `data_lake_bucket` a
+stack-ului `platform`) și de credențialele rolului de operator, luate cu
+`eval "$(./scripts/assume-operator.sh)"`. Fără ele, refuză înainte să atingă bucketul.
 
 Fără Makefile, aceleași lucruri se scriu direct:
 
@@ -98,7 +106,8 @@ sesiunea să alerge cât poate.
 
 Suita proiectului (`make test`) rulează fără `mujoco` și include partea pură a testelor
 geamănului, `tests/unit/test_mujoco_scene.py`, plus contractele colectării
-(`tests/unit/test_mj_telemetry.py`) și motorul de uzură (`tests/unit/test_mj_wear.py`); testul care
+(`tests/unit/test_mj_telemetry.py`), motorul de uzură (`tests/unit/test_mj_wear.py`) și corpusul
+de antrenare (`tests/unit/test_mj_export.py`); testul care
 atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care are motorul.
 
 ## Structură
@@ -113,6 +122,7 @@ atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care a
 | `cncdt_mj/povs.py` | Cele patru puncte de vedere din care se strânge datasetul: camera, rezoluția, momentul de captură (un punct de lucru ori cota de pe bandă) și rolul din contract. **Fără MuJoCo.** |
 | `cncdt_mj/telemetry.py` | Contractele: eșantionul brut cu exact câmpurile din `cnc.telemetry.v1.json`, metadatele cadrului de inspecție, etichetele sesiunii, plus un validator mic peste fișierele de schemă (fără dependența `jsonschema`). **Fără MuJoCo.** |
 | `cncdt_mj/wear.py` | Motorul de uzură: sănătatea celor șapte componente pe timpul lor de lucru, efectele în mărimile din contract, eșecurile discrete cu hazard crescător și acțiunile de operator, cu etichetele lor. **Fără MuJoCo.** |
+| `cncdt_mj/export.py` | Corpusul de antrenare: așezarea cheilor în bucket, manifestul și verificările care opresc urcarea unui corpus cu găuri. **Fără MuJoCo.** |
 | `cncdt_mj/scene.py` | Compunerea scenei: `scene/cell.xml` plus cele două brațe atașate programatic, cu camerele de pe flanșe. Unul dintre modulele care importă `mujoco`. |
 | `cncdt_mj/cell.py` | Celula în mișcare: cine e în contact cu banda, ce viteză are piesa, ce forță se scrie în `data.xfrc_applied`. Al doilea modul care importă `mujoco`. |
 | `cncdt_mj/arms.py` | Brațele: numele articulațiilor și ale actuatoarelor, lungimea sculei măsurată în scenă, cinematica inversă, urmărirea liniei dintre două puncte și strângerea. Importă `mujoco`. |
@@ -121,9 +131,10 @@ atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care a
 | `scene/cell.xml` | Șablonul celulei. Cifrele nu stau în el: se pun prin substituție, din `layout.scene_geometry()`. |
 | `view.py` | Cele patru moduri: `--check`, `--render`, `--demo`, `--view`. |
 | `run.py` | Sesiunea de colectare: cicluri întregi, uzura care se acumulează peste ele, telemetrie, cadre, fișierele sesiunii și verificarea lor la sfârșit. |
+| `publish.py` | Urcarea corpusului în bucketul data lake, cu AWS CLI: plan fără `--upload`, credențiale de operator, manifest scris la rădăcina rulării. Doar biblioteca standard. |
 
-Consecința practică a împărțirii: `layout`, `part`, `belt`, `checks`, `moves`, `povs`, `telemetry`
-și `wear` se importă din
+Consecința practică a împărțirii: `layout`, `part`, `belt`, `checks`, `moves`, `povs`, `telemetry`,
+`wear` și `export` se importă din
 `.venv`-ul proiectului, unde `mujoco` nu există (ADR 0012), iar tot ce atinge motorul se validează
 rulând `view.py --check`. Lista modulelor de motor (`scene.py`, `cell.py`, `arms.py`, `camera.py`,
 `sensors.py`) este scrisă
@@ -276,6 +287,39 @@ runs/wheel_100-7/
   frames/cyc-000001/   # PNG-urile, unul pe punct de vedere și moment
   session.json         # parametrii, versiunea MuJoCo, uzura, totalurile, etichetele ciclurilor
 ```
+
+**Urcarea în bucket** este `make mj-collect`: scrie fiecare familie într-un director de rulare
+propriu (`runs/run-<UTC>/<familie>-<sămânță>/`, `MJ_COLLECT_CYCLES` cicluri pe familie) și apoi
+urcă tot sub prefixul corpusului, senzorii și cadrele împreună:
+
+```
+datasets/mujoco/dt=<zi>/run-<UTC>/manifest.json      # ce conține corpusul, cu ce contract și de unde se citește
+datasets/mujoco/dt=<zi>/run-<UTC>/<familie>-<sămânță>/{samples.jsonl, frames.jsonl, …, frames/}
+```
+
+Prefixul `datasets/` este al corpusului offline, nu al căii live: `raw/telemetry/` este Parquet de
+ferestre scris de Firehose și citit de tabelul Glue, iar `raw/qa-snapshots/` este chiar
+declanșatorul Lambda-ului de inspecție. Corpusul se citește direct, cu
+`ml/feature_engineering/build_features.py` ori cu `cncdt_ml.offline`. Motivul întreg: `docs/11-geaman-mujoco.md` §4.
+
+`simulation/mujoco/publish.py` face urcarea cu **AWS CLI** (`aws s3 cp --recursive`), deci nu se
+adaugă `boto3` în niciunul dintre venv-uri. Verificarea dinaintea urcării stă în
+`cncdt_mj/export.py`, pur și testat: fișiere lipsă ori goale, rânduri de cadre și PNG-uri pe disc
+față de totalul din `session.json`, rânduri de uzură față de eșantioane. Un corpus cu găuri se
+refuză, iar fără `--upload` comanda doar citește și tipărește planul:
+
+```bash
+# Ce s-ar urca, cu manifestul corpusului, fără să atingă bucketul.
+.venv/bin/python simulation/mujoco/publish.py --run-dir simulation/mujoco/runs \
+    --bucket exemplu-data-lake
+
+# Urcare directă, dintr-un director de rulare anume, sub un prefix ales.
+.venv/bin/python simulation/mujoco/publish.py --run-dir simulation/mujoco/runs \
+    --bucket "$DATA_LAKE_BUCKET" --prefix datasets/mujoco --upload
+```
+
+`publish.py` are nevoie doar de biblioteca standard, deci merge din `.venv`-ul proiectului: nu are
+de ce să intre în venv-ul geamănului, unde stă motorul.
 
 **Uzura** este a sesiunii, nu a ciclului: scena se recompune la fiecare ciclu, modelul de uzură nu
 (`cncdt_mj/wear.py`, vezi `docs/11-geaman-mujoco.md` §3). Fiecare interval are timpul lui de lucru —
@@ -442,19 +486,27 @@ Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
    scena nu are axe: când le va crește, aceleași coloane se citesc din motor, iar contractul rămâne
    neschimbat. Tot acolo intră și degradarea camerei (`blur` proporțional cu `1 - h_camera`), care
    azi nu există: cadrele ies curate.
-3. **Publicarea live.** `run.py` scrie fișiere; urcarea cadrelor sub `raw/qa-snapshots/` și
-   publicarea eșantioanelor pe MQTT se leagă în pasul următor. Contractele sunt identice, deci
-   nimic din fișierele sesiunii nu se schimbă atunci. Detalii: `docs/11-geaman-mujoco.md` §4.
+3. **Publicarea live.** `run.py` scrie fișiere, iar `make mj-collect` le urcă offline, în
+   `datasets/mujoco/`; urcarea cadrelor sub `raw/qa-snapshots/` și publicarea eșantioanelor pe MQTT
+   se leagă în pasul următor. Contractele sunt identice, deci nimic din fișierele sesiunii nu se
+   schimbă atunci. Detalii: `docs/11-geaman-mujoco.md` §4.
 4. **Mișcarea laterală a pieselor pe bandă nu e măsurată la impact.** Într-o cursă lungă, o piesă
    poate aluneca spre șină; de verificat când intră brațele, fiindcă de acolo vine poziția de
    prindere.
 
-Închis în runda de față: motorul de uzură (`wear.py`: sănătate pe șapte componente, integrare
+Închis în runda de față: **colectarea cu urcare în bucket** — `cncdt_mj/export.py` (cheile,
+manifestul, verificările corpusului), `publish.py` (urcare cu AWS CLI, plan fără `--upload`) și
+țintele `make mj-collect`, `make mj-collect-plan`, `make mj-publish`, cu testele pure din
+`tests/unit/test_mj_export.py`. Urcarea pe bucketul real nu s-a putut verifica din sesiunea de
+lucru: cere credențialele rolului de operator (`eval "$(./scripts/assume-operator.sh)"`), iar
+sesiunea expirase; s-a verificat planul pe sesiuni reale și refuzul când credențialele lipsesc.
+
+Închis în runda de dinainte: motorul de uzură (`wear.py`: sănătate pe șapte componente, integrare
 exactă pe timpul de lucru, eșecuri discrete cu hazard crescător, acțiuni de operator), legarea lui
 la sesiune (`--rate`, `--inject`, `--machining-s`, `wear.jsonl`, `events.jsonl`, scala de viteză pe
 fiecare bandă) și testele pure din `tests/unit/test_mj_wear.py`.
 
-Închis în runda de dinainte: brațele în mișcare — `moves.py` (punctele, ordinea, apropierea,
+Închis în runda de dinaintea ei: brațele în mișcare — `moves.py` (punctele, ordinea, apropierea,
 trecerile), `arms.py` (cinematica inversă, urmărirea liniei, lungimea sculei măsurată),
 `view.py --demo` cu cifrele fiecărei opriri și `make mj-demo` —, plus cele două lecții de cale
 (ridicarea după fiecare punct, trecerea pe la vest de mașină) și testele pure noi pentru treceri și

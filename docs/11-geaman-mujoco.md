@@ -377,6 +377,51 @@ sfârșit, ca o sesiune să se poată reproduce fără să ghicească parametrii
 Lipsește încă `windows.parquet`: ferestrele de 60 s se exportă în faza 4, când detectorul are ce
 evalua, iar atunci primesc fiecare și eticheta ei din `events.jsonl`.
 
+### Colectarea și urcarea în bucket
+
+```bash
+eval "$(./scripts/assume-operator.sh)"     # credențialele rolului de operator
+make mj-collect                            # 5 cicluri pe familie, apoi urcare în bucket
+make mj-collect-plan                       # doar planul: ce ar urca, fără să atingă bucketul
+make mj-publish                            # urcă sesiunile deja scrise în simulation/mujoco/runs
+```
+
+`make mj-collect` scrie fiecare familie într-un director de rulare propriu
+(`runs/run-<UTC>/<familie>-<sămânță>/`, cu `MJ_COLLECT_CYCLES` cicluri pe familie), apoi urcă tot
+sub prefixul corpusului:
+
+```
+datasets/mujoco/dt=<zi>/run-<UTC>/manifest.json
+datasets/mujoco/dt=<zi>/run-<UTC>/<familie>-<sămânță>/{samples.jsonl, frames.jsonl, …, frames/}
+```
+
+`datasets/` este un prefix propriu, nu `raw/`. `raw/telemetry/` este Parquet de ferestre de 60 s,
+scris de Firehose și citit de tabelul Glue (secțiunea „Cum ajunge același conținut pe calea live"),
+iar `raw/qa-snapshots/` este calea live: fiecare scriere acolo cheamă Lambda-ul de inspecție. Un
+corpus de antrenament nu are ce căuta nici în tabel, nici în declanșator — se citește direct, cu
+`cncdt_ml.offline` ori cu `ml/feature_engineering/build_features.py`, care știu să deschidă JSON
+Lines. Partiționarea pe `dt=` păstrează convenția din `curated/qa-verdicts/dt=<zi>/`, iar numele
+rulării face ca două colectări să nu se amestece niciodată.
+
+**Transportul este AWS CLI** (`aws s3 cp <sesiune> s3://<bucket>/<prefix>/<sesiune> --recursive`,
+plus manifestul), nu un SDK: credențialele vin din rolul de operator, iar așa nu se adaugă `boto3`
+în niciunul dintre cele două venv-uri. Bucketul se ia din `DATA_LAKE_BUCKET` (`.env`, valoarea
+ieșirii `data_lake_bucket` din stack-ul `platform`), iar `--run-dir`, `--prefix`, `--run` și `--dt`
+se pot da direct lui `simulation/mujoco/publish.py`.
+
+**Verificarea dinaintea urcării** stă în `cncdt_mj/export.py` (pur, testat în
+`tests/unit/test_mj_export.py`): fișiere lipsă ori goale, numărul de rânduri din `frames.jsonl` și
+numărul de PNG-uri de pe disc față de totalul din `session.json`, numărul de rânduri de uzură față
+de eșantioane. Un corpus cu găuri se refuză înainte de urcare, când se vede ieftin; altfel s-ar
+vedea la antrenare. Fără `--upload`, comanda doar citește corpusul și tipărește planul, deci se
+poate verifica o colectare fără să atingă bucketul.
+
+**`manifest.json`** este contractul cu antrenarea: lista fișierelor sesiunii, sesiunile cu familia,
+sămânța, ciclurile, eșantioanele, cadrele, octeții și numărul de piese pe defect, totalurile,
+familiile, versiunile de schemă și parametrii de uzură din `session.json`, plus revizia git din
+care s-a generat corpusul. Un job nou află din el unde sunt fișierele și cu ce contract au fost
+scrise, fără să ghicească din numele de directoare.
+
 ### Cum ajunge același conținut pe calea live
 
 Ce scrie sesiunea local este exact ce s-ar publica: rândurile din `samples.jsonl` sunt sarcinile
@@ -400,10 +445,12 @@ face din aceleași trei piese ca la extensia Isaac Sim:
   mTLS, politică), iar geamănul citește din mediu aceleași nume ca extensia: `CNCDT_ENVIRONMENT`,
   `CNCDT_DEVICE_ID`, `CNCDT_CELL_ID`, `CNCDT_TELEMETRY_TOPIC`, `CNCDT_QA_PREFIX`.
 
-Două piese lipsesc, amândouă în afara geamănului: urcarea cadrelor în S3 și un publicator MQTT
-pentru eșantioane. Sunt subțiri — perechea PNG + JSON urcată sub `raw/qa-snapshots/`, respectiv un
-client `paho-mqtt` care trimite rândurile existente —, iar contractele sunt deja identice, deci
-fișierele sesiunii nu se schimbă când se scriu.
+Două piese lipsesc de pe calea live, amândouă în afara geamănului: urcarea perechii PNG + JSON în
+`raw/qa-snapshots/` și un publicator MQTT pentru eșantioane. Sunt subțiri — fișierul JSON urcat sub
+`raw/qa-snapshots/`, respectiv un client `paho-mqtt` care trimite rândurile existente —, iar
+contractele sunt deja identice, deci fișierele sesiunii nu se schimbă când se scriu. Urcarea
+**offline**, a corpusului de antrenare, există deja și merge pe alt prefix (`datasets/`, mai sus):
+cele două căi au cititori diferiți și rămân separate.
 
 ## 5. Detecția anomaliilor și timpul de anticipare
 
@@ -467,6 +514,7 @@ simulation/mujoco/          # există
   requirements.txt         # mujoco==3.15.0, mujoco-menagerie==2026.10.1, numpy, mapbox_earcut
   view.py                   # --check / --render / --demo / --view, peste scena compusă de cncdt_mj.scene
   run.py                    # sesiunea de colectare: cicluri, telemetrie, cadre, fișierele sesiunii
+  publish.py                # urcă în bucket corpusul scris de run.py, cu AWS CLI; plan fără --upload
   runs/                     # sesiunile scrise de `make mj-record`; ignorate de git
   scene/cell.xml            # șablonul celulei; cifrele se pun prin substituție, nu stau în el
   cncdt_mj/
@@ -479,6 +527,7 @@ simulation/mujoco/          # există
     povs.py                 # cele patru puncte de vedere: cameră, rezoluție, moment, rol; fără MuJoCo
     telemetry.py            # eșantionul pe contract, metadatele cadrului, fișierele sesiunii; fără MuJoCo
     wear.py                 # motorul de uzură: sănătate, efecte în contract, eșecuri, acțiuni; fără MuJoCo
+    export.py               # corpusul de antrenare: chei în bucket, manifest, verificări; fără MuJoCo
     scene.py                # compunerea: cell.xml plus cele două brațe; importă mujoco
     cell.py                 # contactul cu banda, viteza piesei, forța scrisă în data.xfrc_applied; importă mujoco
     arms.py                 # cinematica inversă, urmărirea căii, strângerea; importă mujoco
@@ -496,6 +545,7 @@ tests/unit/
   test_mujoco_scene.py      # există: layout/part/checks fără MuJoCo, înălțimile față de acest document, camera de inspecție; partea care atinge motorul se rulează cu `make mj-test`
   test_mj_telemetry.py      # există: contractele eșantionului și ale cadrului, planul capturii, fișierele sesiunii
   test_mj_wear.py           # există: ecuația și independența de pas, efectele în contract, eșecurile, acțiunile
+  test_mj_export.py         # există: cheile din bucket, manifestul, refuzul unui corpus cu găuri
   test_mj_detector.py       # prag, alarmă susținută, preaviz pe episod sintetic
 ```
 
@@ -513,9 +563,9 @@ se importă și s-ar ciocni între cele două brațe.
 
 Regula din `AGENTS.md` se respectă: identificatorii în engleză, comentariile de design în
 română, logica pură separată de cea care atinge motorul de fizică — `layout.py`, `part.py`,
-`belt.py`, `moves.py`, `checks.py`, `povs.py` și `telemetry.py` se importă din `.venv`-ul
-proiectului, unde `mujoco` nu există, iar `tests/unit/test_mujoco_scene.py` verifică exact ce
-module ating motorul: `scene.py`, `cell.py`, `arms.py`, `sensors.py`, `camera.py`.
+`belt.py`, `moves.py`, `checks.py`, `povs.py`, `telemetry.py` și `export.py` se importă din
+`.venv`-ul proiectului, unde `mujoco` nu există, iar `tests/unit/test_mujoco_scene.py` verifică
+exact ce module ating motorul: `scene.py`, `cell.py`, `arms.py`, `sensors.py`, `camera.py`.
 
 ## 8. Faze și criterii de acceptare
 
@@ -543,6 +593,10 @@ discrete și primește acțiunile de operator. Testele pure sunt `tests/unit/tes
 
 Din faza 3 există scrierea sesiunii: `make mj-record` parcurge un ciclu pe fiecare familie și scrie
 cele șapte ieșiri (cinci cadre pe ciclu), iar `samples.jsonl` respectă întocmai contractul.
+Există și **colectarea cu urcare în bucket**: `make mj-collect` scrie sesiunile într-un director de
+rulare propriu și le urcă sub `datasets/mujoco/dt=<zi>/run-<UTC>/`, cu manifestul corpusului
+lângă ele; `cncdt_mj/export.py` verifică sesiunile înainte, iar `publish.py` urcă prin AWS CLI
+(secțiunea 4, „Colectarea și urcarea în bucket").
 Criteriul **nu este atins**: ciclul atinge punctele, dar nu prinde piesa (falcile doar o ating,
 fiindcă deschiderea mâinii Panda, 83 mm, este mai mică decât discul de 104 mm — prinderea se
 modelează ca legătură rigidă, ca în celula din Isaac Sim), mașina nu are axe, iar un ciclu ține

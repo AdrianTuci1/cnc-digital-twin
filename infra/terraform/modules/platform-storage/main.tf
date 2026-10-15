@@ -27,6 +27,7 @@ locals {
 #   raw/telemetry/...        date brute transformate de Firehose în Parquet
 #   raw/qa-snapshots/...     imagini de inspecție
 #   curated/features/...     caracteristici agregate pentru antrenare
+#   datasets/mujoco/...      corpus de antrenare urcat de geamănul MuJoCo (senzori + cadre)
 #   models/<nume>/<versiune>/ artefacte de model
 #   inference-logs/...       captură de date de la endpoint-uri
 #   replay/errors/...        înregistrări respinse de Firehose, pentru rejucare

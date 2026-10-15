@@ -18,7 +18,7 @@ Acest document descrie regulile de lucru în repository. Citiți-l înainte de a
 | `infra/terraform/stacks/<nume>` | Compoziție: cheamă module, fixează valorile de mediu. Aici se adaugă resurse noi, nu în module. `access` și `sim` au state local, `platform` are backend S3. |
 | `simulation/extensions/` | Extensia Isaac Sim (Python, Kit). Se validează doar rulând în Isaac Sim. |
 | `simulation/extensions/cncdt.cnc_cell/cncdt/cnc_cell/parts/` | Generatorul procedural de piese și manifestul de etichete. Modul pur (numpy + mapbox-earcut), testat fără Isaac Sim. |
-| `simulation/mujoco/` | Al doilea geamăn al celulei, pe MuJoCo (ADR 0012). Venv propriu, ignorat de git: `make mj-venv`; scena se validează cu `make mj-check`, testele care ating motorul cu `make mj-test`. `layout.py`, `part.py` și `checks.py` rămân pure, ca `make test` să ruleze fără `mujoco`. |
+| `simulation/mujoco/` | Al doilea geamăn al celulei, pe MuJoCo (ADR 0012). Venv propriu, ignorat de git: `make mj-venv`; scena se validează cu `make mj-check`, testele care ating motorul cu `make mj-test`. `layout.py`, `part.py`, `checks.py`, `telemetry.py`, `wear.py` și `export.py` rămân pure, ca `make test` să ruleze fără `mujoco`. Colectarea de antrenament (senzori + camere) se urcă în bucketul data lake cu `make mj-collect`, sub `datasets/mujoco/`. |
 | `lambdas/<nume>/handler.py` | Punctul de intrare Lambda. Logica pură (fără boto3) stă într-un modul `*_core.py` cu nume unic (`core.py` este deja folosit de feature engineering), ca să fie testabilă. |
 | `ml/src/cncdt_ml/` | Cod comun partajat de Lambda, feature engineering și antrenare. Contractul de date stă în `schema.py`. |
 | `ml/feature_engineering/` | Data Wrangler: rețeta generată din cod, fluxurile exportate, `run_flow.py`, `build_features.py`. |
@@ -63,6 +63,7 @@ make test
 # prima dată într-un cont: make access-up (cu identitatea de admin)
 # apoi, în fiecare sesiune de lucru: eval "$(./scripts/assume-operator.sh)"
 # pentru schimbări la geamănul MuJoCo: make mj-venv (o dată), apoi make mj-check și make mj-test
+# pentru colectarea datelor de antrenament: make mj-collect-plan, apoi make mj-collect (cere rolul de operator)
 # pentru schimbări de feature engineering: make features-verify
 # pentru schimbări de UI/streaming: make sim-up && verificare în browser
 # pentru interfața grafică a instanței: make sim-dcv OPEN=1 (https://localhost:8443/)
@@ -101,6 +102,12 @@ clientului WebRTC, desktopul DCV, panoul de control din Isaac Sim sau dashboard-
 - **Glue este doar registru de schemă.** Nu adăugați job-uri, crawlere sau transformări Glue.
   Feature engineering-ul offline se face cu Data Wrangler (vezi `docs/adr/0003`), iar hot
   path-ul este Lambda-ul. Motivul: `docs/adr/0002`.
+- **Corpusul de antrenament al geamănului are prefix propriu, `datasets/mujoco/`.** Nu se urcă
+  sub `raw/telemetry/` (acolo e Parquet de ferestre, scris de Firehose și citit de tabelul Glue)
+  și nici sub `raw/qa-snapshots/` (fiecare scriere acolo cheamă Lambda-ul de inspecție). Urcarea
+  se face cu `make mj-collect`, prin **AWS CLI**, cu credențialele rolului de operator: `boto3`
+  nu există în niciunul dintre cele două venv-uri, iar comanda nu adaugă o dependență. Verificarea
+  corpusului dinaintea urcării stă în `simulation/mujoco/cncdt_mj/export.py` (pur).
 - **Contractul de coloane este verificat în trei locuri**: tabelul din Terraform, schema JSON
   din `telemetry/schemas/` și `cncdt_ml/schema.py`. Firehose eșuează la conversia Parquet dacă
   înregistrarea are câmpuri în plus, deci cele trei se schimbă în același commit.
