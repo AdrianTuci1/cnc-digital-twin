@@ -66,9 +66,10 @@ timp. Ocupa însă spațiu în celulă și în desen.
   iar `snapshots.jsonl` se subțiază de la cinci cadre pe ciclu la patru.
 - Schemele nu se schimbă: `cnc.qa.snapshot.v1.json` păstrează rolul `inspection`, deci un cadru
   vechi rămâne valid.
-- Rezoluția clasificatorului scade: camera de pe flanșă stă la 16 cm de punctul de strângere, cu
-  60° pe verticală, deci piesa de ~104 mm iese la ~260 px (~2,6 px/mm), față de 3,6 px/mm cât
-  avea camera fixă. Cel mai fin defect din catalog (gaură dezaxată de 2,5 mm) ajunge la ~6–7 px.
+- Rezoluția clasificatorului scade puțin: camera de pe flanșă stă la 12 cm de punctul de strângere
+  (consolă laterală, mutată ulterior acolo din axa sculei, vezi `simulation/mujoco/README.md`), cu
+  60° pe verticală, deci piesa de ~100 mm iese la ~345 px (~3,4 px/mm), față de 3,6 px/mm cât
+  avea camera fixă. Cel mai fin defect din catalog (gaură dezaxată de 2,5 mm) ajunge la ~9 px.
   Pragul `checks.MIN_WRIST_PART_PX = 150 px` prinde o cameră montată greșit ori prea depărtată.
 - Desenul planului și documentul geamănului se subțiază: un tabel de coordonate, fără consolă, cu
   raftul citit dintr-o singură listă de intrări.

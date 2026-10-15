@@ -41,8 +41,20 @@ ARM_MOUNTS: tuple[tuple[str, str], ...] = (("arm1", "arm1_mount"), ("arm2", "arm
 #: obiectivul să privească punctul de strângere. Așa cum vine din catalog — axele verigii, fără
 #: rotire — camera privea **înapoi**, spre cot: punctul de strângere cădea la −143 mm adâncime,
 #: adică în spatele obiectivului, iar cadrul arăta cotul. Măsurat cu `view.py --check`.
-WRIST_CAMERA_OFFSET = (0.0, 0.0, 0.05)
+#:
+#: Montajul stă pe un braț lateral, nu pe axa sculei: la (0, 0, 50) mm — pe axa sculei, cum era
+#: înainte — obiectivul cădea **în** carcasa încheieturii (``link6``), iar toate cele 225 de raze
+#: ale câmpului de vedere loveau materialul brațului la mai puțin de 20 mm de lentilă. Cadrul ieșea
+#: atunci „prin" mână — materialul nu se vedea (fețele din spate nu se randează), dar umbra lui
+#: cădea peste piesă, iar scena se vedea ca printr-o fantă. La (90, 0, 130) mm obiectivul stă în aer
+#: liber, cu 43 mm până la primul material de pe orice rază a cadrului, la 120 mm de piesa ținută și
+#: cu 80 mm deasupra ei: o consolă pe latura încheieturii, privind piesa de sus și din lateral.
+#: Măsurat cu ``scene.lens_clearance``, pe care `view.py --check` îl cere.
+WRIST_CAMERA_OFFSET = (0.09, 0.0, 0.13)
 WRIST_CAMERA_FOVY = 60.0
+
+#: Câte raze se trag în câmpul camerei când se măsoară spațiul liber din fața obiectivului.
+LENS_RAY_GRID = 15
 
 #: Pozițiile nominale ale brațelor, fitate în scenă, nu luate din plan și nu moștenite din
 #: keyframe-ul copilului (care s-ar importa o dată pentru fiecare braț și s-ar ciocni). Criteriul
@@ -402,6 +414,42 @@ def camera_view(model: mujoco.MjModel, data: mujoco.MjData, camera: str,
         "in_frame": (depth > 0 and abs(angle_x) <= math.degrees(fovx) / 2
                      and abs(angle_y) <= math.degrees(fovy) / 2),
     }
+
+
+def lens_clearance(model: mujoco.MjModel, data: mujoco.MjData, camera: str, arm: str,
+                   grid: int = LENS_RAY_GRID) -> float:
+    """Cea mai mică distanță de la obiectiv la materialul brațului propriu, pe razele cadrului.
+
+    Razele se trag doar în câmpul camerei, adică exact acolo unde se vede ceva. Un obiectiv
+    îngropat în mâna brațului are toate razele oprite la câțiva milimetri: cadrul iese atunci
+    „prin" material, fiindcă fețele din spate nu se randează, dar umbra lor ajunge pe piesă.
+    Întoarce ``inf`` când nicio rază nu atinge brațul propriu.
+    """
+    camera_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, camera)
+    if camera_id < 0:
+        raise ValueError(f"cameră inexistentă în scenă: {camera}")
+    width_px, height_px = povs.PROCESS_FRAME
+    half_y = math.tan(math.radians(float(model.cam_fovy[camera_id])) / 2)
+    half_x = half_y * width_px / height_px
+    origin = np.asarray(data.cam_xpos[camera_id], dtype=float)
+    axes = np.asarray(data.cam_xmat[camera_id], dtype=float).reshape(3, 3)
+    group = np.ones(6, dtype=np.uint8)
+    hit = np.zeros(1, dtype=np.int32)
+    nearest = math.inf
+    for row in range(grid):
+        for column in range(grid):
+            direction = np.array([(2 * (column + 0.5) / grid - 1) * half_x,
+                                  (1 - 2 * (row + 0.5) / grid) * half_y, -1.0])
+            distance = mujoco.mj_ray(model, data, origin, axes @ (direction / np.linalg.norm(direction)),
+                                     group, 1, -1, hit)
+            geom_id = int(hit[0])
+            if geom_id < 0:
+                continue
+            body = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY,
+                                     int(model.geom_bodyid[geom_id])) or ""
+            if body.startswith(arm):
+                nearest = min(nearest, float(distance))
+    return float(nearest)
 
 
 def metrics(model: mujoco.MjModel, data: mujoco.MjData) -> dict[str, int]:

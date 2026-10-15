@@ -16,11 +16,16 @@ PAIR_SEPARATOR = "↔"
 # `.venv`-ul proiectului le pot citi fără motorul de fizică, iar `view.py --check` le
 # folosește pe aceleași.
 
-#: Câți pixeli trebuie să ocupe piesa ținută în cadrul camerei de pe flanșă. Camera stă la 16 cm
-#: de punctul de strângere, cu 60° pe verticală: roata de 104 mm iese la ~270 px din 640, iar o
+#: Câți pixeli trebuie să ocupe piesa ținută în cadrul camerei de pe flanșă. Camera stă la 12 cm
+#: de punctul de strângere, cu 60° pe verticală: roata de 104 mm iese la ~340 px din 640, iar o
 #: montare greșită — obiectivul întors spre cot — dă zero. Pragul prinde și o cameră prea
 #: depărtată, la care piesa ajunge un blob de câteva zeci de pixeli, de neclasificat.
 MIN_WRIST_PART_PX = 150.0
+
+#: Cât spațiu liber cere obiectivul camerei de pe flanșă, pe orice rază a cadrului, în metri.
+#: Sub câțiva centimetri, obiectivul stă în materialul brațului: cadrul iese „prin" mână, cu umbra
+#: ei peste piesă, fiindcă fețele din spate nu se randează. Vezi montajul din `scene.py`.
+MIN_LENS_CLEARANCE_M = 0.02
 
 #: Toleranța la compararea yaw-ului cerut cu cel citit înapoi din scenă, în grade.
 YAW_TOLERANCE_DEG = 0.1

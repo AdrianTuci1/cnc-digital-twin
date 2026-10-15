@@ -157,11 +157,11 @@ ARMS = [
     dict(key="arm1", name="arm1_cnc", x=2.95, y=2.65, reach=0.855,
          label="Braț 1 (Panda #1)", label_at=(0.55, 2.65), anchor="start",
          note="încarcă și descarcă CNC, așază piesa pe banda 2",
-         wrist_camera=(3.17, 2.42)),
+         wrist_camera=(3.29, 2.43)),
     dict(key="arm2", name="arm2_sort", x=2.7, y=1.55, reach=0.855,
          label="Braț 2 (Panda #2)", label_at=(0.55, 1.55), anchor="start",
          note="ridică piesa de pe bandă și o lasă în locul familiei",
-         wrist_camera=(2.45, 1.72)),
+         wrist_camera=(2.49, 1.83)),
 ]
 
 # Nu există nicio cameră fixă în celulă: verdictul — familia piesei și conformitatea ei — îl dă

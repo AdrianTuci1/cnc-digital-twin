@@ -597,7 +597,9 @@ def test_scena_se_compileaza_si_cadrele_de_pe_flansa_contin_punctul_de_strangere
     assert checks.arm_foreign_contacts(scene.contact_pairs(model, data), prefixes) == []
 
     # Camerele de pe flanșe privesc punctul de strângere, iar piesa ținută iese destul de mare în
-    # cadru ca verdictul să se poată da din ea (`checks.MIN_WRIST_PART_PX`).
+    # cadru ca verdictul să se poată da din ea (`checks.MIN_WRIST_PART_PX`). Obiectivul stă în aer
+    # liber, nu îngropat în mâna brațului (`checks.MIN_LENS_CLEARANCE_M`): altfel cadrul iese
+    # „prin" material, fiindcă fețele din spate nu se randează.
     diameter_mm = 2 * part.gear_radius_m(metadata["part"]["family"]) * 1000
     for arm in arms.ARMS:
         view = scene.camera_view(model, data, f"{arm}_wrist_camera",
@@ -605,3 +607,6 @@ def test_scena_se_compileaza_si_cadrele_de_pe_flansa_contin_punctul_de_strangere
         assert view["in_frame"], f"camera de pe {arm} nu are punctul de strângere în cadru"
         assert diameter_mm * float(view["px_per_mm"]) >= checks.MIN_WRIST_PART_PX, \
             f"camera de pe {arm} vede prea departe piesa ținută"
+        clearance = scene.lens_clearance(model, data, f"{arm}_wrist_camera", arm)
+        assert clearance >= checks.MIN_LENS_CLEARANCE_M, \
+            f"obiectivul camerei de pe {arm} stă în materialul brațului ({clearance * 1000:.0f} mm)"

@@ -78,21 +78,26 @@ fără fereastră, pe CPU, în afara Kit.
 **Rezoluția nu poate rămâne la implicitul de 160×120.** Diferența cea mai grosieră de rezolvat
 este adâncimea unui dinte ciobit, `chip_depth = 4 mm`, iar cea mai fină este dezaxarea radială a
 unei găuri, 2,5 mm. De separarea lor depinde clasificatorul, iar cadrul care dă verdictul vine acum
-din camera de pe flanșa brațului 2, care fotografiază piesa ținută în falci: stă la **16 cm** de
-punctul de strângere, cu **60° pe verticală** și **640×480**, iar roata de ~104 mm iese la
-**~260–270 px**, adică **~2,6 px/mm**. La scara asta, cel mai fin defect din catalog — o gaură
-dezaxată cu 2,5 mm — ajunge la **~6–7 px**, iar dintele ciobit de 4 mm la **~10 px**, deci fiecare
+din camera de pe flanșa brațului 2, care fotografiază piesa ținută în falci: stă la **12 cm** de
+punctul de strângere, cu **60° pe verticală** și **640×480**, iar roata de ~100 mm iese la
+**~345 px**, adică **~3,4 px/mm**. La scara asta, cel mai fin defect din catalog — o gaură
+dezaxată cu 2,5 mm — ajunge la **~9 px**, iar dintele ciobit de 4 mm la **~14 px**, deci fiecare
 clasă se poate separa. Pragul `checks.MIN_WRIST_PART_PX = 150 px` prinde o cameră montată greșit
 ori prea depărtată, la care piesa ajunge un blob de câteva zeci de pixeli, de neclasificat. Blurul
 din secțiunea 3 se adaugă peste aceste cadre, proporțional cu `1 - h_camera`, deci o cameră
 proiectată exact la limita de rezoluție pierde piesa, nu doar defectul.
 
 **Camerele de pe flanșe.** Catalogul Menagerie al modelului Panda nu are cameră, deci celula o
-adaugă pe flanșa fiecărui braț, la 5 cm de `link7`, cu **60° pe verticală** și **640×480**.
+adaugă pe flanșa fiecărui braț, cu **60° pe verticală** și **640×480**. Montajul stă pe o consolă
+laterală — la (90, 0, 130) mm în sistemul ultimei verigi —, nu pe axa sculei: acolo, la 5 cm de
+`link7`, obiectivul cădea **în** carcasa încheieturii, iar toate razele cadrului loveau materialul
+brațului la mai puțin de 20 mm de lentilă. Cadrul ieșea atunci „prin" mână — materialul nu se
+vedea, fiindcă fețele din spate nu se randează, dar umbra lui cădea peste piesă.
 Orientarea obiectivului se calculează la compunerea scenei, nu se scrie de mână: așa cum vine din
 catalog, camera privea **înapoi**, spre cot, iar punctul de strângere cădea la −143 mm adâncime,
 adică în spatele obiectivului. Măsurat acum cu `view.py --check`: punctul de strângere e la
-160 mm, iar abaterea față de axul optic e 0,0°.
+120 mm, abaterea față de axul optic e 0,0°, iar spațiul liber până la materialul brațului este de
+**41 mm**, peste pragul `checks.MIN_LENS_CLEARANCE_M`.
 
 **Cele trei puncte de vedere** sunt registrul din `cncdt_mj/povs.py`, care este pur: nume de
 cameră, rezoluție, moment de captură și rol. Cadrul se ia la punctele de lucru ale ciclului,

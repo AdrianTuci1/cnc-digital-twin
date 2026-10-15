@@ -248,15 +248,23 @@ din asta.
 ## Camerele de pe flanșe
 
 Nu mai există o cameră fixă deasupra benzii 2: verdictul de calitate îl dă camera de pe flanșa
-brațului 2. Fiecare braț are câte o cameră pe flanșă, la 5 cm de `link7`, cu **60° pe verticală**
-și **640×480**, iar obiectivul privește punctul de strângere; orientarea se calculează la
-compunerea scenei (`scene.wrist_camera_quat`), nu se scrie de mână.
+brațului 2. Fiecare braț are câte o cameră pe o consolă laterală a flanșei, la (90, 0, 130) mm în
+sistemul ultimei verigi, cu **60° pe verticală** și **640×480**, iar obiectivul privește punctul de
+strângere; orientarea se calculează la compunerea scenei (`scene.wrist_camera_quat`), nu se scrie
+de mână.
 
-Camera de pe brațul 2 fotografiază piesa ținută în falci: stă la **16 cm** de punctul de strângere,
-iar roata de ~104 mm iese la **~260–270 px** din 640, adică **~2,6 px/mm**. La scara asta, cel mai
-fin defect din catalog — o gaură dezaxată cu 2,5 mm — ajunge la **~6–7 px**, iar dintele ciobit de
-4 mm la **~10 px**. Pragul `checks.MIN_WRIST_PART_PX` prinde o cameră montată greșit, care nu are
+Camera de pe brațul 2 fotografiază piesa ținută în falci: stă la **12 cm** de punctul de strângere,
+iar roata de ~100 mm iese la **~345 px** din 640, adică **~3,4 px/mm**. La scara asta, cel mai
+fin defect din catalog — o gaură dezaxată cu 2,5 mm — ajunge la **~9 px**, iar dintele ciobit de
+4 mm la **~14 px**. Pragul `checks.MIN_WRIST_PART_PX` prinde o cameră montată greșit, care nu are
 piesa în cadru, ori o cameră prea depărtată, la care piesa ajunge un blob de câteva zeci de pixeli.
+
+**Obiectivul stă în aer liber.** Consola laterală nu e o alegere estetică: pe axa sculei, la 5 cm de
+`link7`, obiectivul cădea **în** carcasa încheieturii, iar toate razele cadrului loveau materialul
+brațului la mai puțin de 20 mm de lentilă. Cadrul ieșea atunci „prin" mână — materialul nu se vedea,
+fiindcă fețele din spate nu se randează, dar umbra lui cădea peste piesă. `--check` măsoară spațiul
+liber pe toate razele cadrului (`scene.lens_clearance`) și cere cel puțin
+`checks.MIN_LENS_CLEARANCE_M`; montajul de acum dă **41 mm**, la 120 mm de piesă.
 
 **Axa de privire**: camerele MuJoCo privesc de-a lungul axei lor locale **−Z**, nu +Z (verificat cu
 o scenă de probă: două cutii, una deasupra și una dedesubt). Așa cum vine din catalog, camera
