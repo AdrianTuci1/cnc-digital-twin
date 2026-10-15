@@ -37,6 +37,14 @@ schema din catalog. De aceea `core.assemble_response` trece fiecare înregistrar
 `cncdt_ml.schema.conform`, care elimină câmpurile cunoscute în plus (`spindle_load_max`,
 `vibration_crest`, `temp_c_max`, `joint_effort_*`, `axis_feed_*`).
 
+## Ce intră în model
+
+`core.MODEL_FEATURE_ORDER` este singura listă care decide intrarea modelului, iar ea conține
+doar măsurători: `spindle_load_*`, `vibration_*`, `coolant_flow_lpm`, `temp_c_mean`,
+`axis_feed_mean`. `tool_wear_index` și `joint_friction_index` rămân în contract și hrănesc
+dashboard-ul de degradare, dar nu intră în vector: sunt `1 - h`, adică starea internă a
+motorului de uzură, iar un model care le primește are răspunsul în intrare (ADR 0013).
+
 ## Fallback pe praguri
 
 Dacă `SAGEMAKER_ENDPOINT_NAME` este gol sau invocarea eșuează, scorul vine din

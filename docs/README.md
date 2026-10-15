@@ -31,6 +31,7 @@ Sursa de adevăr pentru decizii. Codul spune *ce* se întâmplă; documentele de
 | [0010](adr/0010-instanta-de-simulare-pe-spot.md) | Instanța de simulare pe piața spot, fără repornire automată |
 | [0011](adr/0011-volum-de-date-persistent.md) | Volum EBS persistent pentru starea instanței, în stack separat, șters doar manual |
 | [0012](adr/0012-geaman-mujoco-pentru-generare-de-telemetrie.md) | Al doilea geamăn, în MuJoCo, headless, pentru generarea de telemetrie și antrenare |
+| [0013](adr/0013-colectare-cu-etichete-demonstratie-cu-model.md) | Colectare cu etichete, demonstrație cu model: eticheta nu intră pe calea de inferență |
 
 ## Convenții
 

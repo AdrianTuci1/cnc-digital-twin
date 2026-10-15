@@ -97,6 +97,11 @@ pas 20°, cel mai mic multiplu comun 360°, deci simetrie de ordin 1). Regula ge
 însă despre deplasare: rotirea de 15° trebuie să mute găurile cu câțiva milimetri, iar
 testul măsoară direct asta pe fiecare familie.
 
+Aceeași proprietate decide și augmentarea imaginilor la antrenare: `BOLT_PATTERN_ROTATED` este
+definit față de coroana dințată a piesei, deci o rotire în plan a întregului cadru lasă clasa
+neschimbată și poate fi folosită. Scalarea nu poate: familia se citește din mărimea siluetei
+(Ø56…Ø100), iar un zoom ar face o `pinion_56` să arate ca o `wheel_100`.
+
 **Rezoluția dictează dimensiunea minimă a defectului.** Dacă roata umple ~700 px dintr-un cadru
 de 1280, la Ø100 mm rezultă ~0,14 mm pe pixel. Un defect are nevoie de cel puțin ~5 px ca să
 fie învățat, adică **~0,7 mm**. De aceea defectele de aici au 2–5 mm. Nu mări numărul de dinți
@@ -122,13 +127,18 @@ compartimentul familiei ei. Schema manifestului a urcat la `1.1.0` odată cu câ
 un rând `1.0.0`, de dinainte de familii, se citește în continuare și descrie piesa de
 referință.
 
-Separarea trebuie impusă arhitectural, nu prin disciplină: alt prefix sau alt bucket, cu IAM
-care nu ajunge la Lambda-ul de inferență. Câmpurile de degradare (`tool_wear_index`,
-`surface_quality`) și `is_synthetic_defect` ies din snapshot. Altfel modelul învață metadatele
-care conțin răspunsul, iar acuratețea mare nu înseamnă nimic.
+Separarea este impusă arhitectural, nu prin disciplină (ADR 0013). Contractul cadrului a urcat
+la **1.2.0** și a scos câmpurile care purtau răspunsul (`tool_wear_index`,
+`joint_friction_index`, `surface_quality`, `is_synthetic_defect`), iar schema s-a închis
+(`additionalProperties: false`). Aceleași nume sunt păzite de toți cei care ating cadrul:
+geamănul nu are parametru pentru ele, `QaSnapshotWriter` ridică `ValueError`, iar
+`parse_snapshot` din Lambda refuză un cadru care le conține. Legătura dintre imagine și etichetă
+se face la antrenare, pe `part_id`/`cycle_id`, din artefactele de colectare.
 
-Rezerva pe praguri din `qa_vision_inference` trebuie scoasă de pe calea de viziune: altfel, în
-`dev`, verdictul vine din metadate și pare că modelul funcționează.
+Rezerva pe praguri a ieșit din `qa_vision_inference`. Fără endpoint configurat, Lambda-ul nu
+publică niciun verdict: numără cadrele în `QaModelMissing` și lasă piesa rutei de rezervă.
+Verdictul din demonstrație vine exclusiv din modelul antrenat, ceea ce face modelul obligatoriu
+pentru orice demonstrație care sortează.
 
 ## Verdictul se decide înainte de randare
 
@@ -164,8 +174,10 @@ Ce nu se poate verifica aici: cum arată piesa randată. Asta cere Isaac Sim.
 
 ## Ce urmează
 
-1. **Randarea**: bucla Replicator care încarcă o variantă, o fotografiază din camera de sus și
-   scrie imaginea plus snapshot-ul, cu seed de randare separat.
+1. **Randarea**: bucla care încarcă o variantă, o fotografiază din camera de sus și scrie
+   imaginea plus snapshot-ul, cu seed de randare separat. Se scrie pe renderer-ul geamănului
+   MuJoCo: Isaac Sim a ieșit din uz, iar piesa este o extruziune plană, văzută de sus, deci
+   cadrul de inspecție se poate produce local, fără GPU în cloud.
 2. **Antrenarea**: clasificator de imagini pe SageMaker, cu două capete (familie, conformitate),
    pe split-urile din manifest.
 3. **Verificarea**: baseline pe metadate, etichete amestecate, geometrie decuplată de etichetă.

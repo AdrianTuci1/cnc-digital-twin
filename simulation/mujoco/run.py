@@ -293,14 +293,15 @@ class Recorder:
                 ts_ms=ts_ms, cycle=cycle, part=telemetry.part_id(self.cycle_index),
                 role=item.role, camera=item.camera or item.name, resolution=item.resolution,
                 image_key=f"{telemetry.QA_SNAPSHOT_PREFIX}/{cycle}/{name}",
-                machine_state=telemetry.machine_state_for(self.stage),
-                machine=self.session.wear.reading(
-                    cutting=self.phase == wear.PHASE_CUTTING, noise=False),
-                is_synthetic_defect=self.synthetic_defect))
+                machine_state=telemetry.machine_state_for(self.stage)))
 
     @property
     def synthetic_defect(self) -> bool:
-        """Adevărat când piesa ciclului are un defect cerut, nu unul ieșit din sămânță."""
+        """Adevărat când piesa ciclului are un defect cerut, nu unul ieșit din sămânță.
+
+        Câmpul intră doar în eșantionul de telemetrie, ca etichetă de antrenare. Cadrul de
+        inspecție rămâne fără el, fiindcă acela pornește inferența.
+        """
         return str(self.label["defect"]) != "PASS"
 
 

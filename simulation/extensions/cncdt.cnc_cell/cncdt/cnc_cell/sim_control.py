@@ -317,15 +317,10 @@ class CellController:
         rezerva, când scena nu are încă a doua cameră.
         """
         self._snapshot_taken_for_part = self.degradation.part_id
-        state = self.degradation.snapshot()
         metadata = {
             "device_id": self.config.device_id,
             "cell_id": self.config.cell_id,
             "machine_state": self.synthetic.state,
-            "tool_wear_index": state["tool_wear_index"],
-            "joint_friction_index": state["joint_friction_index"],
-            "surface_quality": state["surface_quality"],
-            "is_synthetic_defect": self.degradation.defects.forced_next,
             "telemetry_topic": self.config.telemetry_topic,
         }
         camera_key = "diverter_camera" if self.config.diverter_enabled else "inspection_camera"

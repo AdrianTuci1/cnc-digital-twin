@@ -36,6 +36,11 @@ from cncdt_ml.windows import window_key
 
 # Ordinea intrărilor modelului. Trebuie să coincidă cu antrenarea
 # (``ml/training/predictive_maintenance``) și cu ``ml/inference/predictive_maintenance``.
+#
+# Aici stau doar măsurători. ``tool_wear_index`` și ``joint_friction_index`` sunt `1 - h`, adică
+# parametrul intern al simulării, nu o citire de senzor: un model care le primește are răspunsul
+# în intrare, iar pe linia reală coloanele nu există. Ele rămân în contract și hrănesc
+# dashboard-ul de degradare (`DEGRADATION_ELEMENTS`), dar nu intră în vectorul modelului.
 MODEL_FEATURE_ORDER: tuple[str, ...] = (
     "spindle_load_mean",
     "spindle_load_p95",
@@ -45,8 +50,7 @@ MODEL_FEATURE_ORDER: tuple[str, ...] = (
     "vibration_std",
     "coolant_flow_lpm",
     "temp_c_mean",
-    "tool_wear_index",
-    "joint_friction_index",
+    "axis_feed_mean",
 )
 
 CONTENT_TYPE = "application/json"

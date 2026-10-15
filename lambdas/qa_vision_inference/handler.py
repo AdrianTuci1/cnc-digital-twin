@@ -4,11 +4,15 @@ Declanșator: notificarea S3 pentru ``raw/qa-snapshots/*.json``.
 
 1. citește metadatele cadrului QA din S3;
 2. citește fotografia (``.png``, sub aceeași cheie) și o trimite inline, în base64, către
-   endpoint-ul de viziune, alături de vectorul de caracteristici;
-3. construiește verdictul PASS / REJECT din probabilitatea de defect;
+   endpoint-ul de viziune, cu identificatorii cadrului;
+3. construiește verdictul PASS / REJECT din probabilitatea de defect dată de model;
 4. scrie verdictul în ``curated/qa-verdicts/``;
 5. publică verdictul pe topicul IoT de control, de unde simularea acționează lama ori
    pistonul de rejecție.
+
+Verdictul vine doar din model. Fără endpoint configurat sau cu apelul căzut, Lambda-ul numără
+cadrele (``QaModelMissing``, ``QaEndpointFailures``) și nu publică nimic: simularea are ruta ei
+de rezervă, iar un verdict inventat local ar citi răspunsul în loc să îl deducă.
 
 O excepție netratată ar face S3 să retrimită tot lotul de notificări, deci fiecare cadru este
 tratat separat, iar erorile se jurnalizează și se numără. Toate apelurile AWS trec prin
@@ -86,11 +90,14 @@ def _read_image(bucket: str, snapshot: Mapping[str, Any]) -> bytes | None:
 def _probabilities(
     snapshots: Sequence[Mapping[str, Any]],
     images: Mapping[str, bytes],
-) -> tuple[list[float], str, int]:
-    """Probabilitățile de defect. Al doilea element spune de unde vin, al treilea câte
-    invocări de endpoint au eșuat."""
+) -> tuple[list[float] | None, str, int, int]:
+    """Probabilitățile de defect, de unde vin și două numărătoare: apeluri eșuate, model lipsă.
+
+    Când nu există endpoint configurat se întoarce ``None`` pentru probabilități: verdictul nu
+    se fabrică local din metadate, fiindcă acela ar citi răspunsul în loc să îl deducă.
+    """
     if not SAGEMAKER_ENDPOINT_NAME:
-        return [core.heuristic_probability(s) for s in snapshots], "thresholds", 0
+        return None, "model_missing", 0, len(snapshots)
 
     try:
         runtime = client("sagemaker-runtime")
@@ -100,10 +107,10 @@ def _probabilities(
             Accept=core.CONTENT_TYPE,
             Body=core.endpoint_body(snapshots, images),
         )
-        return core.parse_endpoint_response(response["Body"].read()), MODEL_VERSION, 0
+        return core.parse_endpoint_response(response["Body"].read()), MODEL_VERSION, 0, 0
     except Exception as exc:  # modelul nu are voie să blocheze inspecția
         note_error(logger, "endpoint_invoke_failed", exc, endpoint=SAGEMAKER_ENDPOINT_NAME)
-        return [core.heuristic_probability(s) for s in snapshots], "thresholds", 1
+        return None, "endpoint_failed", 1, 0
 
 
 def _write_verdict(verdict: dict[str, Any], snapshot: Mapping[str, Any], captured_at: str) -> str:
@@ -132,8 +139,9 @@ def _publish(verdict: dict[str, Any]) -> None:
     )
 
 
-def _publish_metrics(processed: int, rejects: int, endpoint_failures: int, images_sent: int) -> None:
-    metrics = core.metric_data(processed, rejects, endpoint_failures, images_sent)
+def _publish_metrics(processed: int, rejects: int, endpoint_failures: int, images_sent: int,
+                     model_missing: int = 0) -> None:
+    metrics = core.metric_data(processed, rejects, endpoint_failures, images_sent, model_missing)
     cloudwatch = client("cloudwatch")
     cloudwatch.put_metric_data(Namespace=TELEMETRY_NAMESPACE, MetricData=metrics)
 
@@ -161,7 +169,26 @@ def lambda_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]
     if not snapshots:
         return {"processed": 0, "rejects": 0, "skipped": skipped}
 
-    probabilities, source, endpoint_failures = _probabilities(snapshots, images)
+    probabilities, source, endpoint_failures, model_missing = _probabilities(snapshots, images)
+    if probabilities is None:
+        # Fără model nu se inventează un verdict: simularea are ruta ei de rezervă (ADR 0009),
+        # iar aici se numără cazurile, ca lipsa modelului să se vadă în dashboard.
+        log_event(
+            logger,
+            "no_verdict_without_a_model",
+            snapshots=len(snapshots),
+            source=source,
+            endpoint_failures=endpoint_failures,
+            model_missing=model_missing,
+        )
+        _publish_metrics(0, 0, endpoint_failures, 0, model_missing)
+        return {
+            "processed": 0,
+            "rejects": 0,
+            "skipped": skipped,
+            "model_missing": model_missing,
+            "endpoint_failures": endpoint_failures,
+        }
     if len(probabilities) != len(snapshots):
         endpoint_failures += 1
         log_event(
@@ -169,16 +196,19 @@ def lambda_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]
             "prediction_count_mismatch",
             snapshots=len(snapshots),
             predictions=len(probabilities),
-            fallback="thresholds",
         )
-        probabilities = [core.heuristic_probability(s) for s in snapshots]
-        source = "thresholds"
+        _publish_metrics(0, 0, endpoint_failures, len(images))
+        return {
+            "processed": 0,
+            "rejects": 0,
+            "skipped": skipped,
+            "endpoint_failures": endpoint_failures,
+        }
 
     rejects = 0
     published = 0
     for snapshot, probability in zip(snapshots, probabilities):
-        reason = "thresholds" if source == "thresholds" else ""
-        verdict = core.verdict_message(snapshot, probability, DEFECT_THRESHOLD, source, reason)
+        verdict = core.verdict_message(snapshot, probability, DEFECT_THRESHOLD, source)
         captured_at = str(snapshot.get("captured_at", ""))
         if verdict["verdict"] == core.VERDICT_REJECT:
             rejects += 1
@@ -203,7 +233,7 @@ def lambda_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]
         source=source,
     )
     try:
-        _publish_metrics(len(snapshots), rejects, endpoint_failures, len(images))
+        _publish_metrics(len(snapshots), rejects, endpoint_failures, len(images), model_missing)
     except Exception as exc:  # metricile nu sunt critice pentru buclă
         note_error(logger, "metrics_publish_failed", exc)
 
@@ -214,4 +244,5 @@ def lambda_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]
         "skipped": skipped,
         "images": len(images),
         "source": source,
+        "model_missing": model_missing,
     }

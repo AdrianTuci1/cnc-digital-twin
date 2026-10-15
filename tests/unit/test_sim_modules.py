@@ -25,7 +25,7 @@ from cncdt.cnc_cell.sorting import (
     decision_for_verdict,
 )
 from cncdt.cnc_cell.telemetry.publisher import TelemetryPublisher
-from cncdt.cnc_cell.telemetry.qa_camera import QaSnapshotWriter
+from cncdt.cnc_cell.telemetry.qa_camera import LABEL_FIELDS, QaSnapshotWriter
 from cncdt.cnc_cell.telemetry.sensors import SceneSensors, build_sensor_matrix
 from cncdt.cnc_cell.telemetry.synthetic import (
     MACHINE_STATES,
@@ -392,6 +392,43 @@ def test_snapshot_records_inspection_camera(tmp_path) -> None:
     )
     assert default["camera"] == "active_viewport"
     assert default["image_captured"] is False
+
+
+def test_snapshot_writer_refuses_a_label_field(tmp_path) -> None:
+    """Sidecar-ul QA pornește inferența, deci un câmp cu răspunsul este refuzat, nu scris.
+
+    Fișierul ajunge în S3 și declanșează Lambda-ul de inspecție: dacă ar duce indiciul de uzură
+    ori flagul de defect cerut, modelul ar citi răspunsul în loc să îl deducă din imagine.
+    """
+    writer = QaSnapshotWriter(output_dir=tmp_path / "qa")
+    with pytest.raises(ValueError) as error:
+        writer.capture(
+            cycle_id="cyc-000001",
+            part_id="part-000001",
+            metadata={"tool_wear_index": 0.5, "is_synthetic_defect": True},
+            capture_image=False,
+        )
+    assert "eticheta" in str(error.value)
+    assert not list((tmp_path / "qa").rglob("*.json")), "cadrul nu se scrie deloc"
+
+
+def test_snapshot_writer_keeps_the_context_of_the_cell(tmp_path) -> None:
+    """Contextul legitim de celulă rămâne în sidecar: dispozitivul, starea, topicul."""
+    writer = QaSnapshotWriter(output_dir=tmp_path / "qa")
+    record = writer.capture(
+        cycle_id="cyc-000001",
+        part_id="part-000001",
+        metadata={
+            "device_id": "cnc-cell-01",
+            "cell_id": "cell-01",
+            "machine_state": "INSPECTING",
+            "telemetry_topic": "cncdt/dev/cnc/cell-01/telemetry",
+        },
+        capture_image=False,
+    )
+    assert record["schema_version"] == "1.2.0"
+    assert record["device_id"] == "cnc-cell-01"
+    assert not set(record) & set(LABEL_FIELDS)
 
 
 def test_controller_pause_and_resume(controller) -> None:

@@ -383,6 +383,9 @@ resource "aws_cloudwatch_dashboard" "infra" {
               [local.telemetry_namespace, "WindowsProcessed", { stat = "Sum" }],
               [local.telemetry_namespace, "EndpointFailures", { stat = "Sum", color = "#d62728" }],
               [local.telemetry_namespace, "QaEndpointFailures", { stat = "Sum", color = "#ff7f0e" }],
+              # Cadre rămase fără verdict fiindcă nu există model. Verdictul nu se inventează
+              # local, deci lipsa modelului trebuie să fie vizibilă, nu tăcută.
+              [local.telemetry_namespace, "QaModelMissing", { stat = "Sum", color = "#9467bd" }],
             ]
             yAxis = { left = { label = "pe minut", showUnits = false } }
           }

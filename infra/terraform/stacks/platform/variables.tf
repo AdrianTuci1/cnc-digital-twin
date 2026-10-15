@@ -207,7 +207,7 @@ variable "predictive_maintenance_model_data_url" {
 }
 
 variable "vision_qa_endpoint_enabled" {
-  description = "Creează endpoint-ul pentru modelul de inspecție vizuală."
+  description = "Creează endpoint-ul pentru modelul de inspecție vizuală. Oprit, Lambda-ul de inspecție publică zero verdicte (numara cadrele în QaModelMissing), fiindcă verdictul nu se fabrică din metadate."
   type        = bool
   default     = false
 }

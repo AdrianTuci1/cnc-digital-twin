@@ -130,6 +130,44 @@ def test_marcajul_de_timp_al_cadrului_este_iso_in_utc() -> None:
     assert telemetry.iso_time(telemetry.SESSION_EPOCH_MS) == "2025-10-09T08:53:20+00:00"
 
 
+def test_cadrul_de_inspectie_are_exact_campurile_din_contract() -> None:
+    """Cadrul are exact cheile schemei, în ambele sensuri.
+
+    Schema s-a închis la 1.2.0 (`additionalProperties: false`), deci un câmp în plus cade la
+    validare. Egalitatea se cere totuși explicit: ea este cea care prinde și câmpul scris din
+    greșeală, și câmpul uitat.
+    """
+    schema = telemetry.load_schema(SNAPSHOT_SCHEMA)
+    record = _snapshot()
+    assert set(record) == set(schema["properties"])
+    assert set(schema["required"]) <= set(record)
+    assert schema["additionalProperties"] is False
+    assert telemetry.validate_snapshot({**record, "camera_frame": "x"}), "câmpul în plus a trecut"
+
+
+def test_cadrul_de_inspectie_nu_poarta_eticheta() -> None:
+    """Nici schema, nici cadrul scris nu conțin ceva din răspuns.
+
+    Cadrul pornește Lambda-ul de inspecție. Dacă ar duce cu el indicii de uzură ori flagul de
+    defect cerut, modelul ar citi răspunsul în loc să îl deducă din imagine, iar pe linia reală
+    câmpurile nu există. Eticheta stă în `frames.jsonl` și în manifest, legată prin `part_id`.
+    """
+    schema = telemetry.load_schema(SNAPSHOT_SCHEMA)
+    assert not set(schema["properties"]) & set(telemetry.LABEL_FIELDS)
+    assert not set(_snapshot()) & set(telemetry.LABEL_FIELDS)
+    assert {"family", "defect", "verdict", "tool_wear_index"} <= set(telemetry.LABEL_FIELDS)
+
+
+def test_cadrul_nu_poate_primi_eticheta() -> None:
+    """Scriitorul cadrului nu are parametru pentru etichetă: nu există cale de a o strecura."""
+    with pytest.raises(TypeError):
+        telemetry.qa_snapshot(
+            ts_ms=telemetry.SESSION_EPOCH_MS, cycle=CYCLE, part=PART,
+            role=povs.ROLE_SORTING, camera="arm2_wrist_camera",
+            resolution=povs.PROCESS_FRAME, image_key="raw/qa-snapshots/cadru.png",
+            machine_state="INSPECTING", tool_wear_index=0.5)
+
+
 # ---------------------------------------------------------------- starea mașinii
 
 

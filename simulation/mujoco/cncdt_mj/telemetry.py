@@ -66,6 +66,25 @@ MACHINE_STATES = ("IDLE", "LOADING", "CUTTING", "UNLOADING", "INSPECTING")
 #: Starea mașinii în care se află celula când nu lucrează: transportul benzilor și așezarea.
 IDLE_STATE = "IDLE"
 
+#: Câmpuri care poartă răspunsul. Nu au ce căuta într-un cadru de inspecție: fișierul JSON
+#: pornește inferența, iar inferența nu are voie să știe ce trebuie să deducă. Un model care
+#: primește `tool_wear_index` (= `1 - h`) ori `is_synthetic_defect` citește parametrul intern al
+#: simulării, nu o măsurătoare, iar pe linia reală coloanele nu există.
+#:
+#: Geamănul nu are cum să le scrie: `qa_snapshot` nu are parametru pentru ele, iar schema
+#: `cnc.qa.snapshot.v1.json` este închisă. Aceleași nume sunt păzite de scriitorul din Kit
+#: (``cnc_cell/telemetry/qa_camera.py``, care primește un dicționar de context) și de cititorul
+#: din Lambda (``lambdas/qa_vision_inference/qa_vision_core.py``).
+LABEL_FIELDS: tuple[str, ...] = (
+    "is_synthetic_defect",
+    "tool_wear_index",
+    "joint_friction_index",
+    "surface_quality",
+    "family",
+    "defect",
+    "verdict",
+)
+
 
 @dataclass(frozen=True)
 class MachineReading:
@@ -280,17 +299,21 @@ def sample(*, seq: int, ts_ms: int, machine_state: str, cycle: str, part: str,
 
 def qa_snapshot(*, ts_ms: int, cycle: str, part: str, role: str, camera: str,
                 resolution: Sequence[int], image_key: str, machine_state: str,
-                machine: MachineReading = MachineReading(),
-                is_synthetic_defect: bool = False, image_captured: bool = True
-                ) -> dict[str, Any]:
+                image_captured: bool = True) -> dict[str, Any]:
     """Metadatele unui cadru de inspecție, cu exact câmpurile cerute de contract.
 
     Fișierul JSON este cel care declanșează Lambda-ul de inspecție, iar imaginea stă alături, sub
     același nume cu extensia `.png`: `image_key` este cheia din bucket, exact calea relativă a
     fișierului din sesiune.
+
+    Cadrul nu conține nimic din ce a decis geometria piesei. Indiciile de uzură și flagul de
+    defect cerut au ieșit din snapshot odată cu versiunea 1.2.0: ele sunt parametrul intern al
+    simulării, iar modelul antrenat trebuie să deducă verdictul din imagine. Eticheta rămâne în
+    `frames.jsonl` și în manifestul de etichete, legată prin `part_id`, de unde o citește doar
+    antrenarea.
     """
     record = {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "captured_at": iso_time(ts_ms),
         "cycle_id": cycle,
         "part_id": part,
@@ -302,10 +325,6 @@ def qa_snapshot(*, ts_ms: int, cycle: str, part: str, role: str, camera: str,
         "device_id": DEVICE_ID,
         "cell_id": CELL_ID,
         "machine_state": machine_state,
-        "tool_wear_index": float(machine.tool_wear_index),
-        "joint_friction_index": float(machine.joint_friction_index),
-        "surface_quality": float(machine.surface_quality),
-        "is_synthetic_defect": bool(is_synthetic_defect),
         "telemetry_topic": TELEMETRY_TOPIC,
     }
     _require(validate_snapshot(record), "metadatele cadrului")

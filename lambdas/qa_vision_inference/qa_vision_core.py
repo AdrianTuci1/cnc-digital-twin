@@ -1,9 +1,14 @@
 """Logica pură a Lambda-ului de inspecție vizuală.
 
 Lambda-ul pornește de la notificarea S3 pentru fiecare cadru QA scris în
-``raw/qa-snapshots/*.json``, trimite fotografia și metadatele către endpoint-ul de viziune,
-transformă răspunsul într-un verdict și îl publică pe topicul IoT de control, de unde
-simularea acționează lama ori pistonul de rejecție.
+``raw/qa-snapshots/*.json``, trimite fotografia către endpoint-ul de viziune, transformă
+răspunsul într-un verdict și îl publică pe topicul IoT de control, de unde simularea acționează
+lama ori pistonul de rejecție.
+
+Verdictul vine exclusiv din modelul antrenat. Când modelul lipsește ori apelul eșuează, nu se
+inventează un verdict local: cadrele se numără, se jurnalizează și se lasă în seama rutei de
+rezervă din simulare (ADR 0009). Nicio mărime care poartă răspunsul nu intră în cerere — vezi
+:data:`LABEL_FIELDS`.
 
 Modulul nu importă boto3: citirea din S3, apelul endpoint-ului și publicarea sunt injectate
 de ``handler.py``. Numele modulului este unic intenționat: toate Lambda-urile ajung pe
@@ -24,13 +29,17 @@ VERDICT_REJECT = "REJECT"
 
 CONTENT_TYPE = "application/json"
 
-# Ordinea intrărilor modelului de viziune. Coincide cu antrenarea
-# (``ml/training/vision_qa``) și cu ``ml/inference/vision_qa``.
-MODEL_FEATURE_ORDER: tuple[str, ...] = (
+#: Câmpuri care poartă răspunsul, sub aceleași nume ca în `cncdt_mj/telemetry.py` și în
+#: `cnc_cell/telemetry/qa_camera.py`. Cadrul QA nu are ce căuta cu ele, iar cererea către model
+#: le refuză zgomotos: dacă ajung aici, cineva a pus eticheta pe calea de inferență.
+LABEL_FIELDS: tuple[str, ...] = (
+    "is_synthetic_defect",
     "tool_wear_index",
     "joint_friction_index",
     "surface_quality",
-    "image_available",
+    "family",
+    "defect",
+    "verdict",
 )
 
 # Imaginea pleacă inline, în base64, în corpul cererii. InvokeEndpoint acceptă cel mult 6 MB,
@@ -43,6 +52,9 @@ METRIC_PROCESSED = "QaVerdictsProcessed"
 METRIC_REJECTS = "QaRejects"
 METRIC_ENDPOINT_FAILURES = "QaEndpointFailures"
 METRIC_IMAGES_SENT = "QaImagesSent"
+# Cadrele pentru care nu există model: fără el nu se inventează un verdict, iar numărătoarea
+# face lipsa vizibilă în dashboard.
+METRIC_MODEL_MISSING = "QaModelMissing"
 # Producția, numărată pe verdict: piesa judecată ajunge în lada de piese bune ori în rebut.
 METRIC_PARTS_GOOD = "PartsGood"
 METRIC_PARTS_SCRAP = "PartsScrap"
@@ -50,6 +62,10 @@ METRIC_PARTS_SCRAP = "PartsScrap"
 
 class SnapshotError(ValueError):
     """Cadrul QA nu poate fi citit sau nu respectă contractul."""
+
+
+class LeakedLabelError(SnapshotError):
+    """Cererea către model ar duce cu ea ceva din răspuns."""
 
 
 @dataclass(frozen=True)
@@ -85,10 +101,19 @@ def parse_snapshot(payload: Any) -> dict[str, Any]:
     """Validează câmpurile de care depinde verdictul.
 
     Contractul complet este în ``telemetry/schemas/cnc.qa.snapshot.v1.json``. Aici se cer
-    doar câmpurile fără de care verdictul nu are sens.
+    doar câmpurile fără de care verdictul nu are sens, plus o singură interdicție: cadrul nu
+    are voie să conțină nimic din răspuns (vezi :data:`LABEL_FIELDS`). Un cadru cu etichetă este
+    refuzat zgomotos, ca o scurgere din simulator să nu ajungă tăcut la model.
     """
     if not isinstance(payload, Mapping):
         raise SnapshotError("cadrul QA nu este un obiect JSON")
+
+    leaked = sorted(name for name in LABEL_FIELDS if name in payload)
+    if leaked:
+        raise LeakedLabelError(
+            "cadrul QA poartă răspunsul: " + ", ".join(leaked)
+            + ". Snapshot-ul pornește inferența, deci eticheta stă în datasetul de antrenare."
+        )
 
     missing = [field for field in ("cycle_id", "part_id") if not payload.get(field)]
     if missing:
@@ -99,32 +124,20 @@ def parse_snapshot(payload: Any) -> dict[str, Any]:
     return snapshot
 
 
-def _number(value: Any) -> float | None:
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-
-
-def snapshot_features(snapshot: Mapping[str, Any]) -> list[float]:
-    """Vectorul de intrare al modelului, în ordinea ``MODEL_FEATURE_ORDER``."""
-    return [
-        _number(snapshot.get("tool_wear_index")) or 0.0,
-        _number(snapshot.get("joint_friction_index")) or 0.0,
-        _number(snapshot.get("surface_quality")) or 0.0,
-        1.0 if snapshot.get("image_captured") else 0.0,
-    ]
-
-
 def instance_payload(snapshot: Mapping[str, Any], image: bytes | None = None) -> dict[str, Any]:
-    """O intrare din cererea către endpoint: metadate, caracteristici și, când există, poza.
+    """O intrare din cererea către endpoint: identificatorii, camera și, când există, poza.
 
-    Imaginea este cea care face inspecția vizuală: modelul o primește ca PNG în base64,
-    alături de vectorul de caracteristici, care rămâne disponibil pentru un model tabular
-    ori ca rezervă când cadrul lipsește.
+    Inspecția este vizuală: modelul primește fotografia ca PNG în base64, plus contextul de care
+    are nevoie ca să știe ce judecă (piesa, ciclul, postul de inspecție, rezoluția). Nimic din
+    ce ar conține răspunsul nu intră în cerere — vezi :data:`LABEL_FIELDS`.
     """
     instance: dict[str, Any] = {
         "part_id": str(snapshot.get("part_id", "")),
         "cycle_id": str(snapshot.get("cycle_id", "")),
         "camera_role": str(snapshot.get("camera_role", "")),
-        "features": snapshot_features(snapshot),
+        "camera": str(snapshot.get("camera", "")),
+        "resolution": [int(value) for value in snapshot.get("resolution", [])],
+        "image_captured": bool(snapshot.get("image_captured", False)),
     }
     if image:
         instance["image"] = {
@@ -132,6 +145,11 @@ def instance_payload(snapshot: Mapping[str, Any], image: bytes | None = None) ->
             "encoding": "base64",
             "data": base64.b64encode(image).decode("ascii"),
         }
+    leaked = sorted(set(instance) & set(LABEL_FIELDS))
+    if leaked:
+        raise LeakedLabelError(
+            "cererea către model ar duce eticheta: " + ", ".join(leaked)
+        )
     return instance
 
 
@@ -141,8 +159,9 @@ def endpoint_body(
 ) -> bytes:
     """Corpul cererii către endpoint.
 
-    ``images`` asociază identificatorul piesei cu octeții cadrului; o piesă fără imagine
-    trimite doar vectorul de caracteristici, iar verdictul rămâne posibil pe praguri.
+    ``images`` asociază identificatorul piesei cu octeții cadrului. O piesă fără imagine pleacă
+    totuși, cu ``image_captured: false``: modelul poate răspunde „nu pot judeca", iar absența
+    cadrului este o informație, nu un motiv de verdict inventat local.
     """
     by_part = images or {}
     instances = [
@@ -152,7 +171,6 @@ def endpoint_body(
     return json.dumps(
         {
             "contract": FEATURE_CONTRACT,
-            "feature_names": list(MODEL_FEATURE_ORDER),
             "instances": instances,
         }
     ).encode("utf-8")
@@ -192,25 +210,6 @@ def parse_endpoint_response(body: bytes | str) -> list[float]:
     return probabilities
 
 
-def heuristic_probability(snapshot: Mapping[str, Any]) -> float:
-    """Scor de rezervă, când endpoint-ul nu este configurat sau invocarea eșuează.
-
-    Combină indicii de degradare cu calitatea suprafeței. Formula este deliberat simplă și
-    deterministă: în demo contează că reacția are loc, nu calibrarea exactă a scorului.
-    """
-    wear = _number(snapshot.get("tool_wear_index")) or 0.0
-    friction = _number(snapshot.get("joint_friction_index")) or 0.0
-    quality = _number(snapshot.get("surface_quality"))
-    score = 0.55 * wear + 0.25 * friction + 0.35 * (1.0 - (quality if quality is not None else 1.0))
-    if snapshot.get("is_synthetic_defect"):
-        score = max(score, 0.9)
-    if not snapshot.get("image_captured"):
-        # Fără imagine, verdictul rămâne prudent: nu se rejecționează piese doar pentru că
-        # lipsește captura, dar nici nu se declară PASS cu încredere mare.
-        score = min(score, 0.49)
-    return min(max(score, 0.0), 1.0)
-
-
 def verdict_message(
     snapshot: Mapping[str, Any],
     probability: float,
@@ -244,6 +243,7 @@ def metric_data(
     rejects: int,
     endpoint_failures: int,
     images_sent: int = 0,
+    model_missing: int = 0,
 ) -> list[dict[str, Any]]:
     """Metricile publicate în CloudWatch după fiecare invocare."""
     metrics = [
@@ -260,5 +260,9 @@ def metric_data(
     if images_sent:
         metrics.append(
             {"MetricName": METRIC_IMAGES_SENT, "Value": float(images_sent), "Unit": "Count"}
+        )
+    if model_missing:
+        metrics.append(
+            {"MetricName": METRIC_MODEL_MISSING, "Value": float(model_missing), "Unit": "Count"}
         )
     return metrics

@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cncdt.local/schemas/cnc.qa.snapshot.v1.json",
   "title": "cnc.qa.snapshot.v1",
-  "description": "Metadatele unui cadru de inspecție vizuală. Fișierul JSON este cel care declanșează Lambda-ul de inspecție: notificarea S3 filtrează pe prefixul raw/qa-snapshots/ și pe sufixul .json. Imaginea, cu același nume și extensia .png, este scrisă alături. Versiunea 1.1.0 adaugă câmpul camera_role: cadrul de la zona lamei/piston (sorting) este cel care decide ruta piesei, iar cadrul de la ieșirea din mașină (inspection) rămâne pentru comparație și dataset.",
+  "description": "Metadatele unui cadru de inspecție vizuală. Fișierul JSON este cel care declanșează Lambda-ul de inspecție: notificarea S3 filtrează pe prefixul raw/qa-snapshots/ și pe sufixul .json. Imaginea, cu același nume și extensia .png, este scrisă alături. Versiunea 1.1.0 a adăugat câmpul camera_role: cadrul de la zona lamei/piston (sorting) este cel care decide ruta piesei, iar cadrul de la ieșirea din mașină (inspection) rămâne pentru comparație și dataset. Versiunea 1.2.0 scoate din snapshot câmpurile care poartă răspunsul (tool_wear_index, joint_friction_index, surface_quality, is_synthetic_defect) și închide schema (additionalProperties: false). Snapshot-ul este identic între modul de colectare și cel de demonstrație: eticheta piesei stă alături, în frames.jsonl și în manifestul de etichete, de unde doar antrenarea o citește, iar verdictul din demonstrație vine exclusiv din modelul antrenat.",
   "type": "object",
-  "additionalProperties": true,
+  "additionalProperties": false,
   "required": [
     "schema_version",
     "captured_at",
@@ -16,7 +16,7 @@
     "resolution"
   ],
   "properties": {
-    "schema_version": { "type": "string", "const": "1.1.0" },
+    "schema_version": { "type": "string", "const": "1.2.0" },
     "captured_at": { "type": "string" },
     "cycle_id": { "type": "string" },
     "part_id": { "type": "string" },
@@ -43,10 +43,6 @@
     "device_id": { "type": "string" },
     "cell_id": { "type": "string" },
     "machine_state": { "type": "string" },
-    "tool_wear_index": { "type": "number" },
-    "joint_friction_index": { "type": "number" },
-    "surface_quality": { "type": "number" },
-    "is_synthetic_defect": { "type": "boolean" },
     "telemetry_topic": { "type": "string" }
   }
 }

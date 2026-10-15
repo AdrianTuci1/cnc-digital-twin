@@ -261,8 +261,9 @@ module "lambda_qa_vision" {
     DEFECT_THRESHOLD        = "0.5"
     DATA_LAKE_BUCKET        = module.storage.data_lake_bucket_name
     IOT_DATA_ENDPOINT       = module.iot_ingestion.iot_data_endpoint
-    # Fotografia de la zona lamei/piston pleacă spre endpoint; oprit, verdictul se ia doar
-    # din vectorul de caracteristici.
+    # Fotografia de la zona lamei/piston pleacă spre endpoint. Verdictul vine exclusiv din
+    # modelul antrenat: fără endpoint configurat, Lambda-ul numără cadrele (QaModelMissing) și
+    # nu publică nimic, iar piesa urmează ruta de rezervă din simulare.
     SEND_IMAGE_TO_ENDPOINT = "true"
   }
 

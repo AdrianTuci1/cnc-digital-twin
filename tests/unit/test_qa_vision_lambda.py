@@ -39,21 +39,32 @@ core = load_module("qa_vision_core", "lambdas/qa_vision_inference/qa_vision_core
 
 def snapshot(**overrides) -> dict:
     payload = {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "captured_at": "2026-01-01T00:00:00Z",
         "cycle_id": "cyc-000001",
         "part_id": "part-000001",
         "camera_role": "sorting",
         "image_captured": True,
         "image_key": "raw/qa-snapshots/cyc-000001-part-000001.png",
-        "camera": "/World/QA/DiverterCamera",
+        "camera": "/World/QA/InspectionCamera",
         "resolution": [640, 480],
-        "tool_wear_index": 0.1,
-        "joint_friction_index": 0.1,
-        "surface_quality": 0.95,
+        "device_id": "cnc-cell-01",
+        "cell_id": "cell-01",
+        "machine_state": "INSPECTING",
+        "telemetry_topic": "cncdt/dev/cnc/cell-01/telemetry",
     }
     payload.update(overrides)
     return payload
+
+
+#: Câmpurile pe care un scriitor neatent le-ar putea pune în cadru. Ele poartă răspunsul, deci
+#: cadrul le refuză: vezi `LABEL_FIELDS` din `qa_vision_core` și din `cncdt_mj/telemetry.py`.
+LEAKY_FIELDS = {
+    "is_synthetic_defect": True,
+    "tool_wear_index": 0.7,
+    "joint_friction_index": 0.6,
+    "surface_quality": 0.4,
+}
 
 
 def s3_event(keys: list[str], bucket: str = "cncdt-dev-data-lake") -> dict:
@@ -95,45 +106,56 @@ def test_parse_snapshot_defaults_image_captured_to_false():
     assert parsed["image_captured"] is False
 
 
-def test_snapshot_features_follows_model_order():
-    features = core.snapshot_features(
-        snapshot(tool_wear_index=0.2, joint_friction_index=0.3, surface_quality=0.8)
+def test_parse_snapshot_refuses_a_frame_that_carries_the_answer():
+    """Eticheta ajunsă în cadru este o scurgere, nu o diferență de stil: se refuză zgomotos."""
+    for name in LEAKY_FIELDS:
+        with pytest.raises(core.LeakedLabelError):
+            core.parse_snapshot(snapshot(**{name: LEAKY_FIELDS[name]}))
+
+    assert core.parse_snapshot(snapshot())["part_id"] == "part-000001"
+
+
+def test_parse_snapshot_covers_every_label_field_of_the_contract():
+    """Numele păzite sunt aceleași în toate cele trei locuri care ating cadrul."""
+    from cncdt_mj import telemetry as twin
+
+    kit = load_module(
+        "qc_camera_for_labels",
+        "simulation/extensions/cncdt.cnc_cell/cncdt/cnc_cell/telemetry/qa_camera.py",
     )
-    assert features == [0.2, 0.3, 0.8, 1.0]
-    assert core.MODEL_FEATURE_ORDER == (
-        "tool_wear_index",
-        "joint_friction_index",
-        "surface_quality",
-        "image_available",
-    )
+    assert tuple(core.LABEL_FIELDS) == tuple(twin.LABEL_FIELDS) == tuple(kit.LABEL_FIELDS)
+    assert set(LEAKY_FIELDS) <= set(core.LABEL_FIELDS)
 
 
-def test_snapshot_features_defaults_missing_values_to_zero():
-    assert core.snapshot_features({"image_captured": False}) == [0.0, 0.0, 0.0, 0.0]
-
-
-# ---------------------------------------------------------------- răspunsul modelului
-def test_endpoint_body_carries_features_and_the_photo():
+# ---------------------------------------------------------------- cererea către model
+def test_endpoint_body_carries_the_photo_and_the_identifiers():
     png = b"\x89PNG\r\n\x1a\n-cadru"
-    body = json.loads(
-        core.endpoint_body([snapshot(tool_wear_index=0.4)], {"part-000001": png})
-    )
+    body = json.loads(core.endpoint_body([snapshot()], {"part-000001": png}))
 
     assert body["contract"] == core.FEATURE_CONTRACT
-    assert body["feature_names"] == list(core.MODEL_FEATURE_ORDER)
     instance = body["instances"][0]
-    assert instance["features"][0] == 0.4
+    assert instance["part_id"] == "part-000001"
+    assert instance["cycle_id"] == "cyc-000001"
     assert instance["camera_role"] == "sorting"
     assert instance["image"]["format"] == "png"
     assert base64.b64decode(instance["image"]["data"]) == png
 
 
-def test_endpoint_body_sends_features_alone_without_a_photo():
+def test_endpoint_body_has_no_label_field_and_no_features():
+    """Niciun câmp al cererii nu vine din răspuns, iar vectorul de uzură a dispărut."""
+    body = json.loads(core.endpoint_body([snapshot()]))
+    instance = body["instances"][0]
+
+    assert "features" not in instance
+    assert "feature_names" not in body
+    assert not set(instance) & set(core.LABEL_FIELDS)
+
+
+def test_endpoint_body_sends_a_frame_without_a_photo():
     body = json.loads(core.endpoint_body([snapshot()]))
     instance = body["instances"][0]
     assert "image" not in instance
-    # Ordinea caracteristicilor rămâne cea din contract, chiar fără imagine.
-    assert len(instance["features"]) == len(core.MODEL_FEATURE_ORDER)
+    assert instance["image_captured"] is True
 
 
 def test_endpoint_body_skips_a_photo_that_belongs_to_another_part():
@@ -155,23 +177,25 @@ def test_parse_endpoint_response_clamps_and_validates():
         core.parse_endpoint_response(b"nu e json")
 
 
-# ---------------------------------------------------------------- scor de rezervă
-def test_heuristic_probability_reacts_to_degradation():
-    clean = core.heuristic_probability(snapshot())
-    worn = core.heuristic_probability(snapshot(tool_wear_index=0.9, surface_quality=0.4))
-    assert worn > clean
+# ---------------------------------------------------------------- verdictul vine din model
+def test_a_defect_drawn_by_the_simulator_does_not_reach_the_request():
+    """Piesa rea și piesa bună produc exact aceeași cerere: modelul nu are ce dezvălui.
+
+    Testul este miezul separării dintre colectare și demonstrație. Dacă cineva pune la loc
+    eticheta în cadru, ori cititorul o refuză, ori cererea se deosebește — deci testul cade.
+    """
+    good = snapshot(part_id="part-000001", cycle_id="cyc-000001")
+    bad = snapshot(part_id="part-000002", cycle_id="cyc-000002")
+
+    body = json.loads(core.endpoint_body([good, bad]))
+    first, second = body["instances"]
+    first["part_id"] = second["part_id"] = "part"
+    first["cycle_id"] = second["cycle_id"] = "cyc"
+
+    assert first == second
+    assert not any(name in json.dumps(body) for name in core.LABEL_FIELDS)
 
 
-def test_heuristic_probability_forces_defect_when_flagged():
-    assert core.heuristic_probability(snapshot(is_synthetic_defect=True)) >= 0.9
-
-
-def test_heuristic_probability_stays_cautious_without_image():
-    score = core.heuristic_probability(snapshot(image_captured=False, tool_wear_index=0.95))
-    assert score <= 0.49
-
-
-# ---------------------------------------------------------------- verdict
 def test_verdict_message_rejects_above_threshold():
     message = core.verdict_message(snapshot(), probability=0.7, threshold=0.5, model_version="v1")
     assert message["verdict"] == "REJECT"
@@ -238,6 +262,15 @@ def test_metric_data_counts_the_photos_sent():
     assert core.METRIC_IMAGES_SENT not in {m["MetricName"] for m in without}
 
 
+def test_metric_data_counts_the_frames_left_without_a_model():
+    metrics = core.metric_data(0, 0, endpoint_failures=0, model_missing=4)
+    missing = [m for m in metrics if m["MetricName"] == core.METRIC_MODEL_MISSING]
+    assert missing and missing[0]["Value"] == 4.0
+
+    without = core.metric_data(1, 0, endpoint_failures=0)
+    assert core.METRIC_MODEL_MISSING not in {m["MetricName"] for m in without}
+
+
 # ---------------------------------------------------------------- fotografia din S3
 class FakeS3:
     """Client S3 minimal, ca testul să vadă exact ce chei se citesc."""
@@ -275,7 +308,7 @@ def run_handler(objects: dict[str, bytes], fail: set[str] | None = None, name: s
 
     def fake_probabilities(snapshots, images):
         captured["images"] = dict(images)
-        return [0.9], "model", 0
+        return [0.9], "model", 0, 0
 
     handler._probabilities = fake_probabilities
     result = handler.lambda_handler(s3_event(["raw/qa-snapshots/cyc-000001-part-000001.json"]))
@@ -339,3 +372,84 @@ def test_handler_exposes_lambda_handler():
 def test_handler_ignores_empty_event():
     handler = load_module("qa_vision_handler_empty_event", "lambdas/qa_vision_inference/handler.py")
     assert handler.lambda_handler({"Records": []}) == {"processed": 0, "rejects": 0, "skipped": 0}
+
+
+def run_with_a_real_endpoint(objects: dict[str, bytes], name: str, endpoint: str):
+    """Rulează handler-ul fără să înlocuiască `_probabilities`: se vede chiar calea reală."""
+    handler = load_module(f"qa_vision_handler_{name}", "lambdas/qa_vision_inference/handler.py")
+    fake = FakeS3(objects)
+    handler.client = lambda service, **kwargs: fake
+    handler.SAGEMAKER_ENDPOINT_NAME = endpoint
+    handler.SEND_IMAGE = True
+    verdicts: list[dict] = []
+    metrics: list[list[dict]] = []
+    handler._write_verdict = lambda *args, **kwargs: "cheie"
+    handler._publish = verdicts.append
+    handler._publish_metrics = lambda *args, **kwargs: metrics.append(
+        handler.core.metric_data(*args, **kwargs)
+    )
+    result = handler.lambda_handler(s3_event(["raw/qa-snapshots/cyc-000001-part-000001.json"]))
+    return handler, result, verdicts, metrics
+
+
+def test_handler_publishes_no_verdict_without_a_model():
+    """Fără endpoint configurat, verdictul nu se fabrică: se numără și se lasă ruta de rezervă."""
+    snap = snapshot()
+    objects = {
+        "raw/qa-snapshots/cyc-000001-part-000001.json": json.dumps(snap).encode("utf-8"),
+        snap["image_key"]: b"\x89PNG-cadru",
+    }
+
+    _, result, verdicts, metrics = run_with_a_real_endpoint(objects, "no_model", "")
+
+    assert result["processed"] == 0
+    assert result["model_missing"] == 1
+    assert verdicts == []
+    names = {metric["MetricName"] for batch in metrics for metric in batch}
+    assert core.METRIC_MODEL_MISSING in names
+    assert core.METRIC_ENDPOINT_FAILURES not in names
+
+
+def test_handler_publishes_no_verdict_when_the_endpoint_fails():
+    snap = snapshot()
+    objects = {
+        "raw/qa-snapshots/cyc-000001-part-000001.json": json.dumps(snap).encode("utf-8"),
+        snap["image_key"]: b"\x89PNG-cadru",
+    }
+    handler = load_module("qa_vision_handler_endpoint_down", "lambdas/qa_vision_inference/handler.py")
+    fake_s3 = FakeS3(objects)
+
+    def client(service: str, *args, **kwargs):
+        if service == "sagemaker-runtime":
+            raise RuntimeError("endpoint indisponibil")
+        return fake_s3
+
+    verdicts: list[dict] = []
+    metrics: list[list[dict]] = []
+    handler.client = client
+    handler.SAGEMAKER_ENDPOINT_NAME = "ep-de-test"
+    handler._write_verdict = lambda *args, **kwargs: "cheie"
+    handler._publish = verdicts.append
+    handler._publish_metrics = lambda *args, **kwargs: metrics.append(
+        handler.core.metric_data(*args, **kwargs)
+    )
+
+    result = handler.lambda_handler(s3_event(["raw/qa-snapshots/cyc-000001-part-000001.json"]))
+
+    assert result["processed"] == 0
+    assert result["endpoint_failures"] == 1
+    assert verdicts == []
+    names = {metric["MetricName"] for batch in metrics for metric in batch}
+    assert core.METRIC_ENDPOINT_FAILURES in names
+
+
+def test_handler_counts_a_frame_that_carries_the_answer_as_skipped():
+    """Cadrul cu etichetă este refuzat la citire, deci nu ajunge nici la model, nici la verdict."""
+    snap = snapshot(**LEAKY_FIELDS)
+    objects = {"raw/qa-snapshots/cyc-000001-part-000001.json": json.dumps(snap).encode("utf-8")}
+
+    _, result, verdicts, _ = run_with_a_real_endpoint(objects, "leaky", "ep-de-test")
+
+    assert result["skipped"] == 1
+    assert result["processed"] == 0
+    assert verdicts == []

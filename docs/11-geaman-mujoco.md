@@ -514,10 +514,15 @@ cele două căi au cititori diferiți și rămân separate.
 ## 5. Detecția anomaliilor și timpul de anticipare
 
 **Vectorul de caracteristici** este cel din contract, plus mărimi strict locale, disponibile
-pentru experiment: `spindle_load_mean/p95/std`, `vibration_rms/peak/std`, `tool_wear_index`,
-`joint_friction_index`, `coolant_flow_lpm`, `temp_c_mean`, `axis_feed_mean`,
-`joint_effort_mean/max`, `sample_count`, `machine_state`, plus `cycle_time_s` și
-`belt_speed_std`, care există în simulare și nu în schema publicată.
+pentru experiment: `spindle_load_mean/p95/std`, `vibration_rms/peak/std`, `coolant_flow_lpm`,
+`temp_c_mean`, `axis_feed_mean`, `joint_effort_mean/max`, `sample_count`, `machine_state`,
+plus `cycle_time_s` și `belt_speed_std`, care există în simulare și nu în schema publicată.
+
+`tool_wear_index` și `joint_friction_index` **nu** intră în vector, deși rămân în contract și
+în dashboard-ul de degradare: sunt `1 - h`, adică starea internă a motorului de uzură, nu o
+citire de senzor. Un detector care le primește are răspunsul în intrare, iar pe linia reală
+coloanele nu există (ADR 0013). `MODEL_FEATURE_ORDER` din `lambdas/feature_engineering/core.py`
+este lista care decide.
 
 **Antrenare**: RCF local, doar pe ferestre din sesiuni sănătoase, cu aceleași hiperparametri
 pentru toate componentele. **Scor**: fiecare fereastră nouă primește un scor de anomalie.

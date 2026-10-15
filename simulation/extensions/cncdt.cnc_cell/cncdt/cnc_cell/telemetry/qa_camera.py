@@ -13,6 +13,11 @@ Cadrul are un rol, scris în câmpul ``camera_role``:
 Captura folosește Replicator, disponibil în Isaac Sim. Dacă modulul lipsește, se încearcă
 captura directă a viewport-ului. Dacă ambele lipsesc, se scrie doar metadatele, iar pipeline-ul
 rămâne testabil.
+
+Cadrul nu conține nimic din ce poartă răspunsul. Câmpurile de uzură și flagul de defect cerut au
+fost scoase în versiunea 1.2.0 a contractului: fișierul JSON pornește Lambda-ul de inspecție, iar
+modelul antrenat trebuie să deducă verdictul din imagine. Eticheta rămâne în datasetul de
+antrenare, unde ajunge pe altă cale.
 """
 
 from __future__ import annotations
@@ -23,6 +28,19 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+#: Câmpuri care poartă răspunsul, sub aceleași nume ca în `cncdt_mj/telemetry.py` și în
+#: `lambdas/qa_vision_inference/qa_vision_core.py`. Cadrul de inspecție le refuză zgomotos:
+#: un apel care le trimite este o scurgere de etichetă, nu o diferență de stil.
+LABEL_FIELDS: tuple[str, ...] = (
+    "is_synthetic_defect",
+    "tool_wear_index",
+    "joint_friction_index",
+    "surface_quality",
+    "family",
+    "defect",
+    "verdict",
+)
 
 
 def log(message: str, level: str = "info") -> None:
@@ -134,7 +152,16 @@ class QaSnapshotWriter:
         pipeline-ul de control să poată fi testat separat de redarea grafică.
         ``camera_path`` este camera din scenă, când a fost legată, iar ``camera_role``
         spune ce post de inspecție a produs cadrul (``sorting`` ori ``inspection``).
+
+        ``metadata`` este context de celulă (dispozitiv, stare, topic). Un câmp din
+        :data:`LABEL_FIELDS` ridică eroare, fiindcă ar duce răspunsul la model.
         """
+        leaked = sorted(set(metadata) & set(LABEL_FIELDS))
+        if leaked:
+            raise ValueError(
+                "cadrul de inspecție ar duce eticheta la model: " + ", ".join(leaked)
+                + ". Eticheta se scrie în datasetul de antrenare, nu în snapshot."
+            )
         directory = self.output_dir / cycle_id
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -148,7 +175,7 @@ class QaSnapshotWriter:
                 log("nu am putut captura cadrul; se scriu doar metadatele", level="warn")
 
         record: dict[str, Any] = {
-            "schema_version": "1.1.0",
+            "schema_version": "1.2.0",
             "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "cycle_id": cycle_id,
             "part_id": part_id,

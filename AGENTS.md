@@ -99,6 +99,17 @@ clientului WebRTC, desktopul DCV, panoul de control din Isaac Sim sau dashboard-
   spot, instanța se termină, AWS detașează volumul, iar următorul `make sim-up` îl reatașează la
   instanța nouă; `twinctl` așteaptă scurt dacă volumul e încă `in-use` și spune explicit când
   instanța din state a fost terminată.
+- **Eticheta nu intră pe calea de inferență (ADR 0013).** Colectarea scrie etichete, pentru
+  antrenare; demonstrația ia fiecare verdict din modelul antrenat. Cadrul de inspecție
+  (`cnc.qa.snapshot.v1.json`, versiunea 1.2.0, schemă închisă) nu are voie să conțină
+  `tool_wear_index`, `joint_friction_index`, `surface_quality`, `is_synthetic_defect`, `family`,
+  `defect` sau `verdict`: numele sunt păzite de `LABEL_FIELDS` în toți cei trei care ating
+  cadrul (geamănul, `QaSnapshotWriter` din Isaac Sim, `qa_vision_core` din Lambda). Fără
+  endpoint configurat, Lambda-ul de inspecție nu publică niciun verdict — numără cadrele în
+  `QaModelMissing` — fiindcă o rezervă pe praguri citită din metadate ar produce verdicte care
+  par că vin din model. Aceeași regulă pentru hot path: `MODEL_FEATURE_ORDER` conține doar
+  măsurători, iar `tool_wear_index`/`joint_friction_index` (adică `1 - h`) ies din intrarea
+  modelului, deși rămân în contract pentru dashboard.
 - **Glue este doar registru de schemă.** Nu adăugați job-uri, crawlere sau transformări Glue.
   Feature engineering-ul offline se face cu Data Wrangler (vezi `docs/adr/0003`), iar hot
   path-ul este Lambda-ul. Motivul: `docs/adr/0002`.
