@@ -128,7 +128,9 @@ clientului WebRTC, desktopul DCV, panoul de control din Isaac Sim sau dashboard-
   al cărui trust e legat de spațiul de lucru Modal, iar secretul Modal `cncdt-aws` poartă doar
   `AWS_ROLE_ARN` și `AWS_REGION`. Furnizorul OIDC se creează în `stacks/access`, fiindcă gardul
   rolului de operator refuză `iam:CreateOpenIDConnectProvider`. Numele bucket-ului se pune în
-  `DATA_LAKE_BUCKET` din `.env` (`make training-data-status`).
+  `DATA_LAKE_BUCKET` din `.env` (`make training-data-status`). Un container poate fi preemptat;
+  Modal reia invocarea cu aceiași parametri, iar sesiunea o ia de la ciclul 1 (fișierele se scriu
+  la final), deci `MJ_MODAL_CYCLES` mare costă reluări întregi.
 - **Un corpus de uzură fără degradare nu se urcă.** La `--rate 1` un ciclu mișcă sănătatea cu
   ~0,006, deci `make mj-collect` folosește `MJ_COLLECT_RATE` (implicit 20) și urcă prin
   `publish.py --require-wear`, care refuză o colectare în care nicio componentă nu a coborât sub

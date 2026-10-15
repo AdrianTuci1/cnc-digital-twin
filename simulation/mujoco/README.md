@@ -297,6 +297,13 @@ training-data/mujoco/dt=<zi>/run-<UTC>/manifest.json      # ce conține corpusul
 training-data/mujoco/dt=<zi>/run-<UTC>/<familie>-<sămânță>/{samples.jsonl, frames.jsonl, …, frames/}
 ```
 
+**Preempțiunea pe Modal.** Platforma poate întrerupe un container în mijlocul unei sesiuni (spot
+la nivel de container); logul scrie `Container terminated due to preemption`, iar Modal reia
+invocarea întreruptă cu aceiași parametri. `run.py` scrie fișierele sesiunii abia la final, deci
+sesiunea repornește de la ciclul 1, cu aceeași sămânță: se pierde timpul de perete de până atunci,
+fără rânduri duplicate ori parțiale. Pentru sesiuni lungi, asta înseamnă că `MJ_MODAL_CYCLES`
+mare costă reluări întregi, iar repartizarea pe mai multe sesiuni scurte pierde mai puțin.
+
 Prefixul `datasets/` este al corpusului offline, nu al căii live: `raw/telemetry/` este Parquet de
 ferestre scris de Firehose și citit de tabelul Glue, iar `raw/qa-snapshots/` este chiar
 declanșatorul Lambda-ului de inspecție. Corpusul se citește direct, cu
