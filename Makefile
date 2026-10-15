@@ -191,7 +191,6 @@ cell-layout: ## Regenerează planul celulei, văzut de sus (docs/diagrams/cnc-ce
 #   simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo
 MJ_DIR     := simulation/mujoco
 MJ_PY      := $(ROOT)/$(MJ_DIR)/.venv/bin/python
-MJ_SAMPLES ?= 200
 # Familiile de piese pe care le parcurge `make mj-demo`. Ciclul atinge locul familiei în raft, deci
 # fiecare familie este o probă separată; `make mj-demo MJ_FAMILIES=wheel_100` scurtează proba.
 MJ_FAMILIES ?= wheel_100 flange_72 bushing_68 wheel_60 pinion_56
@@ -232,12 +231,12 @@ mj-venv: ## Creează venv-ul geamănului MuJoCo și instalează requirements.txt
 
 mj-check: ## Verifică scena MuJoCo (compilează, măsoară, raportează); poartă pentru faza 2
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
-	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --check --samples $(MJ_SAMPLES)
+	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --check
 
-mj-render: ## Scrie cadrele geamănului: renders/cell.png și renders/inspection.png
+mj-render: ## Scrie cadrele geamănului: renders/cell.png și renders/arm2_wrist_camera.png
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
 	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --render
-	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --render --camera camera_quality
+	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --render --camera arm2_wrist_camera
 
 mj-demo: ## Rulează ciclul brațelor (offscreen), familie cu familie, și raportează fiecare oprire
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }

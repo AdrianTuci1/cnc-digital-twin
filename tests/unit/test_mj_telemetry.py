@@ -112,12 +112,16 @@ def test_identificatorii_au_formatul_din_contract() -> None:
 
 
 def test_metadatele_cadrului_poarta_rolurile_si_versiunea_din_contract() -> None:
-    """Cele două roluri care declanșează inspecția sunt cele din schemă, la versiunea publicată."""
+    """Rolurile care declanșează inspecția sunt cele din schemă, la versiunea publicată.
+
+    Schema ține și rolul `inspection`, pentru cadrele fixe din extensia Isaac Sim; geamănul MuJoCo
+    produce doar `sorting`, de la camera de pe flanșa brațului 2.
+    """
     schema = telemetry.load_schema(SNAPSHOT_SCHEMA)
     version = schema["properties"]["schema_version"]["const"]
     roles = set(schema["properties"]["camera_role"]["enum"])
-    assert {povs.ROLE_SORTING, povs.ROLE_INSPECTION} <= roles
-    for role in (povs.ROLE_SORTING, povs.ROLE_INSPECTION):
+    assert {povs.ROLE_SORTING, "inspection"} <= roles
+    for role in (povs.ROLE_SORTING, "inspection"):
         record = _snapshot(role=role)
         assert telemetry.validate_snapshot(record) == []
         assert record["schema_version"] == version
@@ -194,35 +198,34 @@ def test_starea_masinii_acopera_toate_punctele_de_lucru() -> None:
 
 
 def test_registrul_punctelor_de_vedere_are_nume_unice_si_camere_din_plan() -> None:
-    """Cele patru puncte de vedere privesc camere care există: cele din plan și cele de pe flanșe."""
+    """Cele trei puncte de vedere privesc camere care există: cele de pe flanșe și cea liberă."""
     names = [item.name for item in povs.POVS]
-    assert names == ["arm1_wrist", "arm2_wrist", "process", "cell"]
+    assert names == ["arm1_wrist", "arm2_wrist", "cell"]
     assert len(set(names)) == len(names)
-    known = {item["name"] for item in layout.CAMERAS}
-    known |= {f"{item['key']}_wrist_camera" for item in layout.ARMS}
+    known = {f"{item['key']}_wrist_camera" for item in layout.ARMS}
     for item in povs.POVS:
         assert item.camera is None or item.camera in known, item.name
         assert povs.pov(item.name) is item
 
 
-def test_cadrul_de_pe_banda_sta_pe_axul_camerei_fixe() -> None:
-    """Momentul `on_belt` este chiar cota camerei de inspecție din plan, nu una apropiată."""
-    process = povs.pov("process")
-    assert process.belt_x_m == pytest.approx(float(layout.CAMERAS[0]["x"]))
-    assert process.role == povs.ROLE_INSPECTION
+def test_verdictul_vine_de_la_camera_de_pe_flansa_bratului_2() -> None:
+    """Rolul `sorting` este al camerei care vede piesa ținută, nu al unei camere fixe."""
     assert povs.pov("arm2_wrist").role == povs.ROLE_SORTING
+    assert [item.name for item in povs.POVS if item.role == povs.ROLE_SORTING] == ["arm2_wrist"]
+    assert not hasattr(povs, "ROLE_INSPECTION"), "nu mai există rol de cameră fixă în geamăn"
+    assert not hasattr(povs, "ON_BELT") and not hasattr(povs, "on_belt")
 
 
 def test_fiecare_punct_de_vedere_are_un_moment_de_captura() -> None:
     """Un punct de vedere fără moment nu s-ar fotografia niciodată, tăcut."""
     for item in povs.POVS:
-        assert item.stages or item.belt_x_m is not None, item.name
+        assert item.stages, item.name
     assert {item.name for item in povs.at_stage("belt2_pick")} == {"arm2_wrist"}
-    assert {item.name for item in povs.on_belt()} == {"process"}
+    assert {item.name for item in povs.at_stage("cnc_chuck")} == {"arm1_wrist"}
 
 
 def test_planul_unui_ciclu_are_toate_cadrele_o_singura_data() -> None:
-    """Cinci cadre pe ciclu, fiecare `camera@moment` o singură dată, pe orice familie.
+    """Patru cadre pe ciclu, fiecare `camera@moment` o singură dată, pe orice familie.
 
     Aici se prinde regresia care a lipsit un cadru: `arm1_wrist` se fotografiază la două momente,
     deci „l-am luat deja" nu se poate ține minte doar pe numele camerei.
@@ -230,12 +233,12 @@ def test_planul_unui_ciclu_are_toate_cadrele_o_singura_data() -> None:
     for family in layout.RACK_FAMILIES:
         plan = povs.frames_per_cycle(family)
         counted = Counter(item.name for _, item in plan)
-        assert counted == Counter({"arm1_wrist": 2, "arm2_wrist": 1, "process": 1, "cell": 1}), \
+        assert counted == Counter({"arm1_wrist": 2, "arm2_wrist": 1, "cell": 1}), \
             family
         keys = [f"{item.name}@{stage}" for stage, item in plan]
         assert len(keys) == len(set(keys)), f"cadru luat de două ori: {keys}"
         stages = {stage for stage, _ in plan}
-        assert stages - {povs.ON_BELT} <= set(moves.route_names("arm1", family)) \
+        assert stages <= set(moves.route_names("arm1", family)) \
             | set(moves.route_names("arm2", family))
         assert layout.rack_target(family) in stages
 
@@ -248,9 +251,9 @@ def test_randul_din_frames_poarta_eticheta_piesei() -> None:
     variant = part.load_variant(part.DEFAULT_SEED, None, layout.RACK_FAMILIES[0])
     label = part.describe(variant)
     row = telemetry.frame_row(
-        ts_ms=telemetry.SESSION_EPOCH_MS, cycle=CYCLE, part=PART, pov="process",
-        stage=povs.ON_BELT, camera="camera_quality", resolution=povs.PROCESS_FRAME,
-        path=f"{telemetry.FRAMES_DIR}/{CYCLE}/process-on_belt.png", sim_time_s=0.4,
+        ts_ms=telemetry.SESSION_EPOCH_MS, cycle=CYCLE, part=PART, pov="arm2_wrist",
+        stage="belt2_pick", camera="arm2_wrist_camera", resolution=povs.PROCESS_FRAME,
+        path=f"{telemetry.FRAMES_DIR}/{CYCLE}/arm2_wrist-belt2_pick.png", sim_time_s=0.4,
         machine_state="IDLE", label=label)
     assert row["variant_id"] == label["part_id"]
     assert row["family"] == label["family"]

@@ -29,13 +29,12 @@ Din rădăcina repo-ului, țintele Makefile acoperă tot ce se rulează des:
 make mj-venv     # o singură dată: creează venv-ul geamănului și instalează requirements.txt
 make mj-check    # poarta: compilează scena, măsoară, raportează; iese cu 1 dacă ceva cade
 make mj-test     # testele geamănului care ating motorul, din venv-ul lui
-make mj-render   # scrie renders/cell.png și renders/inspection.png
+make mj-render   # scrie renders/cell.png și renders/arm2_wrist_camera.png
 make mj-demo     # rulează ciclul brațelor și tipărește cifrele fiecărei opriri
 make mj-record   # colectează sesiuni de antrenare, câte una pe familie, în runs/
 make mj-collect  # colectează (MJ_COLLECT_CYCLES cicluri pe familie) și urcă în bucketul data lake
 make mj-collect-plan   # tipărește ce ar urca `make mj-collect`, fără să atingă bucketul
 make mj-publish  # urcă în bucket sesiunile deja scrise în runs/
-make mj-check MJ_SAMPLES=2000   # degajarea camerei, pe mai multe configurații de braț
 make mj-demo MJ_FAMILIES="wheel_100 pinion_56"   # doar familiile cerute, ca proba să fie scurtă
 make mj-record MJ_RECORD_CYCLES=20   # sesiune de antrenare: 20 de cicluri pe familie
 make mj-collect MJ_COLLECT_CYCLES=20 MJ_COLLECT_SEED=100   # colectare lungă, urcată direct
@@ -70,8 +69,8 @@ $MUJOCO simulation/mujoco/run.py --cycles 2 --inject belt_out:0.5 --inject cnc_t
 # Un cadru al celulei, din camera liberă (implicit renders/cell.png).
 $MUJOCO simulation/mujoco/view.py --render
 
-# Cadrul camerei de inspecție, la rezoluția ei nativă (renders/inspection.png).
-$MUJOCO simulation/mujoco/view.py --render --camera camera_quality
+# Cadrul camerei de pe flanșa brațului 2, la rezoluția ei nativă (renders/arm2_wrist_camera.png).
+$MUJOCO simulation/mujoco/view.py --render --camera arm2_wrist_camera
 
 # Viewer interactiv, cu benzile pornite. Pe macOS fereastra se creează doar pe firul principal,
 # deci cere `mjpython`, care vine în wheel-ul `mujoco`; semnul că rulăm sub el este variabila
@@ -83,18 +82,18 @@ simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view
 simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo
 
 # Cu amândouă piesele lăsate mai în amonte și în reluare lentă, ca transportul până la liniile de
-# oprire să se vadă (altfel piesa mașinată pornește chiar sub cameră, iar cea brută chiar la linia
-# benzii 1).
+# oprire să se vadă (altfel piesa mașinată pornește chiar la jumătatea drumului, iar cea brută chiar
+# la linia benzii 1).
 simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py \
     --view --speed 0.5 --blank-x 0.6 --part-x 4.4
 ```
 
 `--check` iese cu cod 1 dacă vreo verificare cade, ca să poată fi folosit ca poartă, iar `--demo`
 iese cu cod 1 dacă vreo oprire a ciclului nu ajunge la punct ori dacă o verigă a brațului atinge
-celula. Restul opțiunilor: `--steps`, `--samples` (configurații de braț eșantionate la degajarea
-camerei), `--seed`, `--defect`, `--family` (familia de piese: alege piesa, blocul brut,
-compartimentul din raft și cota de lucru), `--blank-shape`, `--blank-x`/`--blank-y`,
-`--blank-yaw-deg`, `--part-yaw-deg`, `--part-x`/`--part-y`, `--camera-z`, `--base-z` (cota
+celula. Restul opțiunilor: `--steps`, `--seed`, `--defect`, `--family` (familia de piese: alege
+piesa, blocul brut, compartimentul din raft și cota de lucru), `--blank-shape`,
+`--blank-x`/`--blank-y`,
+`--blank-yaw-deg`, `--part-yaw-deg`, `--part-x`/`--part-y`, `--base-z` (cota
 piedestalului brațelor, pentru măsurători), `--demo-settle` (câți pași se așteaptă la fiecare
 oprire), `--shots [DIR]`,
 `--width`, `--height`, iar pentru viewer `--belts`/`--no-belts` și `--speed`. La pozițiile cerute
@@ -120,7 +119,7 @@ atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care a
 | `cncdt_mj/belt.py` | Benzile: direcția fiecărei benzi, viteza de suprafață și forța de antrenare cu limita de frecare Coulomb. **Fără MuJoCo.** |
 | `cncdt_mj/checks.py` | Regulile verificării care lucrează pe nume de corpuri și pe cifre, nu pe starea motorului (de pildă care contacte ale unui braț sunt normale), plus pragurile verificării, împărțite cu `view.py`. **Fără MuJoCo.** |
 | `cncdt_mj/moves.py` | Mișcările: ce puncte deservește fiecare braț, în ce ordine, din ce parte vine scula, cu ce rotire și prin ce puncte de trecere. Cotele punctelor de lucru ies din înălțimile documentate. **Fără MuJoCo.** |
-| `cncdt_mj/povs.py` | Cele patru puncte de vedere din care se strânge datasetul: camera, rezoluția, momentul de captură (un punct de lucru ori cota de pe bandă) și rolul din contract. **Fără MuJoCo.** |
+| `cncdt_mj/povs.py` | Cele trei puncte de vedere din care se strânge datasetul: camera, rezoluția, momentul de captură (un punct de lucru al ciclului) și rolul din contract. **Fără MuJoCo.** |
 | `cncdt_mj/telemetry.py` | Contractele: eșantionul brut cu exact câmpurile din `cnc.telemetry.v1.json`, metadatele cadrului de inspecție, etichetele sesiunii, plus un validator mic peste fișierele de schemă (fără dependența `jsonschema`). **Fără MuJoCo.** |
 | `cncdt_mj/wear.py` | Motorul de uzură: sănătatea celor șapte componente pe timpul lor de lucru, efectele în mărimile din contract, eșecurile discrete cu hazard crescător și acțiunile de operator, cu etichetele lor. **Fără MuJoCo.** |
 | `cncdt_mj/export.py` | Corpusul de antrenare: așezarea cheilor în bucket, manifestul și verificările care opresc urcarea unui corpus cu găuri. **Fără MuJoCo.** |
@@ -153,21 +152,23 @@ scrie propriile poziții nominale, fiindcă ale modelului copil se importă și 
 
 ## Ce verifică `--check`
 
-Cifrele de referință, la sămânța implicită 7: `nq/nv/nu = 32/30/16`, 33 de corpuri, 214 geome, zero
-avertismente MuJoCo. Piesele se așază pe benzi cu 0,1 mm derivă, iar yaw-ul cerut se citește înapoi
-din scenă (comparat pe cerc, deci 348,5° și −11,5° sunt același unghi).
+Cifrele de referință, la sămânța implicită 7: scena se compilează fără avertismente MuJoCo,
+`nq/nv/nu = 32/30/16`, 36 de corpuri și 236 de geome, iar piesele se așază pe benzi cu derivă sub
+0,1 mm, cu yaw-ul cerut citit înapoi din scenă (comparat pe cerc, deci 348,5° și −11,5° sunt
+același unghi).
 
 Țintele de prindere, măsurate **în spațiu** de la baza brațului, față de raza de 0,855 m din plan:
 brațul 1 ajunge la 0,704 m (preluare bandă 1), 0,739 m (mașină) și 0,723 m (așezare bandă 2);
-brațul 2 la 0,461 m (preluare bandă 2) și între 0,310 m (locul 1) și 0,637 m (locul 5) la raft.
+brațul 2 la 0,461 m (preluare bandă 2) și la toate cele cinci intrări ale raftului (între 0,512 m
+și 0,750 m).
 Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md` spune
 explicit că o țintă poate părea la îndemână în desen și să fie prea sus — verificarea de aici este
 cea în spațiu.
 
-Se mai verifică trei lucruri la camera de inspecție: degajarea față de ambele brațe (poziția
-nominală plus `--samples` configurații eșantionate, prag 0,02 m), încadrarea piesei — distanța,
-abaterea de la ax și diametrul aparent în pixeli, față de pragul de 3,0 px/mm — și faptul că
-niciun braț nu atinge un element al celulei la poziția nominală. Autocontactele unui braț
+Camerele de pe flanșe se verifică față de punctul de strângere: dacă acesta intră în cadru, la ce
+adâncime și cu ce abatere față de ax, și câți pixeli iese piesa ținută — pragul
+`checks.MIN_WRIST_PART_PX` prinde o montare greșită ori o cameră prea depărtată. Se mai verifică
+faptul că niciun braț nu atinge un element al celulei la poziția nominală. Autocontactele unui braț
 (`arm1_hand↔arm1_link5`) sunt normale și se ignoră.
 
 ## Brațele: ciclul din `--demo`
@@ -195,7 +196,7 @@ Lungimea sculei nu se presupune: se măsoară în scenă, de la flanșă la punc
 (`moves.approach_height`), care la așezarea pe banda 2 rămâne de câțiva centimetri — acolo raza
 brațului se termină.
 
-Două lecții de drum, amândouă măsurate:
+Trei lecții de drum, toate măsurate:
 
 1. **Ridicarea după fiecare punct.** Fără ea, drumul spre punctul următor pornește de la cota de
    lucru și mătură banda cu scula: blocul brut chiar era împins de pe banda 1, până pe podea
@@ -204,20 +205,28 @@ Două lecții de drum, amândouă măsurate:
    pe banda 2 iese din mașină exact prin colțul ei sud-vestic; brațul nu are planificator de
    traiectorie, deci intră în carcasă. Măsurat: fără punctul de trecere scula rămânea cu 880 mm de
    țintă și mâna pe mașină, cu el eroarea maximă a ciclului este 17,7 mm.
+3. **Punctul de trecere de deasupra fiecărei intrări din raft** (`moves.RACK_VIA_Z`). Dreapta de la
+   preluarea de pe banda 2 până la o intrare taie rândul din spate al raftului la cota de lucru a
+   benzii, iar falcile agață buzele intrării vecine. Măsurat: scula rămânea cu **280 mm** de țintă,
+   cu 34° de răsucire și mâna pe raft. Cota de călătorie **1,10 m** este cea mai de jos de care
+   trecerea e curată și cea mai de sus pe care o țin servo-urile: la intrarea cea mai depărtată
+   flanșa ajunge la 0,785 m din 0,855 m, pe când la 1,25 m ar sta la 0,846 m, adică 99 % din rază,
+   iar acolo scula rămâne cu 20–30 mm în urmă.
 
 Piedestalul brațelor este cota care nu se poate decide din plan. La 0,55 m ciclul **cade**: ca să
 ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar acolo
 platforma este deasupra lui (`arm2_link3↔belt_out`, 106 mm eroare la punctul de deasupra), iar
-locurile din raft devin de neatins (`arm2_link3↔rack`, peste 1 m eroare). La 0,95 m, cota
+intrările din raft devin de neatins (`arm2_link3↔rack`, peste 1 m eroare). La 0,95 m, cota
 documentată acum, `make mj-demo` încheie ciclul pentru toate cele cinci familii: 17,7 mm eroare
-maximă pe cele 80 de opriri, nicio verigă atinsă, 56,4 s simulate. Cota ridică însă brațele peste
-axa benzii 2, deci camera fixă urcă la cota documentată a camerelor, 2,20 m; alegerea este scrisă în
-`docs/11-geaman-mujoco.md` §2 și §10. `view.py --base-z` coboară cota pentru măsurători.
+maximă pe cele 85 de opriri — 10,7 mm la intrarea din raft —, nicio verigă atinsă, 57–59 s
+simulate pe familie.
+Alegerea este scrisă în `docs/11-geaman-mujoco.md` §2 și §10. `view.py --base-z` coboară cota
+pentru măsurători.
 
-Raftul, pe rând: la 0,95 m, toate cele cinci locuri se ating cu eroare sub 18 mm (`--family` alege
-familia), în orice variantă; la 0,55 m, locurile se ating cu peste 1 m eroare la al cincilea. Deci
-mutarea cutiilor în raft a scos piedica pe care o puneau cutiile adânci; ce a rămas la 0,55 m este
-banda 2 în sine, nu sortarea.
+Raftul, pe rând: la 0,95 m, toate cele cinci intrări se ating, cu eroare maximă de 10,7 mm
+(`--family` alege familia); la 0,55 m, intrările se ating cu peste 1 m eroare la a cincea. Deci
+intrările deschise ale raftului au scos piedica pe care o puneau cutiile adânci; ce a rămas la
+0,55 m este banda 2 în sine, nu sortarea.
 
 **Ce lipsește: prinderea.** Mâna Panda se deschide 83 mm, blocul brut are 104 mm și universalul
 110 mm, deci falcile nu pot cuprinde piesa — de aceea o ating razant pe toată cursa. Celula reală
@@ -226,50 +235,27 @@ Geamănul o va oglindi cu o egalitate de tip weld, pornită și oprită prin `da
 atunci ciclul nu ridică nimic, iar `--demo` tipărește unde a lăsat fiecare piesă, fără să cadă
 din asta.
 
-## Camera de inspecție
+## Camerele de pe flanșe
 
-Camera stă la cota documentată a camerelor, **2,20 m** în lume, adică **1,35 m deasupra suprafeței
-benzii 2**, și randează la **640×480** cu **5,6° pe verticală**. Acoperă **176 × 132 mm** la nivelul
-benzii, adică **3,6 px/mm** pe piesă: roata de 104 mm intră pe ~59% din lățimea cadrului (366 px în
-`--check`). Cota este parametru (`--camera-z`, ori `layout.inspection_camera_z()`), iar
-intrinsics-urile se calculează din geometrie, în `layout.inspection_camera_intrinsics()`, nu se
-afirmă. Sub cota documentată geometria refuză compunerea scenei: `camera_geometry` ridică
-`ValueError`.
+Nu mai există o cameră fixă deasupra benzii 2: verdictul de calitate îl dă camera de pe flanșa
+brațului 2. Fiecare braț are câte o cameră pe flanșă, la 5 cm de `link7`, cu **60° pe verticală**
+și **640×480**, iar obiectivul privește punctul de strângere; orientarea se calculează la
+compunerea scenei (`scene.wrist_camera_quat`), nu se scrie de mână.
 
-**De ce nu mai jos**: pe plaja articulațiilor, geomele unui braț urcă peste axa benzii 2 până la
-~2,10 m în lume, adică ~1,15 m peste baza de la 0,95 m (cotul), iar capul optic stă deasupra lor.
-La cota documentată, golul minim măsurat pe 2000 de configurații eșantionate este 0,115 m față de
-brațul 1 și 0,095 m față de brațul 2.
-
-**De ce 5,6° și nu un obiectiv normal**: la 2,20 m un obiectiv care acoperă ~1,5 m din cadru lasă
-piesa de ~104 mm la vreo 10 pixeli, iar cel mai fin defect din catalog — o gaură dezaxată cu 2,5 mm
-— ar cădea sub un pixel, deci nicio clasă de defect nu ar fi separabilă. Obiectivul s-a îngustat
-până când acoperirea la nivelul benzii — deci rezoluția pe piesă — a ajuns aceeași cu cea a
-variantei de dinainte: un dinte ciobit de 4 mm iese pe ~14 pixeli și dezaxarea de 2,5 mm pe ~9.
-
-**Cum stă**: consola camerei se prinde pe capacul mașinii CNC, la 0,25 m vest de axul ei (`H6`), și
-se așază pe el, la 1,90 m; de capătul ei atârnă capul optic pe o tijă subțire, iar brațul consolei
-trece imediat deasupra capului optic. Anvelopa brațelor rămâne dedesubt: cea mai mică distanță
-măsurată este 0,115 m (brațul 1) și 0,095 m (brațul 2) la 2000 de configurații eșantionate, peste
-pragul de 0,02 m. Capul optic nu poate sta chiar în punctul camerei din plan: o cameră care privește
-în jos trebuie să fie deasupra subiectului ei, iar capul stă deasupra axei benzii 2, la mijlocul
-distanței dintre locul de așezare (x=3,4) și cel de preluare (x=2,7).
+Camera de pe brațul 2 fotografiază piesa ținută în falci: stă la **16 cm** de punctul de strângere,
+iar roata de ~104 mm iese la **~260–270 px** din 640, adică **~2,6 px/mm**. La scara asta, cel mai
+fin defect din catalog — o gaură dezaxată cu 2,5 mm — ajunge la **~6–7 px**, iar dintele ciobit de
+4 mm la **~10 px**. Pragul `checks.MIN_WRIST_PART_PX` prinde o cameră montată greșit, care nu are
+piesa în cadru, ori o cameră prea depărtată, la care piesa ajunge un blob de câteva zeci de pixeli.
 
 **Axa de privire**: camerele MuJoCo privesc de-a lungul axei lor locale **−Z**, nu +Z (verificat cu
-o scenă de probă: două cutii, una deasupra și una dedesubt). Prima variantă întorcea camera cu
-`quat="0 1 0 0"`, ceea ce o făcea să privească spre cer; `renders/inspection.png` era numai cer și
-pământ. Acum orientarea este implicită („în jos"), iar `--check` verifică explicit că piesa intră
-în cadru, ca bug-ul să nu poată reveni tăcut.
+o scenă de probă: două cutii, una deasupra și una dedesubt). Așa cum vine din catalog, camera
+privea **înapoi**, spre cot, iar punctul de strângere cădea la −143 mm adâncime, adică în spatele
+obiectivului; acum orientarea se calculează la compunere, iar `--check` verifică explicit că piesa
+intră în cadru, ca bug-ul să nu poată reveni tăcut.
 
-Ce **nu** rezolvă camera: 3,6 px/mm înseamnă că diferențele sub ~0,3 mm nu sunt măsurabile, iar
-degradarea camerei (`docs/11-geaman-mujoco.md`, secțiunea 3) va adăuga blur proporțional cu
-`1 - h_camera` peste ele — deocamdată cadrele ies curate.
-Cadrul este suficient pentru catalogul actual de defecte, nu pentru unul mai fin: dacă
-defectele se rafînează, se schimbă întâi distanța ori rezoluția, nu clasificatorul.
-
-Camerele de prindere stau pe flanșa fiecărui braț, cu 60° pe verticală, la 640×480 — aceeași
-rezoluție ca a camerei fixe, ca două cadre să se poată pune unul peste altul. Vezi secțiunea
-„Colectarea datelor de antrenare" pentru ce se vede în ele.
+Degradarea camerei (`docs/11-geaman-mujoco.md`, secțiunea 3) va adăuga blur proporțional cu
+`1 - h_camera` peste cadrele cerute — deocamdată cadrele ies curate.
 
 ## Colectarea datelor de antrenare
 
@@ -356,20 +342,19 @@ eșecuri reale (`belt_slip`, `spindle_bearing`, `tool_break`) și le scrie ca et
 1 lasă piesa în universal, iar cifrele ei — sarcină de ax, vibrație, temperatură, avans, debit de
 răcire, `tool_wear_index` — ies din motorul de uzură.
 
-**Cele patru puncte de vedere** sunt registrul din `cncdt_mj/povs.py`, iar pe ciclu ies cinci
-cadre:
+**Cele trei puncte de vedere** sunt registrul din `cncdt_mj/povs.py`, iar pe ciclu ies patru cadre:
 
 | Punct de vedere | Cameră | Moment | Rol |
 | --- | --- | --- | --- |
 | `arm1_wrist` | pe flanșa brațului 1 | la preluarea blocului brut și în universal | — |
 | `arm2_wrist` | pe flanșa brațului 2 | la preluarea roții de pe banda 2 | `sorting` — verdictul de calitate |
-| `process` | fixă, deasupra benzii 2 | când piesa trece prin dreptul ei | `inspection` |
 | `cell` | liberă, cadru larg | când piesa ajunge în locul familiei | — |
 
 Verdictul care decide ruta este cadrul de pe **flanșa brațului 2**: el vede piesa ținută în falci,
-de aproape, la ~2,6 px/mm. Cadrul fix rămâne pentru comparație și pentru dataset, la 3,6 px/mm.
-Niciunul nu se dublează: cele două cadre cu rol intră în `snapshots.jsonl`, toate patru intră în
-`frames.jsonl`, alături de familie, defect și verdict.
+de aproape, la ~2,6 px/mm. Rolul `inspection` a rămas definit în `cnc.qa.snapshot.v1.json`, dar
+geamănul nu-l mai produce: nu mai există un al doilea cadru cu rol. Cadrul cu rol (`sorting`) intră
+în `snapshots.jsonl`, toate cele patru intră în `frames.jsonl`, alături de familie, defect și
+verdict.
 
 **Verificarea la sfârșitul sesiunii** validează fiecare eșantion și fiecare cadru de inspecție
 contra fișierelor de schemă, numără cadrele față de plan și tipărește dimensiunile; ieșirea este
@@ -380,10 +365,10 @@ bit cu bit — eșantioane, metadate, indexul cadrelor, diagnosticul și toate P
 `diff -r` pe două sesiuni de câte două cicluri). Singura cifră care diferă este timpul de ceas real
 din `session.json`.
 
-Ce se vede azi în cadre, cinstit: cadrul de proces se ia **la începutul ciclului**, fiindcă în
-geamăn piesa mașinată stă deja sub camera fixă când începe ciclul, iar banda o duce întâi la linia
-de preluare a brațului 2. Cadrul de pe flanșa brațului 1 arată falcile deasupra universalului gol,
-fiindcă prinderea nu este modelată. Amândouă se schimbă cu prinderea, nu cu randarea.
+Ce se vede azi în cadre, cinstit: cadrele se iau la punctele de lucru ale ciclului, iar în geamăn
+piesa mașinată pornește deja pe banda 2, la jumătatea drumului dintre așezare și preluare, fiindcă
+prinderea nu este modelată. Cadrul de pe flanșa brațului 1 arată falcile deasupra universalului gol;
+se schimbă cu prinderea, nu cu randarea.
 
 
 ## Benzile: forță în cod, linie de oprire în plan
@@ -427,7 +412,8 @@ cadru:
 
 1. **`blank_01`** — blocul brut, pe banda 1, în ținta de preluare a brațului 1. Este un disc cu
    adaos de prelucrare (rază 52 mm, grosime 18 mm), nu piesa finită.
-2. **`part_01`** — roata dințată ieșită din CNC, pe banda 2, sub camera de inspecție.
+2. **`part_01`** — roata dințată ieșită din CNC, pe banda 2, la jumătatea drumului spre linia de
+   preluare a brațului 2.
 
 Transformarea dintre ele se petrece în mașină și **nu** se modelează aici: generatorul descrie
 rezultatul mașinării, nu piesa de intrare. Poziția și rotația fiecăreia sunt aleatorii din sămânță
@@ -437,31 +423,24 @@ va însoți cadrul de inspecție.
 
 ## Raftul pe familii
 
-Cutiile de piese bune și de rebut au fost înlocuite cu un **raft cu trei niveluri a câte două
-locuri**, șase locuri pentru cinci familii de piese din generator (`docs/10-dataset-piese.md`), plus
-o **ladă de rebut** sub capătul de vest al benzii 2. Al șaselea loc rămâne gol. Motivul nu este
+Cutiile de piese bune și de rebut au fost înlocuite cu un **raft cu cinci intrări cubice de
+0,50 × 0,50 × 0,50 m**, una pe familie de piese din generator (`docs/10-dataset-piese.md`), toate
+pe același nivel, plus o **ladă de rebut** sub capătul de vest al benzii 2. Motivul nu este
 estetic: cutiile aveau pereți până la nivelul benzii, iar antebrațul brațului 2 trecea prin ei.
 
-Raftul este o **scară**, nu un dulap cu rafturi suprapuse, iar treptele urcă **spre vest, departe de
-braț**: 0,85 m, 0,97 m, 1,09 m, cu pasul de 0,12 m, iar fiecare treaptă are 0,167 m adâncime și
-0,25 m lățime pe loc. Ordinea nu e o preferință: lângă bază brațul are cel mai puțin loc — placa
-lui de bază coboară la 0,82 m, antebrațul mătură amprenta raftului la ~1,20 m în timpul apropierii,
-iar încheietura trece la ~0,153 m peste podeaua locului în care coboară scula. De aceea treapta de
-lângă braț stă la nivelul benzii, iar scara urcă spre vest; pasul de 0,12 m are două margini
-măsurate: sub el, antebrațul ar da în vârful treptei de sus; peste el, încheietura s-ar sprijini pe
-marginea de est a treptei de dedesubt, cu buza ei cu tot.
+Raftul are **un singur nivel**, cu podeaua la 0,85 m, adică la nivelul suprafeței benzii: o intrare
+de 0,5 m așezată la 1,35 m ar cere o rază orizontală de cel mult 0,69 m, iar acolo antebrațul
+brațului 2 mătură chiar peste raft. Rândul din față are trei intrări, cel din spate două, iar golul
+din spatele mijlocului este chiar locul unde se ridică baza brațului 2. Fiecare intrare este un
+**sertar lat**: podea subțire, cu buze de 2 cm pe margine, și nimic ridicat deasupra podelei, ca
+antebrațul să aibă loc. Sub intrări stau **12 picioare** și **două panouri laterale**, la capetele
+raftului, toate sub podea.
 
-Fiecare treaptă e un bloc plin până la podeaua ei, peste care vin buzele de 20 mm și despărțitorul
-dintre cele două locuri ale treptei, de 30 mm. **Despărțitorul se retrage 3,5 cm de la marginea de
-est a treptei**: scula se lasă în locul treptei vecine, iar încheietura brațului rămâne deasupra
-muchiei dintre trepte, chiar la colțul lui — cu despărțitorul până în margine, veriga se sprijină pe
-el și scula nu mai ajunge la punct.
-
-Ordinea locurilor, de la treapta de lângă braț spre vest și, în treaptă, de la nord la sud, este
-ordinea familiilor din generator — `wheel_100`, `flange_72`, `bushing_68`, `wheel_60`, `pinion_56`
-— și un test o verifică, ca planul, scena și clasificatorul să nu se despartă. Locul are 0,25 m
-lățime, deci cea mai mare piesă (Ø104) are circa 70 mm joc de fiecare parte. Codurile citite de pe
-raft sunt amânate deliberat (`docs/10-dataset-piese.md`).
+Ordinea intrărilor este ordinea familiilor din generator — `wheel_100`, `flange_72`, `bushing_68`,
+`wheel_60`, `pinion_56` —, iar un test o verifică, ca planul, scena și clasificatorul să nu se
+despartă. Fiecare piesă se lasă culcată în intrarea familiei ei; cea mai mare (Ø104) are loc de
+falci înainte și după ea. Codurile citite de pe raft sunt amânate deliberat
+(`docs/10-dataset-piese.md`).
 
 Lada de rebut are marginea la 0,62 m, sub nivelul benzii, și **fără perete la est**, chiar sub
 capătul de vest al benzii: piesa neconformă nu are punct de lucru, rămâne pe bandă până la capătul
@@ -470,8 +449,8 @@ ei și cade în ladă. Un perete chiar acolo ar prinde-o și ar ține-o afară.
 ## Stare cunoscută
 
 La sămânța 7, `view.py --check` este **verde**: scena se compilează fără avertismente, țintele cad
-în raza brațelor, camera de inspecție are piesa în cadru la 3,6 px/mm și rămâne la cel puțin
-0,095 m de brațe pe 2000 de configurații eșantionate. Transportul pe benzi merge: amândouă piesele
+în raza brațelor, iar camerele de pe flanșe au punctul de strângere în cadru, cu piesa ținută peste
+pragul de pixeli. Transportul pe benzi merge: amândouă piesele
 ajung la linia de oprire a benzii și se opresc 13 mm peste ea, fără să cadă din geometrie.
 
 `view.py --demo` este **verde** (`make mj-demo`), la cota documentată a piedestalului: 17,7 mm
@@ -479,9 +458,9 @@ eroare maximă pe cele 80 de opriri — 16 pe fiecare dintre cele cinci familii 
 brațelor atinsă, 56,4 s simulate, iar amândouă piesele rămân pe benzile lor. Cifrele ciclului și
 calea lui sunt în secțiunea „Brațele" de mai sus.
 
-`make mj-record` este **verde** pe toate cele cinci familii, cu un ciclu fiecare: cinci cadre pe
+`make mj-record` este **verde** pe toate cele cinci familii, cu un ciclu fiecare: patru cadre pe
 ciclu, 653–675 de eșantioane în contract pe sesiune, ~65 s simulați în ~3 s de ceas real (circa
-22 de ori mai repede decât ritmul real). Cadrul de proces, de pe flanșa brațului 2 și cel general
+22 de ori mai repede decât ritmul real). Cadrele de pe flanșa brațului 2 și cel general
 se citesc cu ochiul; universul gol și poziția falcilor se schimbă când intră prinderea.
 
 Uzura intră în fizică prin două locuri, amândouă măsurate: scala de viteză a fiecărei benzi și
@@ -495,7 +474,7 @@ Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
 1. **Prinderea piesei.** Falcile ating piesa fără să o cuprindă (mâna se deschide 83 mm, discul are
    104 mm): prinderea se modelează ca legătură rigidă, ca în celula din Isaac Sim, cu o egalitate
    `weld` pornită prin `data.eq_active`. De ea atârnă și „fără piese pierdute în geometrie", plus
-   ordinea reală a cadrului de proces (piesa ajunge sub cameră după ce brațul 1 o lasă pe bandă).
+   ordinea reală a ciclului (piesa ajunge în falci după ce brațul 1 o ridică de pe bandă).
 2. **Axele mașinii CNC.** `CUTTING` există ca fereastră de timp, cu cifrele care ies din uzură, dar
    scena nu are axe: când le va crește, aceleași coloane se citesc din motor, iar contractul rămâne
    neschimbat. Tot acolo intră și degradarea camerei (`blur` proporțional cu `1 - h_camera`), care

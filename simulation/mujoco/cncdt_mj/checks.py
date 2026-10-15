@@ -16,14 +16,6 @@ PAIR_SEPARATOR = "↔"
 # `.venv`-ul proiectului le pot citi fără motorul de fizică, iar `view.py --check` le
 # folosește pe aceleași.
 
-#: Cât de aproape are voie să ajungă un braț de camera de inspecție, în orice configurație, în
-#: metri. Sub atât, o poziție neprevăzută a brațului atinge consola.
-MIN_CAMERA_CLEARANCE_M = 0.02
-
-#: Cât de fin trebuie să vadă camera de inspecție piesa, în pixeli pe milimetru. Sub atât, cel
-#: mai fin defect din catalog — o gaură dezaxată cu 2,5 mm — cade sub ~9 pixeli.
-MIN_INSPECTION_PX_PER_MM = 3.0
-
 #: Câți pixeli trebuie să ocupe piesa ținută în cadrul camerei de pe flanșă. Camera stă la 16 cm
 #: de punctul de strângere, cu 60° pe verticală: roata de 104 mm iese la ~270 px din 640, iar o
 #: montare greșită — obiectivul întors spre cot — dă zero. Pragul prinde și o cameră prea

@@ -4,10 +4,10 @@
 Patru moduri, toate pe aceeași scenă compusă de `cncdt_mj.scene`:
 
 * `--check` (implicit) — compilează scena, pune poziția nominală, rulează câțiva pași și
-  raportează cifrele, distanțele până la ținte, distanța minimă până la camera de inspecție,
-  yaw-ul citit din scenă și contactele. Iese cu cod 1 dacă vreo verificare cade.
-* `--render` — scrie un PNG offscreen, implicit `renders/cell.png`; cu `--camera camera_quality`
-  scrie cadrul de inspecție, la rezoluția lui (`renders/inspection.png`).
+  raportează cifrele, distanțele până la ținte, cadrul camerelor de pe flanșe, yaw-ul citit din
+  scenă și contactele. Iese cu cod 1 dacă vreo verificare cade.
+* `--render` — scrie un PNG offscreen, implicit `renders/cell.png`; cu `--camera arm2_wrist_camera`
+  scrie cadrul camerei de pe flanșă, la rezoluția ei (`renders/arm2_wrist_camera.png`).
 * `--demo` — ciclul brațelor, punct cu punct: piesele sunt aduse la liniile de preluare, fiecare
   braț își urmează ruta din `cncdt_mj/moves.py`, iar la fiecare oprire se tipăresc eroarea, unghiul
   și contactele. Se termină cu „Ciclul: verde" ori cu „Ciclul: CĂZUT (n)". Cu `--shots` scrie un
@@ -39,7 +39,8 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import arms, belt, camera, cell, checks, layout, moves, part, scene  # noqa: E402
+from cncdt_mj import (arms, belt, camera, cell, checks, layout, moves, part,  # noqa: E402
+                      povs, scene)
 
 #: Unde se scriu cadrele; directorul e comis, ca dovada vizuală să fie în repo.
 RENDERS_DIR = MUJOCO_DIR / "renders"
@@ -50,9 +51,9 @@ ARM_PREFIXES = tuple(f"{prefix}_" for prefix, _ in scene.ARM_MOUNTS)
 #: La cât timp simulat se tipărește o linie de transport în viewer.
 REPORT_PERIOD_S = 1.0
 
-# Pragurile verificării (`MIN_CAMERA_CLEARANCE_M`, `MIN_INSPECTION_PX_PER_MM`,
-# `YAW_TOLERANCE_DEG`, `MAX_SETTLE_DRIFT_M`) stau în `cncdt_mj/checks.py`: sunt reguli pure, iar
-# testele din `.venv`-ul proiectului le împart cu scriptul de față.
+# Pragurile verificării (`MIN_WRIST_PART_PX`, `YAW_TOLERANCE_DEG`, `MAX_SETTLE_DRIFT_M`) stau în
+# `cncdt_mj/checks.py`: sunt reguli pure, iar testele din `.venv`-ul proiectului le împart cu
+# scriptul de față.
 
 
 def build(args: argparse.Namespace) -> tuple[mujoco.MjModel, mujoco.MjData, dict, list[str]]:
@@ -67,7 +68,6 @@ def build(args: argparse.Namespace) -> tuple[mujoco.MjModel, mujoco.MjData, dict
             blank_yaw_deg=args.blank_yaw_deg,
             part_yaw_deg=args.part_yaw_deg,
             part_xy=requested_xy(args.part_x, args.part_y, layout.STATE_MACHINED),
-            camera_z=args.camera_z,
         )
     return model, mujoco.MjData(model), metadata, list(warnings)
 
@@ -107,11 +107,12 @@ def _body_id(model: mujoco.MjModel, body: str) -> int:
 
 
 def camera_arguments(args: argparse.Namespace) -> tuple[str | None, int, int]:
-    """Camera și rezoluția: cadrul de inspecție are rezoluția cerută de plan, restul 1280x960."""
-    if args.camera == "camera_quality":
-        width, height = layout.INSPECTION_CAMERA_FRAME
-    else:
-        width, height = 1280, 960
+    """Camera și rezoluția: o cameră de pe flanșă are rezoluția punctului ei de vedere."""
+    width, height = povs.pov("cell").resolution
+    for item in povs.POVS:
+        if item.camera is not None and item.camera == args.camera:
+            width, height = item.resolution
+            break
     return args.camera, args.width or width, args.height or height
 
 
@@ -122,8 +123,6 @@ def check(args: argparse.Namespace) -> int:
     state = prepare(model, data, metadata, steps)
     counters = scene.metrics(model, data)
     reach = scene.reach_report(model, data)
-    clearance = scene.camera_clearance(model, data, samples=args.samples)
-    intrinsics = metadata["camera_intrinsics"]
     contacts = scene.contact_pairs(model, data)
     failures: list[str] = []
 
@@ -144,33 +143,7 @@ def check(args: argparse.Namespace) -> int:
         if not row["ok"]:
             failures.append(f"ținta „{row['label']}\" ({row['arm']}) este în afara razei brațului")
 
-    print(f"\nCamera de inspecție: {metadata['camera_z']:.3f} m "
-          f"({layout.INSPECTION_CAMERA_CLEARANCE_Z:.2f} m peste banda 2), "
-          f"{intrinsics['fovy_deg']:.1f}° pe verticală, "
-          f"{layout.INSPECTION_CAMERA_FRAME[0]}x{layout.INSPECTION_CAMERA_FRAME[1]}")
-    print(f"  acoperire la nivelul benzii: {intrinsics['coverage_x_m'] * 1000:.0f} x "
-          f"{intrinsics['coverage_y_m'] * 1000:.0f} mm, {intrinsics['px_per_mm']:.1f} px/mm")
-    for arm, distance in sorted(clearance["nominal"].items()):
-        sampled = clearance["sampled"][arm]
-        print(f"  distanța minimă la {arm:<5}: {distance:.3f} m la poziția nominală, "
-              f"{sampled:.3f} m pe {clearance['samples']} configurații eșantionate")
-        if sampled < checks.MIN_CAMERA_CLEARANCE_M:
-            failures.append(f"camera intră în calea {arm} ({sampled:.3f} m < "
-                            f"{checks.MIN_CAMERA_CLEARANCE_M:.3f} m)")
-
-    machined = next(body for body, place in metadata["placements"].items()
-                    if place["state"] == layout.STATE_MACHINED)
-    framing = scene.camera_framing(model, data, "camera_quality", machined)
-    print(f"  piesa în cadru          : {framing['distance_m']:.3f} m de obiectiv, "
-          f"abatere {framing['angle_x_deg']:+.1f}° / {framing['angle_y_deg']:+.1f}° față de ax, "
-          f"diametru {framing['diameter_px']:.0f} px ({framing['px_per_mm']:.1f} px/mm)")
-    if not framing["in_frame"]:
-        failures.append("piesa nu intră în cadrul camerei de inspecție")
-    elif framing["px_per_mm"] < checks.MIN_INSPECTION_PX_PER_MM:
-        failures.append(f"camera de inspecție vede prea grosier ({framing['px_per_mm']:.1f} px/mm "
-                        f"< {checks.MIN_INSPECTION_PX_PER_MM:.1f} px/mm)")
-
-    print("\nCamere de pe flanșe: piesa ținută, la 60° pe verticală")
+    print("\nCamere de pe flanșe: față de punctul de strângere, la 60° pe verticală")
     for arm in arms.ARMS:
         subject = arms.tool_point(model, data, arm)
         view = scene.camera_view(model, data, f"{arm}_wrist_camera", subject)
@@ -408,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
                       help="compilează scena, rulează pași, raportează cifrele (implicit)")
     mode.add_argument("--render", nargs="?", const="", metavar="PNG",
                       help="scrie un PNG offscreen: implicit renders/cell.png, "
-                           "ori renders/inspection.png cu --camera camera_quality")
+                           "ori renders/<camera>.png cu --camera")
     mode.add_argument("--view", action="store_true",
                       help="deschide viewer-ul (pe macOS: mjpython view.py --view)")
     parser.add_argument("--demo", action="store_true",
@@ -421,14 +394,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--demo-settle", type=int, default=300,
                        help="câți pași se așteaptă la fiecare punct de lucru din ciclu")
     parser.add_argument("--camera", default=None,
-                       help="camera de randat: implicit camera liberă; `camera_quality` "
-                            "dă cadrul de inspecție, la rezoluția lui")
+                       help="camera de randat: implicit camera liberă, altfel una de pe flanșă "
+                            "(arm1_wrist_camera, arm2_wrist_camera)")
     parser.add_argument("--width", type=int, default=None, help="lățimea cadrului, în pixeli")
     parser.add_argument("--height", type=int, default=None, help="înălțimea cadrului, în pixeli")
     parser.add_argument("--steps", type=int, default=None,
                        help="pași înainte de randare, ori înainte de închiderea viewer-ului")
-    parser.add_argument("--samples", type=int, default=200,
-                       help="câte configurații de braț se eșantionează la verificarea camerei")
     parser.add_argument("--seed", type=int, default=part.DEFAULT_SEED,
                        help="sămânța piesei și a așezării ei")
     parser.add_argument("--defect", default=None, help="clasa de defect a piesei mașinate")
@@ -448,12 +419,9 @@ def main(argv: list[str] | None = None) -> int:
                        help="yaw-ul piesei mașinate pe banda 2 (implicit: aleator, din sămânță)")
     parser.add_argument("--part-x", type=float, default=None,
                        help="poziția X a piesei mașinate pe banda 2, verificată față de amprenta "
-                            "benzii (implicit: sub camera de inspecție, din plan)")
+                            "benzii (implicit: la jumătatea drumului dintre așezare și preluare)")
     parser.add_argument("--part-y", type=float, default=None,
                        help="poziția Y a piesei mașinate pe banda 2 (implicit: axa benzii)")
-    parser.add_argument("--camera-z", type=float, default=None,
-                       help="cota centrului optic al camerei de inspecție "
-                            f"(implicit {layout.inspection_camera_z():.2f} m)")
     parser.add_argument("--base-z", type=float, default=None,
                        help="cota vârfului piedestalului brațelor, pentru măsurători: "
                             f"implicit cea din document, {layout.documented_height('arm_base'):.2f} "
@@ -483,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.render is not None:
         camera_name, width, height = camera_arguments(args)
         path = Path(args.render) if args.render else RENDERS_DIR / (
-            "inspection.png" if camera_name == "camera_quality" else "cell.png")
+            f"{camera_name}.png" if camera_name else "cell.png")
         model, data, metadata, warnings = build(args)
         prepare(model, data, metadata, args.steps or scene.SETTLE_STEPS)
         camera.render(model, data, path, camera_name, width, height)

@@ -13,7 +13,6 @@ pure, ca testele din `.venv`-ul proiectului să le poată importa fără motorul
 from __future__ import annotations
 
 import math
-import random
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -26,6 +25,7 @@ from . import arms
 from . import belt
 from . import layout
 from . import part
+from . import povs
 
 #: Modelul de braț, din registrul Menagerie; licența este Apache-2.0.
 PANDA_MODEL = "franka_emika_panda"
@@ -67,13 +67,13 @@ def _fmt(value: Any) -> str:
     return "0.0000" if text == "-0.0000" else text
 
 
-def scene_template(camera_z: float | None = None) -> str:
+def scene_template() -> str:
     """`scene/cell.xml` cu cifrele din `cncdt_mj/layout.py` puse la locul lor.
 
     Niciun număr care vine din plan ori din înălțimile documentate nu este scris în XML: toate
     intră de aici, din aceeași sursă pe care o folosesc și tabelele din `docs/`.
     """
-    geometry = layout.scene_geometry(camera_z)
+    geometry = layout.scene_geometry()
     values = {key: _fmt(value) for key, value in geometry.items()}
     # Simetria din XML se scrie cu semn (`{neg_...}`), fiindcă `{-x}` nu e o formulă validă
     # pentru `str.format`. Perechile negative se adaugă o dată, pentru toate cifrele.
@@ -88,9 +88,9 @@ def placements(variant: part.PartVariant, blank: part.BlankStock, seed: int = pa
     """Unde și cum stau cele două stări de material, cu parametri peste valorile din plan.
 
     Blocul brut primește poziție și rotație aleatoare, ca marfa reală de pe bandă; piesa mașinată
-    stă sub camera de inspecție și primește doar yaw, fiindcă poziția ei acolo este cea care face
-    cadrul util. Toate se pot fixa explicit, ca scena să fie reproductibilă; poziția explicită a
-    piesei mașinate se verifică față de amprenta benzii 2.
+    stă la jumătatea drumului dintre așezare și preluare și primește doar yaw, fiindcă poziția ei
+    acolo este cea care face cadrul util. Toate se pot fixa explicit, ca scena să fie
+    reproductibilă; poziția explicită a piesei mașinate se verifică față de amprenta benzii 2.
     """
     nominal = {item.state: item for item in layout.part_placements()}
     blank_place = nominal[layout.STATE_BLANK]
@@ -235,7 +235,6 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
                blank_shape: str = part.BLANK_SHAPES[0],
                blank_xy: tuple[float, float] | None = None, blank_yaw_deg: float | None = None,
                part_yaw_deg: float | None = None, part_xy: tuple[float, float] | None = None,
-               camera_z: float | None = None,
                family: str | None = None) -> tuple[mujoco.MjSpec, dict[str, Any]]:
     """Scena completă, ca `MjSpec`, plus metadatele pieselor (poziție, yaw, etichetă).
 
@@ -248,7 +247,7 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
     blank = part.blank_stock(blank_shape, family)
     places = placements(variant, blank, seed, blank_xy, blank_yaw_deg, part_yaw_deg, part_xy)
 
-    spec = mujoco.MjSpec.from_string(scene_template(camera_z))
+    spec = mujoco.MjSpec.from_string(scene_template())
     # Meshele modelului copil se caută relativ la directorul lui, nu al fișierului părinte.
     spec.modelfiledir = str(panda_dir)
     # Același model atașat de două ori: fără `copy_during_attach`, al doilea braț ar refolosi
@@ -280,8 +279,6 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
         "part": part.describe(variant),
         "blank": blank.as_dict(),
         "placements": places,
-        "camera_z": layout.inspection_camera_z() if camera_z is None else camera_z,
-        "camera_intrinsics": layout.inspection_camera_intrinsics(camera_z),
     }
     return spec, metadata
 
@@ -373,108 +370,19 @@ def part_yaw_deg(model: mujoco.MjModel, data: mujoco.MjData, body: str) -> float
     return part.yaw_from_quat(data.xquat[identifier])
 
 
-def _geoms_of_bodies(model: mujoco.MjModel, names: tuple[str, ...]) -> list[int]:
-    """Geomele corpurilor date; se sar cele fără contact (`contype` 0), care nu pot fi lovite."""
-    geoms: list[int] = []
-    for name in names:
-        body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
-        if body < 0:
-            raise ValueError(f"corp inexistent în scenă: {name}")
-        for index in range(model.body_geomnum[body]):
-            geom = int(model.body_geomadr[body]) + index
-            if model.geom_contype[geom] or model.geom_conaffinity[geom]:
-                geoms.append(geom)
-    return geoms
-
-
-def _geoms_of_arm(model: mujoco.MjModel, prefix: str) -> list[int]:
-    """Geomele unui braț, adunate după prefixul corpurilor atașate."""
-    names = tuple(
-        name for name in (
-            mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body)
-            for body in range(model.nbody)
-        ) if name and name.startswith(prefix)
-    )
-    return _geoms_of_bodies(model, names)
-
-
-def _min_distance(model: mujoco.MjModel, data: mujoco.MjData, geoms_a: list[int],
-                  geoms_b: list[int], distmax: float) -> float:
-    """Cea mai mică distanță geometrică dintre două mulțimi de geome (negativă la penetrare)."""
-    fromto = np.zeros(6)
-    best = distmax
-    for geom_a in geoms_a:
-        for geom_b in geoms_b:
-            best = min(best, float(mujoco.mj_geomDistance(model, data, geom_a, geom_b, distmax,
-                                                          fromto)))
-    return best
-
-
-def camera_clearance(model: mujoco.MjModel, data: mujoco.MjData, samples: int = 200,
-                     seed: int = 20261014, distmax: float = 0.5) -> dict[str, Any]:
-    """Cât de aproape ajunge camera de inspecție de fiecare braț, măsurat în scenă.
-
-    `docs/11-geaman-mujoco.md` §2 lasă explicit verificarea asta pentru montaj: distanța mică
-    dintre axul brațului 2 și banda 2 nu se poate judeca din plan. Se eșantionează configurații în
-    limitele articulațiilor fiecărui braț și se măsoară distanța minimă dintre geomele camerei și
-    geomele brațului; se raportează și distanța la poziția nominală, singura pe care scena o
-    folosește efectiv.
-    """
-    camera_geoms = _geoms_of_bodies(model, ("camera_mount", "camera_quality_mount"))
-    camera_geoms = [geom for geom in camera_geoms if model.geom_contype[geom]]
-    saved = data.qpos.copy()
-    rng = random.Random(seed)
-    report: dict[str, Any] = {"samples": samples, "nominal": {}, "sampled": {}}
-    for prefix, _ in ARM_MOUNTS:
-        arm_geoms = _geoms_of_arm(model, f"{prefix}_")
-        report["nominal"][prefix] = _min_distance(model, data, camera_geoms, arm_geoms, distmax)
-        joints = []
-        for index in range(7):
-            name = f"{prefix}_joint{index + 1}"
-            joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
-            low, high = (float(value) for value in model.jnt_range[joint])
-            joints.append((_joint_qpos(model, name), low, high))
-        worst = distmax
-        for _ in range(samples):
-            data.qpos[:] = saved
-            for address, low, high in joints:
-                data.qpos[address] = rng.uniform(low, high)
-            mujoco.mj_kinematics(model, data)
-            worst = min(worst, _min_distance(model, data, camera_geoms, arm_geoms, distmax))
-        report["sampled"][prefix] = worst
-    data.qpos[:] = saved
-    mujoco.mj_kinematics(model, data)
-    return report
-
-
-def _part_radius_m(model: mujoco.MjModel, geom: int) -> float:
-    """Raza piesei în planul ei: maximul distanței orizontale a vârfurilor, nu raza de încadrare.
-
-    Raza de încadrare a unei meșe este sfera care o cuprinde (include și grosimea), deci ar
-    umfla diametrul aparent al piesei din cadru; silueta văzută de sus este cea care contează.
-    """
-    if model.geom_type[geom] == mujoco.mjtGeom.mjGEOM_MESH:
-        mesh = int(model.geom_dataid[geom])
-        start = int(model.mesh_vertadr[mesh])
-        vertices = model.mesh_vert[start:start + int(model.mesh_vertnum[mesh])].reshape(-1, 3)
-        return float(np.hypot(vertices[:, 0], vertices[:, 1]).max())
-    return float(model.geom_size[geom][0])
-
-
 def camera_view(model: mujoco.MjModel, data: mujoco.MjData, camera: str,
                 point: Any) -> dict[str, float | bool]:
     """Unde cade un punct din scenă în cadrul unei camere: distanța, abaterea de la ax, câmpul.
 
     Camerele MuJoCo privesc de-a lungul axei lor locale −Z (verificat cu o scenă de probă), iar
     verificarea asta prinde exact capcana orientării: o cameră întoarsă pe dos trece de orice
-    măsurătoare de distanță, dar nu are subiectul în față. Subiectul poate fi un corp (piesa
-    mașinată, pentru camera de inspecție) ori un punct (punctul de strângere, pentru camerele de pe
-    flanșe, care fotografiază piesa ținută în falci).
+    măsurătoare de distanță, dar nu are subiectul în față. Subiectul este punctul de strângere al
+    brațului, față de care se așază cadrul fiecărei camere de pe flanșă.
     """
     camera_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, camera)
     if camera_id < 0:
         raise ValueError(f"cameră inexistentă în scenă: {camera}")
-    width_px, height_px = layout.INSPECTION_CAMERA_FRAME
+    width_px, height_px = povs.PROCESS_FRAME
     axes = data.cam_xmat[camera_id].reshape(3, 3)
     offset = np.asarray(point, dtype=float) - data.cam_xpos[camera_id]
     local = axes.T @ offset
@@ -494,21 +402,6 @@ def camera_view(model: mujoco.MjModel, data: mujoco.MjData, camera: str,
         "in_frame": (depth > 0 and abs(angle_x) <= math.degrees(fovx) / 2
                      and abs(angle_y) <= math.degrees(fovy) / 2),
     }
-
-
-def camera_framing(model: mujoco.MjModel, data: mujoco.MjData, camera: str,
-                   body: str) -> dict[str, float | bool]:
-    """Unde cade o piesă în cadrul unei camere: distanța, abaterea de la ax și diametrul în pixeli.
-
-    Diametrul iese din silueta geomei piesei, nu din vreo constantă transcrisă, iar restul din
-    :func:`camera_view`, care lucrează pe un punct oarecare.
-    """
-    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body)
-    if body_id < 0:
-        raise ValueError(f"corp inexistent în scenă: {body}")
-    view = camera_view(model, data, camera, data.xpos[body_id])
-    radius = _part_radius_m(model, int(model.body_geomadr[body_id]))
-    return {**view, "diameter_px": 2 * radius * float(view["px_per_mm"]) * 1000}
 
 
 def metrics(model: mujoco.MjModel, data: mujoco.MjData) -> dict[str, int]:

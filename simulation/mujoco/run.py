@@ -5,8 +5,8 @@ O sesiune este o suită de cicluri pe aceeași celulă, fiecare cu piesa lui (al
 exact ce cere antrenarea:
 
 * `samples.jsonl` — eșantioane brute la ~10 Hz, cu câmpurile din `cnc.telemetry.v1.json`;
-* `snapshots.jsonl` — metadatele cadrelor de inspecție, cu rolul lor (`sorting` / `inspection`),
-  exact ce s-ar publica pe MQTT și în bucketul de date;
+* `snapshots.jsonl` — metadatele cadrului care decide ruta piesei (rolul `sorting`), exact ce s-ar
+  publica pe MQTT și în bucketul de date;
 * `frames.jsonl` — indexul cadrelor: fiecare PNG al fiecărui punct de vedere, cu eticheta piesei
   (familie, defect, verdict) — pe el se antrenează clasificarea;
 * `frames/` — PNG-urile, pe cicluri;
@@ -47,16 +47,12 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import (arms, belt, camera, cell, layout, moves, part, povs,  # noqa: E402
-                      scene, sensors, telemetry, wear)
+from cncdt_mj import (arms, belt, camera, cell, moves, part, povs, scene,  # noqa: E402
+                      sensors, telemetry, wear)
 
 #: Unde se scriu sesiunile. Directorul e generat și ignorat de git: un ciclu de cinci familii
 #: înseamnă mii de cadre, care n-au ce căuta în istoricul repo-ului.
 RUNS_DIR = MUJOCO_DIR / "runs"
-
-#: Cât de aproape de axul camerei fixe trebuie să ajungă piesa ca să se ia cadrul de proces.
-#: 10 mm la 0,12 m/s înseamnă circa 0,08 s de mers, adică sub un pas de eșantionare.
-ON_BELT_TRIGGER_M = 0.01
 
 #: Cât durează prelucrarea unei piese, în secunde simulate. Nu animă nimic: este fereastra în care
 #: motorul de uzură lasă scula să se uzeze, iar eșantioanele poartă starea `CUTTING`.
@@ -68,14 +64,6 @@ MACHINE_TARGET = "cnc_chuck"
 
 #: Ce se uzează cât merg benzile: numai ele. Brațele se adaugă când se mișcă, mașina când taie.
 BELT_WORK = wear.Work(belts=wear.BELT_COMPONENTS)
-
-
-def _body_id(model: mujoco.MjModel, name: str) -> int:
-    """Identificatorul unui corp, cu eroare care spune ce nume lipsește."""
-    identifier = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
-    if identifier < 0:
-        raise ValueError(f"corp inexistent în scenă: {name}")
-    return int(identifier)
 
 
 @dataclass
@@ -125,15 +113,14 @@ class Recorder:
     """
 
     def __init__(self, model: mujoco.MjModel, data: mujoco.MjData, parts: tuple[str, ...],
-                 session: Session, shots: camera.Frames | None, label: Mapping[str, Any],
-                 machined: str) -> None:
+                 session: Session, shots: camera.Frames | None,
+                 label: Mapping[str, Any]) -> None:
         self.model = model
         self.data = data
         self.parts = parts
         self.session = session
         self.shots = shots
         self.label = dict(label)
-        self.machined = machined
         self.stage: str | None = None
         self.phase: str | None = None
         self.work = wear.Work()
@@ -182,14 +169,12 @@ class Recorder:
 
     # ------------------------------------------------------------ la fiecare pas
     def __call__(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
-        """Un pas de simulare: uzura, eșantionul, apoi cadrul de pe bandă, dacă e cazul."""
+        """Un pas de simulare: uzura, apoi eșantionul, dacă a venit rândul lui."""
         self.steps += 1
         for failure in self.session.wear.advance(float(model.opt.timestep), self.work):
             self.session.events.append(self.failure_row(failure))
         if self.steps % self.steps_per_sample == 0:
             self.write_sample()
-        if self.frames_on:
-            self.capture_on_belt()
 
     def clock(self) -> float:
         """Timpul simulat al sesiunii: ciclurile încheiate plus ceasul ciclului de acum."""
@@ -234,19 +219,6 @@ class Recorder:
             snapshot=self.session.wear.snapshot()))
 
     # ------------------------------------------------------------ cadrele
-    def capture_on_belt(self) -> None:
-        """Cadrul camerei fixe, luat când piesa mașinată trece prin dreptul ei.
-
-        Camera fixă nu are punct de lucru: ea fotografiază piesa care trece pe bandă, o dată pe
-        ciclu, când piesa intră în toleranța din jurul axului ei optic.
-        """
-        for item in povs.on_belt():
-            if self.key(item, povs.ON_BELT) in self.taken:
-                continue
-            x = float(self.data.xpos[_body_id(self.model, self.machined)][0])
-            if abs(x - float(item.belt_x_m)) <= ON_BELT_TRIGGER_M:
-                self.capture(item, povs.ON_BELT)
-
     def key(self, item: povs.Pov, stage: str) -> str:
         """Cheia unui cadru: un punct de vedere poate fi fotografiat la mai multe momente.
 
@@ -429,11 +401,9 @@ def run_session(args: argparse.Namespace) -> int:
         data = mujoco.MjData(model)
         scene.apply_nominal(model, data, metadata["placements"])
         scene.settle(model, data)
-        machined = next(body for body, place in metadata["placements"].items()
-                        if place["state"] == layout.STATE_MACHINED)
         label = dict(metadata["part"])
         shots = camera.Frames(model) if args.frames else None
-        recorder = Recorder(model, data, cell.part_bodies(model), session, shots, label, machined)
+        recorder = Recorder(model, data, cell.part_bodies(model), session, shots, label)
         recorder.begin_cycle(index)
         duration = run_cycle(model, data, recorder, family, args.demo_settle, args.machining_s)
         if shots is not None:

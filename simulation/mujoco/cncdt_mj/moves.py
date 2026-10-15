@@ -72,10 +72,33 @@ ROUTES: Mapping[str, tuple[str, ...]] = {arm: route_names(arm) for arm in ("arm1
 
 #: Rotirea sculei în jurul axei de apropiere, în grade, în fiecare punct de lucru. Piesa este un
 #: disc, deci rotirea nu schimbă prinderea, iar falcile se deschid nord-sud după convenția din
-#: `arms.tool_quat`. Pe raft, deschiderea nord-sud este chiar cea bună: despărțitorul dintre cele
-#: două locuri ale treptei și buzele de la margini stau dincolo de falci, iar treapta are 0,167 m
-#: adâncime, cât să intre mâna cu piesa întreaga.
+#: `arms.tool_quat`. Pe raft, deschiderea nord-sud este cea bună: intrarea de 0,50 m este un cub
+#: deschis, iar marginile ei stau dincolo de falci.
 TOOL_SPIN_DEG: Mapping[str, float] = {}
+
+#: Cota la care scula călătorește pe deasupra raftului, înainte de a coborî în intrare. Fără ea,
+#: drumul cel mai scurt de la preluarea de pe banda 2 până la o intrare taie rândul din spate la
+#: cota de lucru a benzii, iar falcile agață buzele intrării vecine: măsurat în scenă, mâna se
+#: înțepena în raft și scula rămânea cu 280 mm de țintă, cu 34° de răsucire. Cota stă cu 0,23 m
+#: deasupra buzelor intrărilor (0,87 m) și ține brațul în raza lui comodă: la intrarea cea mai
+#: depărtată, flanșa ajunge la 0,785 m din 0,855 m, pe când de la 1,25 m ar sta la 0,846 m, adică
+#: 99 % din rază, iar de acolo servo-urile lasă scula cu 20-30 mm în urmă, peste pragul de 20 mm.
+#: Coborârea în intrare este verticală, deci marginile intrării rămân dincolo de falci.
+RACK_VIA_Z = 1.10
+
+
+def _rack_vias() -> dict[str, tuple[tuple[float, float, float], ...]]:
+    """Punctul de trecere al fiecărei intrări din raft: chiar deasupra intrării, la cota de călătorie.
+
+    Intrarea are 0,50 m latură și este deschisă deasupra, deci locul de deasupra ei este chiar gura
+    pe unde intră scula: ultima bucată a drumului spre intrare coboară pe verticală.
+    """
+    vias = {}
+    for name in layout.RACK_TARGETS.values():
+        item = layout.target(name)
+        vias[name] = ((float(item["x"]), float(item["y"]), RACK_VIA_Z),)
+    return vias
+
 
 #: Punctele prin care trece scula pe drumul spre un punct de lucru, la cota de călătorie. Fără ele,
 #: drumul cel mai scurt dintre două puncte taie colțul celulei: de la universal spre așezarea pe
@@ -86,6 +109,7 @@ TOOL_SPIN_DEG: Mapping[str, float] = {}
 #: deasupra capacului meselor benzilor și în afara amprentei mașinii.
 VIA: Mapping[str, tuple[tuple[float, float, float], ...]] = {
     "belt2_drop": ((3.10, 2.95, 1.10),),
+    **_rack_vias(),
 }
 
 
