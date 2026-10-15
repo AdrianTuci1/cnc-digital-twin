@@ -378,8 +378,24 @@ make mj-publish                            # urcă sesiunile deja scrise în sim
 `make mj-collect` scrie fiecare familie într-un director de rulare propriu
 (`runs/run-<UTC>/<familie>-<sămânță>/`, cu `MJ_COLLECT_CYCLES` cicluri pe familie), apoi urcă tot
 sub prefixul corpusului. Este calea scurtă, locală: câteva cicluri, cât să vezi fișierele și să
-verifici planul de urcare. Pentru ore de viață de mașină, colectarea se mută pe containere efemere
-Modal, care scriu direct în bucketul corpusului, cu identitate federată (ADR 0015).
+verifici planul de urcare.
+
+**Pentru ore de viață de mașină, colectarea rulează pe Modal**, în containere efemere paralele care
+scriu direct în bucketul corpusului, cu identitate federată (ADR 0015). Codul este
+`simulation/mujoco/modal_collect.py`, iar calea din Makefile:
+
+```bash
+make mj-modal-plan                         # ce ar lansa, fără să lanseze nimic
+make mj-modal-collect                      # 25 de cicluri pe familie, 1 sesiune în paralel
+make mj-modal-collect MJ_MODAL_CYCLES=500 MJ_MODAL_SESSIONS=2
+```
+
+`MJ_MODAL_CYCLES` dă ciclurile fiecărei sesiuni, `MJ_MODAL_SESSIONS` câte sesiuni ale aceleiași
+familii rulează în paralel, cu semințe vecine (`MJ_MODAL_REQUIRE_WEAR`, implicit `true`, păstrează
+poarta de uzură, iar `MJ_MODAL_KEEP_LOCAL=true` păstrează copia din volumul Modal după urcare).
+Fiecare sesiune are propriul container, iar la final un singur container urcă rularea, cu aceeași
+verificare ca `make mj-collect`. Cadrele nu sînt încă suportate pe această cale: randarea cere GPU
+și context grafic, deci prima fază este doar senzori.
 
 ```
 training-data/mujoco/dt=<zi>/run-<UTC>/manifest.json

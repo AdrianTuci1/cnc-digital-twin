@@ -18,7 +18,7 @@ Acest document descrie regulile de lucru în repository. Citiți-l înainte de a
 | `infra/terraform/stacks/<nume>` | Compoziție: cheamă module, fixează valorile de mediu. Aici se adaugă resurse noi, nu în module. `access` și `sim` au state local, `platform` are backend S3. |
 | `simulation/extensions/` | Extensia Isaac Sim (Python, Kit). Se validează doar rulând în Isaac Sim. |
 | `simulation/extensions/cncdt.cnc_cell/cncdt/cnc_cell/parts/` | Generatorul procedural de piese și manifestul de etichete. Modul pur (numpy + mapbox-earcut), testat fără Isaac Sim. |
-| `simulation/mujoco/` | Al doilea geamăn al celulei, pe MuJoCo (ADR 0012). Venv propriu, ignorat de git: `make mj-venv`; scena se validează cu `make mj-check`, testele care ating motorul cu `make mj-test`. `layout.py`, `part.py`, `checks.py`, `telemetry.py`, `wear.py` și `export.py` rămân pure, ca `make test` să ruleze fără `mujoco`. Colectarea de antrenament (senzori + camere) se urcă în bucketul data lake cu `make mj-collect`, sub `training-data/mujoco/`. |
+| `simulation/mujoco/` | Al doilea geamăn al celulei, pe MuJoCo (ADR 0012). Venv propriu, ignorat de git: `make mj-venv`; scena se validează cu `make mj-check`, testele care ating motorul cu `make mj-test`. `layout.py`, `part.py`, `checks.py`, `telemetry.py`, `wear.py` și `export.py` rămân pure, ca `make test` să ruleze fără `mujoco`. Colectarea de antrenament se urcă în bucketul corpusului cu `make mj-collect` (local, scurt) ori `make mj-modal-collect` (Modal, în paralel), sub `training-data/mujoco/`. |
 | `lambdas/<nume>/handler.py` | Punctul de intrare Lambda. Logica pură (fără boto3) stă într-un modul `*_core.py` cu nume unic (`core.py` este deja folosit de feature engineering), ca să fie testabilă. |
 | `ml/src/cncdt_ml/` | Cod comun partajat de Lambda, feature engineering și antrenare. Contractul de date stă în `schema.py`. |
 | `ml/feature_engineering/` | Data Wrangler: rețeta generată din cod, fluxurile exportate, `run_flow.py`, `build_features.py`. |
@@ -64,6 +64,7 @@ make test
 # apoi, în fiecare sesiune de lucru: eval "$(./scripts/assume-operator.sh)"
 # pentru schimbări la geamănul MuJoCo: make mj-venv (o dată), apoi make mj-check și make mj-test
 # pentru colectarea datelor de antrenament: make mj-collect-plan, apoi make mj-collect (cere rolul de operator)
+# pentru colectarea lungă, pe Modal: make mj-modal-plan, apoi make mj-modal-collect (cere CLI-ul `modal`)
 # pentru schimbări de feature engineering: make features-verify
 # pentru schimbări de UI/streaming: make sim-up && verificare în browser
 # pentru interfața grafică a instanței: make sim-dcv OPEN=1 (https://localhost:8443/)
@@ -119,6 +120,15 @@ clientului WebRTC, desktopul DCV, panoul de control din Isaac Sim sau dashboard-
   se face cu `make mj-collect`, prin **AWS CLI**, cu credențialele rolului de operator: `boto3`
   nu există în niciunul dintre cele două venv-uri, iar comanda nu adaugă o dependență. Verificarea
   corpusului dinaintea urcării stă în `simulation/mujoco/cncdt_mj/export.py` (pur).
+- **Colectarea lungă rulează pe Modal, cu bucket și rol proprii (ADR 0015).** Bucket-ul corpusului
+  stă în `infra/terraform/stacks/training-data` (state local, gard de lansare ca `sim`), iar
+  `make mj-modal-collect` ridică un container pe sesiune, în paralel, prin
+  `simulation/mujoco/modal_collect.py`. Identitatea nu trece prin chei: containerul schimbă
+  `MODAL_IDENTITY_TOKEN` pe credențiale temporare ale rolului `cncdt-<mediu>-modal-collector`,
+  al cărui trust e legat de spațiul de lucru Modal, iar secretul Modal `cncdt-aws` poartă doar
+  `AWS_ROLE_ARN` și `AWS_REGION`. Furnizorul OIDC se creează în `stacks/access`, fiindcă gardul
+  rolului de operator refuză `iam:CreateOpenIDConnectProvider`. Numele bucket-ului se pune în
+  `DATA_LAKE_BUCKET` din `.env` (`make training-data-status`).
 - **Un corpus de uzură fără degradare nu se urcă.** La `--rate 1` un ciclu mișcă sănătatea cu
   ~0,006, deci `make mj-collect` folosește `MJ_COLLECT_RATE` (implicit 20) și urcă prin
   `publish.py --require-wear`, care refuză o colectare în care nicio componentă nu a coborât sub

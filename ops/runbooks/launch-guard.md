@@ -14,10 +14,10 @@ se decide local, înainte de orice apel la AWS.
 
 ## Când se citește runbook-ul
 
-1. `make up`, `make sim-up`, `make sim-data-up`, `make platform-up`, `make sim-start` ori
-   `make sim-vpn-on` refuză și vrei să știi exact ce să pui în `.env`.
-2. `terraform plan` sau `terraform apply` din `infra/terraform/stacks/sim` ori
-   `infra/terraform/stacks/sim-data` se termină cu `Resource precondition failed`.
+1. `make up`, `make sim-up`, `make sim-data-up`, `make platform-up`, `make sim-start`,
+   `make training-data-up` ori `make sim-vpn-on` refuză și vrei să știi exact ce să pui în `.env`.
+2. `terraform plan` sau `terraform apply` din `infra/terraform/stacks/sim`, `stacks/sim-data` ori
+   `stacks/training-data` se termină cu `Resource precondition failed`.
 3. Vrei să lansezi deliberat și vrei să știi ce rămâne permis fără comutator.
 
 ## Cum arată refuzul
@@ -118,9 +118,9 @@ instanța și reduce costul.
 
 | Nivel | Ce face |
 | --- | --- |
-| `Makefile` | refuză devreme, cu un rând de explicație: `up`, `sim-up`, `sim-start`, `sim-data-up`, `platform-up`. Strat de mesaj, nu de adevăr. |
+| `Makefile` | refuză devreme, cu un rând de explicație: `up`, `sim-up`, `sim-start`, `sim-data-up`, `platform-up`, `training-data-up`. Strat de mesaj, nu de adevăr. |
 | `tools/twinctl/twinctl` | citește `INFRA_LAUNCH_ENABLED` în `load_env` și refuză înainte de orice apel la AWS: `up`, `start`, `data-up`, `vpn-on`. Pe căile de lansare trimite `-var launch_confirmed=true`; pe cele de ștergere îl trimite mereu. |
-| `infra/terraform/stacks/sim` și `stacks/sim-data` | `terraform_data.launch_guard` cu `lifecycle { precondition }`: refuză orice plan sau apply fără `-var launch_confirmed=true`. Acesta e nivelul care închide ocolirea prin `terraform apply` direct. |
+| `infra/terraform/stacks/sim`, `stacks/sim-data` și `stacks/training-data` | `terraform_data.launch_guard` cu `lifecycle { precondition }`: refuză orice plan sau apply fără `-var launch_confirmed=true`. Acesta e nivelul care închide ocolirea prin `terraform apply` direct. |
 
 `scripts/audit.sh` trimite `launch_confirmed=true` la planurile de pe cele două stack-uri
 gardate: inventarul trebuie să poată citi starea indiferent de comutator.

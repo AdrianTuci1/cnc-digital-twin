@@ -70,7 +70,14 @@ def execute(command: list[str]) -> None:
 
 
 def git_revision() -> str:
-    """Revisionul din care s-a generat corpusul: în manifest, ca datele să fie trasabile."""
+    """Revisionul din care s-a generat corpusul: în manifest, ca datele să fie trasabile.
+
+    Într-un container (colectarea pe Modal) nu există depozit git, deci revizia vine din mediu,
+    prin `CNCDT_GIT_REVISION`, pusă de la mașina care lansează.
+    """
+    from_environment = os.environ.get("CNCDT_GIT_REVISION", "").strip()
+    if from_environment:
+        return from_environment
     try:
         result = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
                                 cwd=MUJOCO_DIR, capture_output=True, text=True, check=False)

@@ -35,15 +35,25 @@ make mj-record   # colectează sesiuni de antrenare, câte una pe familie, în r
 make mj-collect  # colectează (MJ_COLLECT_CYCLES cicluri pe familie) și urcă în bucketul data lake
 make mj-collect-plan   # tipărește ce ar urca `make mj-collect`, fără să atingă bucketul
 make mj-publish  # urcă în bucket sesiunile deja scrise în runs/
+make mj-modal-collect  # colectează pe Modal, în containere paralele, și urcă în bucket
+make mj-modal-plan     # tipărește ce ar lansa `make mj-modal-collect`, fără să lanseze nimic
 make mj-demo MJ_FAMILIES="wheel_100 pinion_56"   # doar familiile cerute, ca proba să fie scurtă
 make mj-record MJ_RECORD_CYCLES=20   # sesiune de antrenare: 20 de cicluri pe familie
 make mj-collect MJ_COLLECT_CYCLES=20 MJ_COLLECT_SEED=100   # colectare lungă, urcată direct
 make mj-collect MJ_COLLECT_FRAMES=false   # doar senzori: uzura nu are nevoie de poze
+make mj-modal-collect MJ_MODAL_CYCLES=500 MJ_MODAL_SESSIONS=2   # ore de viață de mașină
 ```
 
 `make mj-collect` are nevoie de `DATA_LAKE_BUCKET` în `.env` (ieșirea `bucket_name` a
 stack-ului `training-data`) și de credențialele rolului de operator, luate cu
 `eval "$(./scripts/assume-operator.sh)"`. Fără ele, refuză înainte să atingă bucketul.
+
+`make mj-modal-collect` lansează aceeași colectare pe **Modal**, într-un container pentru fiecare
+sesiune, toate în paralel, și nu are nevoie de credențiale locale: containerele primesc un token de
+identitate, pe care îl schimbă pe credențiale temporare ale rolului `cncdt-<mediu>-modal-collector`
+(ADR 0015). Are nevoie de CLI-ul `modal` autentificat și de secretul `cncdt-aws`, pe care îl
+creează comanda dată de `make training-data-status`. Cadrele nu sînt încă suportate pe această
+cale: randarea cere GPU și context grafic, iar modelul de uzură citește senzori.
 
 Fără Makefile, aceleași lucruri se scriu direct:
 
@@ -277,7 +287,10 @@ runs/wheel_100-7/
 
 **Urcarea în bucket** este `make mj-collect`: scrie fiecare familie într-un director de rulare
 propriu (`runs/run-<UTC>/<familie>-<sămânță>/`, `MJ_COLLECT_CYCLES` cicluri pe familie) și apoi
-urcă tot sub prefixul corpusului, senzorii și cadrele împreună:
+urcă tot sub prefixul corpusului, senzorii și cadrele împreună. Pentru ore de viață de mașină,
+aceeași urcare o face `make mj-modal-collect`, din containerele Modal (ADR 0015): acolo fiecare
+sesiune își scrie fișierele într-un volum Modal, iar la final un singur container rulează același
+`publish.py`, cu aceeași verificare de uzură:
 
 ```
 training-data/mujoco/dt=<zi>/run-<UTC>/manifest.json      # ce conține corpusul, cu ce contract și de unde se citește
@@ -487,12 +500,20 @@ Ce mai lipsește, în ordinea din `docs/11-geaman-mujoco.md`, secțiunea 8:
    poate aluneca spre șină; de verificat când intră brațele, fiindcă de acolo vine poziția de
    prindere.
 
-Închis în runda de față: **colectarea cu urcare în bucket** — `cncdt_mj/export.py` (cheile,
+Închis în runda de față: **colectarea lungă pe Modal**, cu urcare verificată în bucketul real.
+`simulation/mujoco/modal_collect.py` ridică un container pentru fiecare sesiune (imagine cu
+mujoco 3.15.0, `mujoco-menagerie` și codul repo-ului montat la aceleași căi), adună sesiunile
+într-un volum Modal, iar la final un container schimbă tokenul de identitate pe credențiale
+temporare și rulează `publish.py` — aceeași poartă de uzură ca la colectarea locală. Țintele
+`make mj-modal-collect` și `make mj-modal-plan` intră în Makefile. Verificat cap la cap: 5 familii
+× 25 de cicluri în 5 containere paralele au ajuns în
+`s3://<bucket>/training-data/mujoco/dt=<zi>/run-<UTC>/`, cu manifest, iar `wear.jsonl` a coborât
+sănătatea sculei până la 0,02. Cadrele rămîn neacoperite pe această cale: randarea cere GPU.
+
+Închis în runda de dinainte: **colectarea cu urcare în bucket** — `cncdt_mj/export.py` (cheile,
 manifestul, verificările corpusului), `publish.py` (urcare cu AWS CLI, plan fără `--upload`) și
 țintele `make mj-collect`, `make mj-collect-plan`, `make mj-publish`, cu testele pure din
-`tests/unit/test_mj_export.py`. Urcarea pe bucketul real nu s-a putut verifica din sesiunea de
-lucru: cere credențialele rolului de operator (`eval "$(./scripts/assume-operator.sh)"`), iar
-sesiunea expirase; s-a verificat planul pe sesiuni reale și refuzul când credențialele lipsesc.
+`tests/unit/test_mj_export.py`.
 
 Închis în runda de dinainte: motorul de uzură (`wear.py`: sănătate pe șapte componente, integrare
 exactă pe timpul de lucru, eșecuri discrete cu hazard crescător, acțiuni de operator), legarea lui

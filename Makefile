@@ -285,7 +285,22 @@ MJ_COLLECT_FRAMES ?= true
 MJ_RUN_NAME       ?=
 MJ_PUBLISH_PY     := $(PY)
 
+# Colectarea lungă pe Modal (`make mj-modal-collect`): containere efemere, unul pe sesiune, toate
+# în paralel, care scriu corpusul direct în bucket prin rolul federat `cncdt-<mediu>-modal-collector`
+# (ADR 0015). Corpusul se adună într-un volum Modal, iar la final un container îl urcă, cu aceeași
+# verificare de uzură ca `make mj-collect`. Secretele stau în secretul Modal `cncdt-aws`.
+#   MJ_MODAL_CYCLES    câte cicluri pe sesiune (implicit 25; 500 e o rulare de ore de mașină)
+#   MJ_MODAL_SESSIONS  câte sesiuni în paralel pe familie, cu semințe vecine (implicit 1)
+#   MJ_MODAL_REQUIRE_WEAR  refuză corpusul fără semnal de uzură (implicit true)
+#   MJ_MODAL_KEEP_LOCAL    păstrează copia din volumul Modal după urcare (implicit false)
+MJ_MODAL_APP      := $(MJ_DIR)/modal_collect.py
+MJ_MODAL_CYCLES   ?= 25
+MJ_MODAL_SESSIONS ?= 1
+MJ_MODAL_REQUIRE_WEAR ?= true
+MJ_MODAL_KEEP_LOCAL   ?= false
+
 .PHONY: mj-venv mj-check mj-render mj-demo mj-record mj-test mj-collect mj-publish mj-collect-plan
+.PHONY: mj-modal-collect mj-modal-plan
 mj-venv: ## Creează venv-ul geamănului MuJoCo și instalează requirements.txt
 	$(PY) -m venv $(ROOT)/$(MJ_DIR)/.venv
 	$(MJ_PY) -m pip install --quiet --upgrade pip
@@ -351,6 +366,27 @@ mj-collect-plan: ## Tipărește ce ar urca `make mj-collect`, fără să atingă
 	cd $(ROOT) && $(MJ_PUBLISH_PY) $(MJ_DIR)/publish.py --run-dir $(MJ_DIR)/runs \
 		--bucket "$(if $(DATA_LAKE_BUCKET),$(DATA_LAKE_BUCKET),exemplu-data-lake)" \
 		$(if $(MJ_RUN_NAME),--run $(MJ_RUN_NAME),) --json
+
+# Colectarea lungă: containere Modal paralele, fără cadre, pentru ore de viață de mașină. Cere
+# CLI-ul `modal` autentificat, secretul `cncdt-aws` creat (`make training-data-status` dă comanda)
+# și bucket-ul din stack-ul `training-data` în `.env`.
+MJ_MODAL_ARGS = --families "$(MJ_FAMILIES)" --cycles $(MJ_MODAL_CYCLES) --rate $(MJ_COLLECT_RATE) \
+                --seed $(MJ_COLLECT_SEED) --sessions-per-family $(MJ_MODAL_SESSIONS) \
+                --bucket "$(DATA_LAKE_BUCKET)" --inject "$(MJ_COLLECT_INJECT)" \
+                $(if $(MJ_COLLECT_MACHINING_S),--machining-s "$(MJ_COLLECT_MACHINING_S)",) \
+                $(if $(filter true,$(MJ_MODAL_REQUIRE_WEAR)),,--no-require-wear) \
+                $(if $(filter true,$(MJ_MODAL_KEEP_LOCAL)),--keep-local,)
+
+mj-modal-plan: ## Tipărește cum ar arăta colectarea pe Modal, fără să lanseze nimic
+	@echo "modal run $(MJ_MODAL_APP) $(MJ_MODAL_ARGS)"
+	@echo "sesiuni: $(words $(MJ_FAMILIES)) familii × $(MJ_MODAL_SESSIONS) = $$(( $(words $(MJ_FAMILIES)) * $(MJ_MODAL_SESSIONS) ))"
+	@echo "imaginea: codice din repo; secrete: cncdt-aws; volum: cncdt-mujoco-corpus"
+
+mj-modal-collect: ## Colectează pe Modal, în paralel, și urcă corpusul în bucket (cere `modal`)
+	@command -v modal >/dev/null || { echo "lipsește CLI-ul modal: 'pipx install modal', apoi 'modal token set'"; exit 1; }
+	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'make training-data-status' (ieșirea bucket_name)"; exit 1; }
+	@test -n "$(MODAL_WORKSPACE_ID)" || { echo "lipsește MODAL_WORKSPACE_ID: pune-l în .env (din 'modal token info')"; exit 1; }
+	cd $(ROOT) && modal run $(MJ_MODAL_APP) $(MJ_MODAL_ARGS)
 
 # ---------------------------------------------------------------- acces (rol de operator)
 # Stack-ul `access` are state local și se aplică o singură dată per cont, cu profilul de ADMIN,

@@ -22,7 +22,7 @@ from typing import Sequence
 import pytest
 
 from cncdt_mj import export, povs, telemetry
-from publish import main as publish_main
+from publish import git_revision, main as publish_main
 
 #: Momentul de referință al testelor, într-o zonă care **nu** este UTC: numele rulării și ziua
 #: partiției trebuie să iasă în UTC, oricare ar fi ceasul local.
@@ -451,3 +451,17 @@ def test_publish_accepts_a_corpus_with_wear(run_dir: Path,
     captured = capsys.readouterr()
     assert "aws s3 cp" in captured.out
     assert "pentru urcare adaugă `--upload`" in captured.out
+
+
+def test_revizia_git_vine_din_mediu_cand_nu_exista_depozit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Colectarea pe Modal nu are depozit git în container, deci revizia vine prin mediu."""
+    monkeypatch.setenv("CNCDT_GIT_REVISION", "abc1234")
+
+    assert git_revision() == "abc1234"
+
+
+def test_fara_revizia_din_mediu_se_citeste_din_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Local, revizia rămâne cea a depozitului: mediul nu o acoperă."""
+    monkeypatch.delenv("CNCDT_GIT_REVISION", raising=False)
+
+    assert git_revision() != ""
