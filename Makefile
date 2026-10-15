@@ -198,6 +198,36 @@ training-data-down: ## ȘTERGE bucket-ul corpusului și rolul Modal; YES=1 sare 
 training-data-status: ## Bucket-ul, rolul Modal și comanda care creează secretul Modal
 	cd $(TRAINING_DIR) && $(TF) output
 
+# ---------------------------------------------------------------- notebook-uri (Studio)
+# Studio nu are depozit git în home-ul EFS: notebook-urile ies prin S3, iar commitul se face de
+# aici (ADR 0016). În terminalul spațiului Studio:
+#   aws s3 sync ~/cnc-notebooks s3://<NOTEBOOKS_BUCKET>/notebooks/studio/
+# Aici:
+#   make nb-pull    aduce ce s-a sincronizat, în ml/experiments/notebooks/
+#   make nb-push    urcă notebook-urile locale, ca să le deschizi în Studio
+#   make nb-strip   golește output-urile înainte de commit
+# Procedura completă: ops/runbooks/notebooks.md
+NB_PREFIX ?= notebooks/studio
+NB_DIR    := $(ROOT)/ml/experiments/notebooks
+NB_BUCKET := $(NOTEBOOKS_BUCKET)
+
+.PHONY: nb-pull nb-push nb-strip nb-check
+nb-pull: ## Aduce notebook-urile sincronizate din Studio (s3://$(NB_BUCKET)/$(NB_PREFIX))
+	@test -n "$(NB_BUCKET)" || { echo "lipsește NOTEBOOKS_BUCKET: pune-l în .env, din 'make platform-up' (ieșirea data_lake_bucket)"; exit 1; }
+	mkdir -p $(NB_DIR)
+	aws s3 sync "s3://$(NB_BUCKET)/$(NB_PREFIX)/" $(NB_DIR)/
+	@echo "apoi: make nb-strip && git add ml/experiments/notebooks"
+
+nb-push: ## Urcă notebook-urile locale în S3, ca să le poți deschide în Studio
+	@test -n "$(NB_BUCKET)" || { echo "lipsește NOTEBOOKS_BUCKET: pune-l în .env, din 'make platform-up' (ieșirea data_lake_bucket)"; exit 1; }
+	aws s3 sync $(NB_DIR)/ "s3://$(NB_BUCKET)/$(NB_PREFIX)/"
+
+nb-strip: ## Golește output-urile notebook-urilor din ml/experiments/notebooks (înainte de commit)
+	$(PY) $(ROOT)/scripts/nb-strip.py $(NB_DIR)
+
+nb-check: ## Verifică dacă vreun notebook din repo a rămas cu output-uri (cod 1 dacă da)
+	$(PY) $(ROOT)/scripts/nb-strip.py --check $(NB_DIR)
+
 # ---------------------------------------------------------------- documentație
 # Diagramele sunt generate din cod (`docs/diagrams/architecture.py`), nu desenate manual.
 # Cer `graphviz` instalat (`brew install graphviz`) și pachetul `diagrams` în mediul virtual:

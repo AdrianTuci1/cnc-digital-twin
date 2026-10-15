@@ -44,6 +44,8 @@ ml/experiments/runs/
 ml/experiments/mlruns/
 ml/experiments/data/
 ml/artifacts/
+# ml/experiments/notebooks/ rămâne urmărit de git: notebook-urile sunt sursa de adevăr, iar
+# output-urile se scot cu `make nb-strip` (ADR 0016).
 *.pt
 *.pth
 *.onnx

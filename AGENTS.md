@@ -195,6 +195,14 @@ clientului WebRTC, desktopul DCV, panoul de control din Isaac Sim sau dashboard-
 - **Seiful AWS Backup blochează `terraform destroy` când are puncte de restaurare.** În `dev`
   `studio_backup_force_destroy = true`; în `prod` punctele se șterg manual, conform
   `ops/runbooks/audit.md`.
+- **Notebook-urile din Studio ajung în repo prin S3.** Home-ul domeniului este un EFS, fără depozit
+  git în el, deci din terminalul spațiului se face `aws s3 sync ~/cnc-notebooks
+  s3://<bucket>/notebooks/studio/`, iar de pe laptop `make nb-pull` le aduce în
+  `ml/experiments/notebooks/`. Bucket-ul este data lake-ul platformei (`NOTEBOOKS_BUCKET` în
+  `.env`), singurul pe care rolul de execuție al Studio îl are deja în politică. Înainte de
+  commit, `make nb-strip` golește output-urile (`make nb-check` verifică). Backup-ul zilnic al
+  EFS-ului rămâne plasa de siguranță pentru ce nu a fost sincronizat. Detalii:
+  `ops/runbooks/notebooks.md`, ADR 0016.
 - **Vizualizarea este exclusiv CloudWatch.** Fără QuickSight, Grafana sau alt instrument BI
   (ADR 0005). Ce trebuie urmărit recurent devine widget de dashboard sau alarmă în Terraform;
   analiza exploratorie se face cu Athena ori într-un notebook din Studio.
