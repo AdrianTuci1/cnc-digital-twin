@@ -334,6 +334,32 @@ def directory_bytes(directory: Path) -> int:
     return sum(path.stat().st_size for path in directory.rglob("*") if path.is_file())
 
 
+def _declared_frames(directory: Path) -> int | None:
+    """Câte cadre declară `session.json`, ori None când fișierul nu se poate citi.
+
+    Se citește înainte de validare: o sesiune care nu a fotografiat nimic (`--no-frames`)
+    are fișierele de cadre goale dinadins.
+    """
+    try:
+        record = json.loads(
+            directory.joinpath(telemetry.SESSION_FILE).read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, ValueError):
+        return None
+    totals = record.get("totals")
+    if not isinstance(totals, Mapping):
+        return None
+    try:
+        return int(totals.get("frames", 0))
+    except (TypeError, ValueError):
+        return None
+
+
+#: Fișierele care pot fi goale când sesiunea nu are cadre. Colectarea de uzură rulează fără
+#: camere, iar corpusul de senzori este la fel de întreg: `readings.jsonl`, `samples.jsonl` și
+#: `wear.jsonl` sunt singurele care contează pentru un model de uzură.
+FRAME_FILES = (telemetry.FRAME_FILE, telemetry.SNAPSHOT_FILE)
+
+
 def check_session(directory: Path) -> list[str]:
     """Ce lipsește dintr-o sesiune, ca corpusul să fie întreg și de încredere.
 
@@ -343,13 +369,16 @@ def check_session(directory: Path) -> list[str]:
     """
     problems: list[str] = []
     name = directory.name
+    declared_frames = _declared_frames(directory)
+    optional = FRAME_FILES if declared_frames == 0 else ()
     for item in CORPUS_FILES:
         path = directory / item
         if not path.is_file():
             problems.append(f"{name}: lipsește {item}")
-        elif path.stat().st_size == 0 and item != telemetry.EVENT_FILE:
+        elif path.stat().st_size == 0 and item not in (telemetry.EVENT_FILE, *optional):
             # `events.jsonl` chiar are zero octeți când niciun eșec nu s-a produs: fișierul gol
-            # este o informație, nu o gaură.
+            # este o informație, nu o gaură. La fel fișierele de cadre ale unei sesiuni de
+            # senzori, care nu a fotografiat nimic.
             problems.append(f"{name}: {item} este gol")
     if problems:
         return problems

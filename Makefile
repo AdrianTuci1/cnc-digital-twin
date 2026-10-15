@@ -211,12 +211,16 @@ MJ_RECORD_CYCLES ?= 1
 #                      colectare de rutină. Rata folosită se scrie în fiecare `session.json`.
 #   MJ_COLLECT_INJECT  pornește sesiunea cu o componentă deja uzată (`benză:cât`, repetabil)
 #   MJ_COLLECT_MACHINING_S  lungimea ferestrei de așchiere, în secunde (implicit 12)
+#   MJ_COLLECT_FRAMES  scrie și cadrele (implicit true). Modelul de uzură citește senzori, nu
+#                      poze, iar fără cadre o sesiune ocupă ~0,9 MB pe ciclu în loc de ~1,9 MB:
+#                      `make mj-collect MJ_COLLECT_FRAMES=false` este rularea lungă de uzură.
 DATA_LAKE_BUCKET  ?=
 MJ_COLLECT_CYCLES ?= 5
 MJ_COLLECT_SEED   ?= 100
 MJ_COLLECT_RATE   ?= 20
 MJ_COLLECT_INJECT ?=
 MJ_COLLECT_MACHINING_S ?=
+MJ_COLLECT_FRAMES ?= true
 MJ_RUN_NAME       ?=
 MJ_PUBLISH_PY     := $(PY)
 
@@ -260,14 +264,18 @@ mj-collect: ## Colectează date de antrenament (senzori + camere) și le urcă �
 	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'terraform output -raw data_lake_bucket' (stack-ul platform)"; exit 1; }
 	@run="$$(date -u +run-%Y%m%dT%H%M%S)"; \
 	 echo "== colectare în $(MJ_DIR)/runs/$$run (rate $(MJ_COLLECT_RATE))"; \
+	 index=0; \
 	 for family in $(MJ_FAMILIES); do \
-		echo "== familia $$family"; \
+		seed=$$(( $(MJ_COLLECT_SEED) + index )); \
+		echo "== familia $$family (sămânța $$seed)"; \
 		cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/run.py --family $$family \
-			--cycles $(MJ_COLLECT_CYCLES) --seed $(MJ_COLLECT_SEED) \
+			--cycles $(MJ_COLLECT_CYCLES) --seed $$seed \
 			--rate $(MJ_COLLECT_RATE) \
 			$(if $(MJ_COLLECT_MACHINING_S),--machining-s $(MJ_COLLECT_MACHINING_S),) \
 			$(foreach item,$(MJ_COLLECT_INJECT),--inject $(item)) \
-			--out $(MJ_DIR)/runs/$$run/$$family-$(MJ_COLLECT_SEED) || exit 1; \
+			$(if $(filter false,$(MJ_COLLECT_FRAMES)),--no-frames,) \
+			--out $(MJ_DIR)/runs/$$run/$$family-$$seed || exit 1; \
+		index=$$(( index + 1 )); \
 	 done; \
 	 cd $(ROOT) && $(MJ_PUBLISH_PY) $(MJ_DIR)/publish.py --run-dir $(MJ_DIR)/runs/$$run \
 		--bucket "$(DATA_LAKE_BUCKET)" $(if $(MJ_RUN_NAME),--run $(MJ_RUN_NAME),) \

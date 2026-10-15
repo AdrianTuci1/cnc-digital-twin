@@ -39,6 +39,7 @@ make mj-check MJ_SAMPLES=2000   # degajarea camerei, pe mai multe configurații 
 make mj-demo MJ_FAMILIES="wheel_100 pinion_56"   # doar familiile cerute, ca proba să fie scurtă
 make mj-record MJ_RECORD_CYCLES=20   # sesiune de antrenare: 20 de cicluri pe familie
 make mj-collect MJ_COLLECT_CYCLES=20 MJ_COLLECT_SEED=100   # colectare lungă, urcată direct
+make mj-collect MJ_COLLECT_FRAMES=false   # doar senzori: uzura nu are nevoie de poze
 ```
 
 `make mj-collect` are nevoie de `DATA_LAKE_BUCKET` în `.env` (ieșirea `data_lake_bucket` a

@@ -272,13 +272,23 @@ def test_check_session_reports_a_broken_frame_index(run_dir: Path) -> None:
         f"{directory.name}: 3 cadre în {telemetry.FRAME_FILE}, 4 în {telemetry.SESSION_FILE}"]
 
 
-def test_check_session_refuses_a_session_without_cameras(tmp_path: Path) -> None:
-    """Fără cadre nu există dataset de viziune, chiar dacă senzorii sunt complet."""
+def test_check_session_accepts_a_session_without_cameras(tmp_path: Path) -> None:
+    """O rulare fără camere este un corpus de senzori întreg.
+
+    Colectarea de uzură nu are nevoie de poze: rulează cu `--no-frames`, iar `session.json`
+    declară zero cadre. Fișierele de cadre sunt goale dinadins, deci nu sunt o gaură.
+    """
     directory = _write_session(tmp_path / "wheel_60-100", family="wheel_60", cycles=1,
                                frames_per_cycle=0)
+    assert export.check_session(directory) == []
+
+
+def test_check_session_refuses_a_session_that_lost_its_frames(run_dir: Path) -> None:
+    """Cadrele declarate și lipsă rămân o problemă: fișierul gol nu devine scuză."""
+    directory = run_dir / "wheel_100-100"
+    (directory / telemetry.FRAME_FILE).write_text("", encoding="utf-8")
     problems = export.check_session(directory)
     assert f"{directory.name}: {telemetry.FRAME_FILE} este gol" in problems
-    assert f"{directory.name}: {telemetry.SNAPSHOT_FILE} este gol" in problems
 
 
 def test_check_session_reports_wear_rows_out_of_step(run_dir: Path) -> None:

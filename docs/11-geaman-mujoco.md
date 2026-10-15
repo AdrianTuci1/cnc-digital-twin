@@ -395,6 +395,10 @@ training-data/mujoco/dt=<zi>/run-<UTC>/manifest.json
 training-data/mujoco/dt=<zi>/run-<UTC>/<familie>-<sămânță>/{samples.jsonl, frames.jsonl, …, frames/}
 ```
 
+**Colectarea de uzură rulează fără camere.** Modelul de uzurare citește senzori tabulari, nu poze:
+`make mj-collect MJ_COLLECT_FRAMES=false` pune `--no-frames`, iar o sesiune scade de la ~1,9 MB pe
+ciclu la ~0,9 MB. Cadrele rămân pentru clasificatorul de piese, care chiar are nevoie de ele.
+
 `datasets/` este un prefix propriu, nu `raw/`. `raw/telemetry/` este Parquet de ferestre de 60 s,
 scris de Firehose și citit de tabelul Glue (secțiunea „Cum ajunge același conținut pe calea live"),
 iar `raw/qa-snapshots/` este calea live: fiecare scriere acolo cheamă Lambda-ul de inspecție. Un
@@ -413,7 +417,9 @@ se pot da direct lui `simulation/mujoco/publish.py`.
 `tests/unit/test_mj_export.py`): fișiere lipsă ori goale, numărul de rânduri din `frames.jsonl` și
 numărul de PNG-uri de pe disc față de totalul din `session.json`, numărul de rânduri de uzură față
 de eșantioane. Un corpus cu găuri se refuză înainte de urcare, când se vede ieftin; altfel s-ar
-vedea la antrenare. Fără `--upload`, comanda doar citește corpusul și tipărește planul, deci se
+vedea la antrenare. Singurele fișiere goale tolerate sunt `events.jsonl` (o sesiune fără eșecuri)
+și cele de cadre ale unei sesiuni care declară zero cadre în `session.json`; o sesiune care a
+pierdut cadrele declarate este în continuare refuzată. Fără `--upload`, comanda doar citește corpusul și tipărește planul, deci se
 poate verifica o colectare fără să atingă bucketul.
 
 **`manifest.json`** este contractul cu antrenarea: lista fișierelor sesiunii, sesiunile cu familia,
