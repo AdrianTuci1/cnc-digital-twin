@@ -108,6 +108,11 @@ clientului WebRTC, desktopul DCV, panoul de control din Isaac Sim sau dashboard-
   se face cu `make mj-collect`, prin **AWS CLI**, cu credențialele rolului de operator: `boto3`
   nu există în niciunul dintre cele două venv-uri, iar comanda nu adaugă o dependență. Verificarea
   corpusului dinaintea urcării stă în `simulation/mujoco/cncdt_mj/export.py` (pur).
+- **Un corpus de uzură fără degradare nu se urcă.** La `--rate 1` un ciclu mișcă sănătatea cu
+  ~0,006, deci `make mj-collect` folosește `MJ_COLLECT_RATE` (implicit 20) și urcă prin
+  `publish.py --require-wear`, care refuză o colectare în care nicio componentă nu a coborât sub
+  `h = 0,9` și nu s-a înregistrat niciun eșec. Etichetele de eșec sunt stohastice: rețetele
+  măsurate pentru degradare și pentru episoade de eșec sunt în `docs/11-geaman-mujoco.md` §4.
 - **Contractul de coloane este verificat în trei locuri**: tabelul din Terraform, schema JSON
   din `telemetry/schemas/` și `cncdt_ml/schema.py`. Firehose eșuează la conversia Parquet dacă
   înregistrarea are câmpuri în plus, deci cele trei se schimbă în același commit.

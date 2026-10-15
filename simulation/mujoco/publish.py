@@ -11,7 +11,13 @@ Urcarea se face cu **AWS CLI**, nu cu un SDK: credențialele ajung în mediu pri
 data lake. Așa nu se adaugă nicio dependență în niciunul dintre cele două venv-uri.
 
 Fără `--upload`, comanda doar **citește** corpusul și tipărește planul: ce sesiuni, câte eșantioane,
-câte cadre, ce chei. Este modul în care se verifică o colectare înainte de a atinge bucketul.
+câte cadre, ce chei, câtă uzură conțin. Este modul în care se verifică o colectare înainte de a
+atinge bucketul.
+
+Cu `--require-wear`, corpusul în care nicio componentă nu a coborât sub pragul de semnal de uzură și
+în care nu s-a înregistrat niciun eșec este **refuzat**: fișierele ar fi complete, dar un model de
+serii de timp nu are ce învăța din ele. `make mj-collect` îl folosește, ca o colectare de rutină să
+nu ajungă în bucket fără degradare.
 
 Rulare::
 
@@ -85,20 +91,31 @@ def check_credentials() -> str:
 
 
 def report(plan: export.ExportPlan) -> None:
-    """Ce urcă: sesiunile, pe familii, cu ce s-a adunat în ele."""
+    """Ce urcă: sesiunile, pe familii, cu ce s-a adunat în ele și câtă uzură conțin."""
     log(f"corpus: s3://{plan.bucket}/{plan.prefix}/")
     for item in plan.sessions:
         defects = ", ".join(f"{name}×{count}" for name, count in sorted(item.defects.items()))
+        wear = item.coverage
+        detail = ""
+        if wear is not None:
+            detail = (f" | h ≥ {wear.health_min:.3f}, {wear.dt_ms} ms pas, "
+                      f"{len(wear.worn)} componente trecute de prag, {wear.failures} eșecuri")
         log(f"  {item.name:<18} {item.family:<12} {item.cycles} cicluri, "
             f"{item.samples} eșantioane, {item.frames} cadre, "
-            f"{item.bytes / 1024:8.1f} KB  ({defects})")
+            f"{item.bytes / 1024:8.1f} KB  ({defects}){detail}")
     totals = {
         "sessions": len(plan.sessions),
         "samples": sum(item.samples for item in plan.sessions),
         "frames": sum(item.frames for item in plan.sessions),
     }
     log(f"total: {totals['sessions']} sesiuni, {totals['samples']} eșantioane de senzori, "
-        f"{totals['frames']} cadre, {plan.bytes / 1024 / 1024:.1f} MB")
+        f"{totals['frames']} cadre, {plan.bytes / 1024 / 1024:.1f} MB, "
+        f"sănătate minimă {plan.health_min:.3f}, {plan.failures} eșecuri")
+    if plan.covers_wear:
+        log(f"uzură: da, măcar o sesiune a trecut sub h = {export.WEAR_SIGNAL_HEALTH:g}")
+    else:
+        log(f"uzură: NU — nicio componentă nu a coborât sub h = {export.WEAR_SIGNAL_HEALTH:g} "
+            f"și nu s-a înregistrat niciun eșec; vezi `MJ_COLLECT_RATE`")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -118,6 +135,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--upload", action="store_true",
                         help="urcă efectiv; fără el, comanda doar citește corpusul și tipărește "
                              "planul de chei")
+    parser.add_argument("--require-wear", action="store_true",
+                        help="refuză corpusul în care nicio componentă nu a coborât sub pragul de "
+                             "semnal de uzură și nu s-a înregistrat niciun eșec: fișierele ar fi "
+                             "complete, dar un model de uzură nu are ce învăța din ele")
     parser.add_argument("--json", action="store_true",
                         help="tipărește manifestul, ca să poată fi citit de alte unelte")
     return parser
@@ -140,6 +161,11 @@ def main(argv: list[str] | None = None) -> int:
         log(f"  problemă: {problem}")
     if not plan.ok:
         die(f"corpusul are {len(plan.problems)} probleme: se repară, apoi se reia urcarea")
+    if args.require_wear and not plan.covers_wear:
+        die("corpusul nu are semnal de uzură: nicio componentă nu a coborât sub "
+            f"h = {export.WEAR_SIGNAL_HEALTH:g} și nu s-a înregistrat niciun eșec.\n"
+            "Urcă viața mașinii, cu `MJ_COLLECT_RATE` (de pildă 20) ori cu `--rate` dat lui "
+            "run.py, sau pornește sesiunea cu o componentă deja uzată (`--inject`)")
 
     extra: dict[str, object] = {
         "git": {"revision": git_revision()},

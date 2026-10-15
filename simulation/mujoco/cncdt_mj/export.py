@@ -23,6 +23,11 @@ care știu să deschidă JSON Lines.
 
 Partiționarea pe `dt=` păstrează convenția din `curated/qa-verdicts/dt=<zi>/`, iar numele rulării
 (`run-<UTC>`) face ca două colectări să nu se amestece niciodată.
+
+Pe lângă verificarea integrității, modulul **măsoară semnalul de uzură** al fiecărei sesiuni
+(:class:`Coverage`): pasul seriei de timp, găurile din ea, cea mai mică sănătate atinsă, componentele
+care au trecut pragul și eșecurile înregistrate. Cifrele intră în manifest, deci răspunsul la „are
+corpusul ce ne trebuie ca să învățăm uzura?" se citește din bucket, nu se speră.
 """
 
 from __future__ import annotations
@@ -30,6 +35,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -52,6 +58,63 @@ CORPUS_FILES: tuple[str, ...] = (
 #: Fișierul de manifest, la rădăcina rulării: ce conține corpusul și cum a fost generat.
 MANIFEST_FILE = "manifest.json"
 
+#: Sub ce sănătate trebuie să ajungă măcar o componentă ca sesiunea să conțină **semnal de uzură**.
+#: La rata nominală (`run.py --rate 1`) un ciclu mișcă sănătatea cu ~0,006: fișierele sunt complete,
+#: dar un model de serii de timp nu are ce învăța din ele. Colectarea implicită comprimă viața
+#: mașinii (`MJ_COLLECT_RATE`), iar pragul de aici este poarta care cere asta.
+WEAR_SIGNAL_HEALTH = 0.9
+
+#: Componentele a căror sănătate se urmărește: chiar cele șapte din `wear.COMPONENTS`.
+HEALTH_SUFFIX = "_health"
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """Cât de mult semnal de uzură are o sesiune și dacă seria ei de timp este continuă.
+
+    Se citește din `wear.jsonl` (aliniat pe `ts_ms` cu eșantioanele) și din `events.jsonl`. Un
+    antrenament pe serii de timp are nevoie de trei lucruri: un ceas fără găuri, sănătatea
+    componentelor la fiecare pas și momentele în care ceva a cedat. Toate trei se măsoară aici,
+    ca să se vadă din manifest dacă un corpus poate susține un asemenea model.
+    """
+
+    rows: int
+    dt_ms: int
+    gaps: int
+    health_min_by_component: Mapping[str, float]
+    failures: int
+    actions: int
+
+    @property
+    def health_min(self) -> float:
+        """Cea mai mică sănătate din sesiune, oricare componentă: cât de departe s-a ajuns."""
+        return min(self.health_min_by_component.values(), default=1.0)
+
+    @property
+    def worn(self) -> tuple[str, ...]:
+        """Componentele trecute de pragul de semnal de uzură, în ordine alfabetică."""
+        return tuple(sorted(name for name, value in self.health_min_by_component.items()
+                            if value < WEAR_SIGNAL_HEALTH))
+
+    @property
+    def carries_wear(self) -> bool:
+        """Sesiunea a apucat să uzeze ceva ori să treacă un prag de severitate."""
+        return self.health_min < WEAR_SIGNAL_HEALTH or self.failures > 0
+
+    def record(self) -> dict[str, Any]:
+        """Blocul din manifest: ce s-a măsurat, nu ce s-ar putea spera."""
+        return {
+            "rows": self.rows,
+            "dt_ms": self.dt_ms,
+            "gaps": self.gaps,
+            "health_min": round(self.health_min, 6),
+            "health_min_by_component": {name: round(value, 6) for name, value
+                                        in sorted(self.health_min_by_component.items())},
+            "worn": list(self.worn),
+            "failures": self.failures,
+            "actions": self.actions,
+        }
+
 
 @dataclass(frozen=True)
 class SessionEntry:
@@ -67,6 +130,7 @@ class SessionEntry:
     sim_time_s: float
     bytes: int
     defects: Mapping[str, int] = field(default_factory=dict)
+    coverage: Coverage | None = None
 
     def key_prefix(self, prefix: str) -> str:
         """Prefixul de chei al sesiunii: întregul ei director urcă sub el."""
@@ -85,6 +149,7 @@ class SessionEntry:
             "sim_time_s": round(self.sim_time_s, 6),
             "bytes": self.bytes,
             "defects": dict(self.defects),
+            "coverage": self.coverage.record() if self.coverage is not None else {},
         }
 
 
@@ -107,6 +172,28 @@ class ExportPlan:
     def bytes(self) -> int:
         """Cât urcă, în octeți, fără manifest."""
         return sum(item.bytes for item in self.sessions)
+
+    @property
+    def covers_wear(self) -> bool:
+        """Corpusul are ce ar învăța un model de uzură: măcar o sesiune cu semnal.
+
+        Se cere măcar una, nu toate: o colectare poate amesteca familii sănătoase cu familii
+        duse până la prag, iar un model de serii de timp are nevoie de traiectoria completă,
+        nu de fiecare sesiune în parte.
+        """
+        return any(item.coverage is not None and item.coverage.carries_wear
+                   for item in self.sessions)
+
+    @property
+    def health_min(self) -> float:
+        """Cea mai mică sănătate din corpus: cât de departe s-a ajuns cu uzura."""
+        values = [item.coverage.health_min for item in self.sessions if item.coverage is not None]
+        return min(values) if values else 1.0
+
+    @property
+    def failures(self) -> int:
+        """Câte eșecuri au fost înregistrate, în tot corpusul."""
+        return sum(item.coverage.failures for item in self.sessions if item.coverage is not None)
 
     def command(self, session: SessionEntry) -> list[str]:
         """Comanda de urcare a unei sesiuni: directorul întreg, recursiv."""
@@ -140,6 +227,9 @@ class ExportPlan:
                 "samples": sum(item.samples for item in self.sessions),
                 "frames": sum(item.frames for item in self.sessions),
                 "bytes": self.bytes,
+                "health_min": round(self.health_min, 6),
+                "failures": self.failures,
+                "carries_wear": self.covers_wear,
             },
             "labels": {
                 "families": families,
@@ -176,7 +266,7 @@ def session_directories(run_dir: Path) -> tuple[Path, ...]:
 
 
 def session_entry(directory: Path) -> SessionEntry:
-    """Citește o sesiune de pe disc: ce declară `session.json` și cât ocupă pe disc."""
+    """Citește o sesiune de pe disc: ce declară `session.json`, cât ocupă și ce uzură conține."""
     record = json.loads(directory.joinpath(telemetry.SESSION_FILE).read_text(encoding="utf-8"))
     totals = record.get("totals", {})
     cycles = record.get("cycles", [])
@@ -198,7 +288,45 @@ def session_entry(directory: Path) -> SessionEntry:
         sim_time_s=float(totals.get("sim_time_s", 0.0)),
         bytes=directory_bytes(directory),
         defects=defects,
+        coverage=coverage(directory),
     )
+
+
+def coverage(directory: Path) -> Coverage:
+    """Măsoară semnalul de uzură al unei sesiuni, din fișierele ei.
+
+    `wear.jsonl` are un rând la fiecare eșantion, aliniat pe `ts_ms` și pe `cycle_id`, deci ceasul
+    seriei se citește de aici: pasul median dintre rânduri și găurile mai mari decât o dată și
+    jumătate din pas — la hotarul dintre cicluri scena se recompune, iar acolo pasul este mai mare.
+    Eșecurile și acțiunile se numără din `events.jsonl`, fișierul de etichete.
+    """
+    moments: list[int] = []
+    minima: dict[str, float] = {}
+    for row in _read_jsonl(directory / telemetry.WEAR_FILE):
+        moments.append(int(row.get("ts_ms", 0)))
+        for name, value in row.items():
+            if name.endswith(HEALTH_SUFFIX):
+                component = name[: -len(HEALTH_SUFFIX)]
+                minima[component] = min(minima.get(component, 1.0), float(value))
+    steps = sorted(step for step in (second - first for first, second in pairwise(moments))
+                   if step > 0)
+    dt_ms = steps[len(steps) // 2] if steps else 0
+    events = _read_jsonl(directory / telemetry.EVENT_FILE)
+    return Coverage(
+        rows=len(moments),
+        dt_ms=int(dt_ms),
+        gaps=sum(1 for step in steps if dt_ms and step > 1.5 * dt_ms),
+        health_min_by_component=minima,
+        failures=sum(1 for row in events if row.get("event") == "failure"),
+        actions=sum(1 for row in events if row.get("event") == "action"),
+    )
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Rândurile unui JSON Lines, ca obiecte; fișierul lipsă înseamnă listă goală."""
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
 def directory_bytes(directory: Path) -> int:
@@ -241,6 +369,10 @@ def check_session(directory: Path) -> list[str]:
     wear_rows = _count_lines(directory / telemetry.WEAR_FILE)
     if wear_rows != entry.samples:
         problems.append(f"{name}: {wear_rows} rânduri de uzură la {entry.samples} eșantioane")
+    elif not entry.coverage.health_min_by_component:
+        # Fără coloane de sănătate, fișierul nu mai spune ce s-a uzat: manifestul ar minți liniștit
+        # că sesiunea este sănătoasă (h = 1,0), iar antrenarea ar primi etichete false.
+        problems.append(f"{name}: {telemetry.WEAR_FILE} nu are nicio coloană de sănătate")
     return problems
 
 

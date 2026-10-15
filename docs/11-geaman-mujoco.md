@@ -420,7 +420,66 @@ poate verifica o colectare fără să atingă bucketul.
 sămânța, ciclurile, eșantioanele, cadrele, octeții și numărul de piese pe defect, totalurile,
 familiile, versiunile de schemă și parametrii de uzură din `session.json`, plus revizia git din
 care s-a generat corpusul. Un job nou află din el unde sunt fișierele și cu ce contract au fost
-scrise, fără să ghicească din numele de directoare.
+scrise, fără să ghicească din numele de directoare. Tot în manifest intră și acoperirea de uzură
+(secțiunea de mai jos).
+
+### Ce poate învăța un model din corpus
+
+Întrebarea la care răspunde secțiunea asta este „de unde știm că datele ajung ca să învățăm uzura pe
+serii de timp?". Răspunsul are două părți: ce garantează **formatul** sesiunii și ce garantează
+**colectarea**. Amândouă se măsoară, iar cifrele de mai jos sunt citite din sesiuni reale, nu
+presupuse.
+
+**Formatul.** `wear.jsonl` are un rând la fiecare eșantion, aliniat cu `samples.jsonl` pe `ts_ms` și
+pe `cycle_id` (verificat: aliniere exactă pe toată sesiunea), iar rândul conține sănătatea tuturor
+celor șapte componente (`<componentă>_health`) plus indicii derivați din contract
+(`tool_wear_index`, `joint_friction_index`, `surface_quality`), scala de viteză a benzilor
+(`belt_speed_scale`) și temperatura. Eșantionul însuși are exact coloanele din
+`cnc.telemetry.v1.json`, inclusiv cele care se mișcă cu uzura: `spindle_load`, `vibration`,
+`temp_c`, `coolant_flow_lpm`, `axis_feed`, `joint_effort`. Diagnosticul (`readings.jsonl`) adaugă
+mărimile care n-au coloană în contract — viteza fiecărei benzi, efortul și forța de strângere pe
+fiecare braț, poziția și viteza pieselor, contactele.
+
+Ceasul seriei este regulat: pas median **100 ms** (10 Hz, ca hot path-ul), cu pași mai mari la
+hotarul dintre cicluri — **124–190 ms** măsurat — fiindcă acolo scena se recompune. Pașii mari sunt
+numărați, nu ascunși: `coverage.gaps` din manifest spune câți sunt.
+
+Uzura se vede în măsurători, nu doar în etichete. Măsurat pe o sesiune cu uzură reală: viteza benzii
+coboară de la **0,12000** la **0,11652 m/s** când benzile ajung la `h = 0,638`, iar efortul brațului
+1 urcă până la **38,6 Nm** la `h = 0,435` (față de 30,2 Nm cu brațul sănătos). Sarcina axului,
+vibrația, temperatura, avansul și debitul de răcire vin din același motor de uzură.
+
+**Colectarea.** Formatul este necesar, dar nu suficient: la rata nominală (`--rate 1`) un ciclu
+mișcă sănătatea cu **0,006** (1,000 → 0,994), deci un corpus de rutină ar fi complet și fără nimic
+de învățat. De aceea `make mj-collect` comprimă viața mașinii: `MJ_COLLECT_RATE` (implicit 20), iar
+rata folosită se scrie în fiecare `session.json`, ca traiectoria să poată fi rescalată. Cu
+implicitul, o colectare de 5 cicluri pe familie ajunge la `h ≈ 0,48`: benzile și brațul 1 „worn",
+scula „degraded".
+
+**Etichetele de eșec** sunt stohastice (hazard crescător, tras cu sămânța sesiunii), deci nu vin
+singure dintr-o colectare scurtă. Rețetele de mai jos au fost rulate, ca să nu se ghicească:
+
+| Combinație | Ce iese |
+| --- | --- |
+| `--rate 20 --cycles 5` (implicitul) | degradare pe 6 componente, `h_min ≈ 0,48`, **0 eșecuri** |
+| `--rate 50 --cycles 10` | `h_min = 0,02`, **6 eșecuri** (`belt_slip` ×5, `tool_break`) |
+| `--rate 50 --cycles 5 --inject cnc_tool:0.2 --inject arm1:0.2 --inject belt_out:0.2` | `h_min = 0,03`, **4 evenimente** (3 injecții și `tool_break`) |
+| `--rate 200 --cycles 5` cu aceleași trei injecții | **10 evenimente**, 4 tipuri de eșec (`gripper_slip`, `tool_break`, `belt_slip`, `spindle_bearing`) |
+
+Fiecare eșec are `kind`, `health`, `severity` și `duration_s`, deci un episod se poate delimita, iar
+preavizul se poate măsura — exact metrica din secțiunea 5. Injecțiile apar ca `action`
+(`inject_wear`), nu ca eșec: cine citește corpusul vede ce a fost cerut de operator și ce s-a
+stricat singur.
+
+**Poarta.** `make mj-collect` urcă prin `publish.py --require-wear`: un corpus în care nicio
+componentă nu a coborât sub `h = 0,9` și în care nu s-a înregistrat niciun eșec este refuzat, cu
+motivul scris în clar. Iar cifrele intră în manifest, deci răspunsul la întrebare se citește direct
+din bucket: `coverage` pe fiecare sesiune (`rows`, `dt_ms`, `gaps`, `health_min`,
+`health_min_by_component`, `worn`, `failures`, `actions`) și `totals.health_min`, `totals.failures`,
+`totals.carries_wear`.
+
+Ce **nu** conține încă corpusul: ferestrele de 60 s (`windows.parquet`, faza 4) și degradarea
+cadrelor de cameră — cadrele ies curate, fără blur proporțional cu `1 - h_camera`.
 
 ### Cum ajunge același conținut pe calea live
 

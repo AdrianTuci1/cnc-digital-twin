@@ -205,9 +205,18 @@ MJ_RECORD_CYCLES ?= 1
 # `events.jsonl`) ajung împreună, plus un `manifest.json` la rădăcina rulării.
 #   MJ_COLLECT_CYCLES  câte cicluri pe familie (implicit 5)
 #   MJ_COLLECT_SEED    sămânța primului ciclu; familiile folosesc semințe vecine
+#   MJ_COLLECT_RATE    compresia vieții mașinii: la 1, cinci cicluri mișcă sănătatea cu ~0,03 și
+#                      nu se înregistrează niciun eșec, deci corpusul nu poate antrena un model de
+#                      uzură; implicit 20, ceea ce coboară scula spre pragul de degradare într-o
+#                      colectare de rutină. Rata folosită se scrie în fiecare `session.json`.
+#   MJ_COLLECT_INJECT  pornește sesiunea cu o componentă deja uzată (`benză:cât`, repetabil)
+#   MJ_COLLECT_MACHINING_S  lungimea ferestrei de așchiere, în secunde (implicit 12)
 DATA_LAKE_BUCKET  ?=
 MJ_COLLECT_CYCLES ?= 5
 MJ_COLLECT_SEED   ?= 100
+MJ_COLLECT_RATE   ?= 20
+MJ_COLLECT_INJECT ?=
+MJ_COLLECT_MACHINING_S ?=
 MJ_RUN_NAME       ?=
 MJ_PUBLISH_PY     := $(PY)
 
@@ -250,15 +259,19 @@ mj-collect: ## Colectează date de antrenament (senzori + camere) și le urcă �
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
 	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'terraform output -raw data_lake_bucket' (stack-ul platform)"; exit 1; }
 	@run="$$(date -u +run-%Y%m%dT%H%M%S)"; \
-	 echo "== colectare în $(MJ_DIR)/runs/$$run"; \
+	 echo "== colectare în $(MJ_DIR)/runs/$$run (rate $(MJ_COLLECT_RATE))"; \
 	 for family in $(MJ_FAMILIES); do \
 		echo "== familia $$family"; \
 		cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/run.py --family $$family \
 			--cycles $(MJ_COLLECT_CYCLES) --seed $(MJ_COLLECT_SEED) \
+			--rate $(MJ_COLLECT_RATE) \
+			$(if $(MJ_COLLECT_MACHINING_S),--machining-s $(MJ_COLLECT_MACHINING_S),) \
+			$(foreach item,$(MJ_COLLECT_INJECT),--inject $(item)) \
 			--out $(MJ_DIR)/runs/$$run/$$family-$(MJ_COLLECT_SEED) || exit 1; \
 	 done; \
 	 cd $(ROOT) && $(MJ_PUBLISH_PY) $(MJ_DIR)/publish.py --run-dir $(MJ_DIR)/runs/$$run \
-		--bucket "$(DATA_LAKE_BUCKET)" $(if $(MJ_RUN_NAME),--run $(MJ_RUN_NAME),) --upload
+		--bucket "$(DATA_LAKE_BUCKET)" $(if $(MJ_RUN_NAME),--run $(MJ_RUN_NAME),) \
+		--require-wear --upload
 
 mj-publish: ## Urcă în bucket sesiunile deja scrise în simulation/mujoco/runs
 	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'terraform output -raw data_lake_bucket' (stack-ul platform)"; exit 1; }
