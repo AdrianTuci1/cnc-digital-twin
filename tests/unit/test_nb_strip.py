@@ -143,5 +143,16 @@ def test_un_fisier_care_nu_e_json_este_raportat(tmp_path: Path) -> None:
     assert nb_strip.main([str(tmp_path)]) == 2
 
 
+def test_notebook_urile_comise_nu_au_output_uri() -> None:
+    """Poarta de dinainte de commit: ce a ajuns în `ml/experiments/notebooks/` e deja curățat."""
+    murdare = []
+    for path in nb_strip.notebooks_under([ROOT / "ml" / "experiments" / "notebooks"]):
+        notebook = json.loads(path.read_text(encoding="utf-8"))
+        if nb_strip.strip_notebook(notebook):
+            murdare.append(str(path.relative_to(ROOT)))
+
+    assert not murdare, f"rulează `make nb-strip` înainte de commit: {', '.join(murdare)}"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
