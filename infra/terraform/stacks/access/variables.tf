@@ -96,6 +96,29 @@ variable "enable_guardrails" {
   default     = true
 }
 
+variable "enable_modal_oidc" {
+  description = <<-EOT
+    Creează furnizorul OIDC `oidc.modal.com`, pe care se sprijină rolul asumat de containerele
+    Modal care scriu corpusul de antrenament (ADR 0015). Se creează doar din identitatea de
+    admin: gardul `DenyPermanentIdentities` refuză `iam:CreateOpenIDConnectProvider` în sesiunile
+    de operator.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "modal_oidc_url" {
+  description = "Adresa furnizorului OIDC. `https://oidc.modal.com` este emițătorul de tokenuri al Modal."
+  type        = string
+  default     = "https://oidc.modal.com"
+}
+
+variable "modal_oidc_audience" {
+  description = "Audiența (`aud`) cerută în trust-ul rolului. Trebuie să fie identică în furnizor, în token și în condiția rolului."
+  type        = string
+  default     = "oidc.modal.com"
+}
+
 variable "state_bucket_name" {
   description = "Bucket-ul de state Terraform, protejat de ștergere. Gol derivă din numele proiectului și ID-ul de cont."
   type        = string

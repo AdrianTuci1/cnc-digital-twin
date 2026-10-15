@@ -1,0 +1,30 @@
+# Exemplu de valori pentru stack-ul `training-data` (bucket-ul corpusului + rolul pentru Modal).
+#
+# Ordinea aplicării, într-un cont nou:
+#   1. make access-up           identitatea de admin; creează și furnizorul OIDC `oidc.modal.com`
+#   2. make training-data-up    cu sesiunea rolului de operator: `eval "$(./scripts/assume-operator.sh)"`
+#
+# Furnizorul OIDC stă în stack-ul `access` fiindcă doar identitatea de admin îl poate crea:
+# gardul `DenyPermanentIdentities` refuză `iam:CreateOpenIDConnectProvider` în sesiunile de
+# operator. Rolul din stack-ul de față se sprijină pe el.
+
+project_name = "cncdt"
+environment  = "dev"
+region       = "eu-central-1"
+
+# ID-ul spațiului de lucru Modal din care se poate asuma rolul. Se citește cu `modal token info`
+# ori din https://modal.com/settings/workspaces. Fără el, trust-ul rolului ar accepta orice
+# spațiu Modal.
+modal_workspace_id = "ac-REPLACE_WITH_WORKSPACE_ID"
+
+# Numele rolului; gol derivă `<proiect>-<mediu>-modal-collector`.
+modal_role_name = ""
+
+# ARN-ul furnizorului OIDC; gol îl derivă din cont și partiție.
+modal_oidc_provider_arn = ""
+
+# Ștergerea bucket-ului cu obiecte cu tot, la `terraform destroy`. `true` în `dev`.
+force_destroy = true
+
+# Cheia KMS pentru criptare; gol folosește SSE-S3 (AES256).
+kms_key_arn = ""

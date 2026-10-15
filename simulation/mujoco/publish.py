@@ -46,7 +46,7 @@ if str(MUJOCO_DIR) not in sys.path:
 from cncdt_mj import export  # noqa: E402  (importul cere calea de mai sus)
 
 #: Variabila de mediu din care se ia bucketul când nu se dă `--bucket`. Se completează cu
-#: `terraform output -raw data_lake_bucket` (stack-ul `platform`).
+#: `bucket_name` din stack-ul `training-data` (`make training-data-status`).
 BUCKET_VAR = "DATA_LAKE_BUCKET"
 
 #: Directorul implicit al corpusului: același în care scrie `run.py`.
@@ -150,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     run_dir = Path(args.run_dir)
     if not args.bucket:
         die(f"lipsește bucketul: dă `--bucket` ori pune ${BUCKET_VAR} în mediu (din "
-            "`terraform output -raw data_lake_bucket`)")
+            "`make training-data-status`, ieșirea bucket_name)")
     plan = export.plan_export(run_dir, args.bucket, dt=args.dt, run=args.run,
                               prefix=args.prefix)
     if not plan.sessions:

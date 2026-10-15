@@ -33,6 +33,7 @@ Sursa de adevăr pentru decizii. Codul spune *ce* se întâmplă; documentele de
 | [0012](adr/0012-geaman-mujoco-pentru-generare-de-telemetrie.md) | Al doilea geamăn, în MuJoCo, headless, pentru generarea de telemetrie și antrenare |
 | [0013](adr/0013-colectare-cu-etichete-demonstratie-cu-model.md) | Colectare cu etichete, demonstrație cu model: eticheta nu intră pe calea de inferență |
 | [0014](adr/0014-celula-simplificata-raft-cubic-fara-camera-fixa.md) | Celula se simplifică: raft cubic pe un nivel, verdictul de la camera brațului, mașină simbolică |
+| [0015](adr/0015-colectare-pe-modal-cu-bucket-dedicat-si-oidc.md) | Colectarea lungă pe Modal, cu bucket dedicat și federare OIDC, fără chei statice |
 
 ## Convenții
 

@@ -166,6 +166,38 @@ tf-validate: ## Validează toate stack-urile
 		echo "==> $$d"; (cd "$$d" && $(TF) init -backend=false -input=false >/dev/null && $(TF) validate) || exit 1; \
 	done
 
+# ---------------------------------------------------------------- date de antrenament (Modal)
+# Bucket-ul corpusului de antrenament și rolul pe care îl asumă containerele Modal ca să scrie
+# în el. Rolul se sprijină pe furnizorul OIDC `oidc.modal.com`, care se creează în stack-ul
+# `access` (doar identitatea de admin poate: gardul rolului de operator refuză
+# `iam:CreateOpenIDConnectProvider`). Ordinea într-un cont nou:
+#   make access-up                      # admin: rolul de operator + furnizorul OIDC al Modal
+#   eval "$(./scripts/assume-operator.sh)"
+#   make training-data-up               # bucket-ul corpusului + rolul Modal
+#   make training-data-status           # bucket-ul, rolul și comanda secretului Modal
+TRAINING_DIR  := $(TF_DIR)/stacks/training-data
+TRAINING_VARS := -var project_name=$(PROJECT_NAME) -var environment=$(ENVIRONMENT) \
+                 -var region=$(AWS_REGION) -var modal_workspace_id=$(MODAL_WORKSPACE_ID)
+
+.PHONY: training-data-plan training-data-up training-data-down training-data-status
+training-data-plan: ## Plan pentru bucket-ul corpusului, fără aplicare (cere INFRA_LAUNCH_ENABLED=true)
+	@test -n "$(MODAL_WORKSPACE_ID)" || { echo "lipsește MODAL_WORKSPACE_ID: pune-l în .env (din 'modal token info')"; exit 1; }
+	cd $(TRAINING_DIR) && $(TF) init -input=false >/dev/null
+	cd $(TRAINING_DIR) && $(TF) plan $(TRAINING_VARS) -var launch_confirmed=$(INFRA_LAUNCH_ENABLED) -out=plan.out
+
+training-data-up: launch-gate ## Creează bucket-ul corpusului și rolul Modal (cere INFRA_LAUNCH_ENABLED=true)
+	@test -n "$(MODAL_WORKSPACE_ID)" || { echo "lipsește MODAL_WORKSPACE_ID: pune-l în .env (din 'modal token info')"; exit 1; }
+	cd $(TRAINING_DIR) && $(TF) init -input=false >/dev/null
+	cd $(TRAINING_DIR) && $(TF) plan $(TRAINING_VARS) -var launch_confirmed=true -out=plan.out
+	cd $(TRAINING_DIR) && $(TF) apply plan.out
+	@cd $(TRAINING_DIR) && $(TF) output next_steps
+
+training-data-down: ## ȘTERGE bucket-ul corpusului și rolul Modal; YES=1 sare peste confirmare
+	cd $(TRAINING_DIR) && $(TF) destroy $(TRAINING_VARS) -var launch_confirmed=true $(if $(YES),-auto-approve,)
+
+training-data-status: ## Bucket-ul, rolul Modal și comanda care creează secretul Modal
+	cd $(TRAINING_DIR) && $(TF) output
+
 # ---------------------------------------------------------------- documentație
 # Diagramele sunt generate din cod (`docs/diagrams/architecture.py`), nu desenate manual.
 # Cer `graphviz` instalat (`brew install graphviz`) și pachetul `diagrams` în mediul virtual:
@@ -258,9 +290,9 @@ mj-record: ## Colectează o sesiune de antrenare (telemetrie + cadre) în simula
 	done
 	@echo "sesiunile sunt în $(MJ_DIR)/runs (ignorate de git); vezi docs/11-geaman-mujoco.md §4"
 
-mj-collect: ## Colectează date de antrenament (senzori + camere) și le urcă în bucketul data lake
+mj-collect: ## Colectează date de antrenament (senzori + camere) și le urcă în bucketul corpusului
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
-	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'terraform output -raw data_lake_bucket' (stack-ul platform)"; exit 1; }
+	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'make training-data-status' (ieșirea bucket_name)"; exit 1; }
 	@run="$$(date -u +run-%Y%m%dT%H%M%S)"; \
 	 echo "== colectare în $(MJ_DIR)/runs/$$run (rate $(MJ_COLLECT_RATE))"; \
 	 index=0; \
@@ -281,7 +313,7 @@ mj-collect: ## Colectează date de antrenament (senzori + camere) și le urcă �
 		--require-wear --upload
 
 mj-publish: ## Urcă în bucket sesiunile deja scrise în simulation/mujoco/runs
-	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'terraform output -raw data_lake_bucket' (stack-ul platform)"; exit 1; }
+	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'make training-data-status' (ieșirea bucket_name)"; exit 1; }
 	cd $(ROOT) && $(MJ_PUBLISH_PY) $(MJ_DIR)/publish.py --run-dir $(MJ_DIR)/runs \
 		--bucket "$(DATA_LAKE_BUCKET)" $(if $(MJ_RUN_NAME),--run $(MJ_RUN_NAME),) --upload
 

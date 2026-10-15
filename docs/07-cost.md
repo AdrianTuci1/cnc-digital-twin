@@ -26,6 +26,11 @@ costă bani sunt cele care rulează: instanța GPU, endpoint-urile și joburile 
 | Job de procesare `ml.m5.4xlarge` | ≈ 0.92 USD/oră | cât timp rulează jobul |
 | Data Wrangler în Studio | pe instanța kernel a domeniului | doar cu aplicația deschisă |
 | S3 (date lake) | 0.023 USD/GB-lună, tranziție la IA/Glacier prin lifecycle | pe volum stocat |
+| S3 (bucket-ul corpusului de antrenament) | 0.023 USD/GB-lună, fără tranziție (se citește la fiecare antrenare) | pe volum stocat |
+| Modal, CPU | 0.04716 USD/nucleu fizic-oră (0.0000131 USD/nucleu-secundă) | cât rulează containerul |
+| Modal, memorie | 0.008 USD/GiB-oră (0.00000222 USD/GiB-secundă) | cât rulează containerul |
+| Modal, GPU T4 | 0.59 USD/oră (0.000164 USD/secundă) | cât rulează containerul cu cadre |
+| Modal, ieșire de rețea | 0.04 USD/GiB, primul TiB pe lună gratuit | pe datele scrise din containere |
 | Firehose | ≈ 0.029 USD/GB ingestat + conversie Parquet ≈ 0.018 USD/GB | pe volum |
 | Lambda | în limita gratuită pentru volumul de demo | pe invocări și GB-s |
 | Metrică custom CloudWatch | 0.30 USD/lună per metrică + 0.01 USD per 1000 cereri `PutMetricData` | pe metrice publicate și pe cereri |

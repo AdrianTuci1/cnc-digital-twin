@@ -33,6 +33,24 @@ locals {
   project_role_arn_pattern = "arn:${local.partition}:iam::${local.account_id}:role/${var.project_name}-*"
 }
 
+# ---------------------------------------------------------------- federarea Modal
+# Containerele Modal primesc un token de identitate (`MODAL_IDENTITY_TOKEN`) și îl schimbă pe
+# credențiale temporare prin `sts:AssumeRoleWithWebIdentity`. Nu se creează utilizatori IAM și nu
+# se pun chei de acces în secretul Modal (ADR 0006, ADR 0015).
+#
+# Furnizorul stă în stack-ul de acces fiindcă doar identitatea de admin îl poate crea: gardul
+# `DenyPermanentIdentities` de mai jos refuză `iam:CreateOpenIDConnectProvider` în sesiunile de
+# operator (verificat cu `aws iam simulate-principal-policy`). Rolul care se sprijină pe el se
+# creează în stack-ul `training-data`.
+resource "aws_iam_openid_connect_provider" "modal" {
+  count = var.enable_modal_oidc ? 1 : 0
+
+  url            = var.modal_oidc_url
+  client_id_list = [var.modal_oidc_audience]
+
+  tags = merge(local.common_tags, { Component = "modal-oidc" })
+}
+
 # ---------------------------------------------------------------- rolul de operator
 data "aws_iam_policy_document" "assume_role" {
   statement {

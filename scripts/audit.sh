@@ -23,6 +23,8 @@ PLATFORM_DIR="${TF_DIR}/stacks/platform"
 SIM_DIR="${TF_DIR}/stacks/sim"
 # Volumul de date persistent: stack separat, cu state local, ca `sim-down` să nu îl poată șterge.
 DATA_DIR="${TF_DIR}/stacks/sim-data"
+# Bucket-ul corpusului de antrenament și rolul asumat de containerele Modal.
+TRAINING_DIR="${TF_DIR}/stacks/training-data"
 TWINCTL="${ROOT}/tools/twinctl/twinctl"
 
 if [[ -f "${ROOT}/.env" ]]; then
@@ -36,6 +38,7 @@ PROJECT_NAME="${PROJECT_NAME:-cncdt}"
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 AWS_REGION="${AWS_REGION:-eu-central-1}"
 AWS_PROFILE="${AWS_PROFILE:-}"
+MODAL_WORKSPACE_ID="${MODAL_WORKSPACE_ID:-}"
 
 PROBLEMS=0
 PARTIAL=0
@@ -230,6 +233,27 @@ else
   info "sim-data: volumul de date se plătește lunar; se șterge doar cu \`make sim-data-down\`"
 fi
 
+if [[ "${AWS_READY}" -eq 0 ]]; then
+  info "training-data: plan sărit, credențialele lipsesc"
+elif [[ -z "$(terraform -chdir="${TRAINING_DIR}" state list 2>/dev/null || true)" ]]; then
+  info "training-data: niciun bucket de corpus în state (colectarea merge local, în runs/)"
+else
+  info "training-data: $(terraform -chdir="${TRAINING_DIR}" state list 2>/dev/null | wc -l | tr -d ' ') resurse în state"
+  if [[ -z "${MODAL_WORKSPACE_ID}" ]]; then
+    info "training-data: plan sărit (lipsește MODAL_WORKSPACE_ID din .env)"
+  elif [[ ! -d "${TRAINING_DIR}/.terraform" ]] && ! terraform -chdir="${TRAINING_DIR}" init -input=false >/dev/null 2>&1; then
+    problem "training-data: \`terraform init\` a eșuat"
+  else
+    # Ca la sim și sim-data: inventarul trimite confirmarea explicit, ca gardul de lansare să nu
+    # blocheze planul; planul rămâne o citire.
+    PLAN_LOG=""
+    run_plan "${TRAINING_DIR}" -var launch_confirmed=true \
+      -var "modal_workspace_id=${MODAL_WORKSPACE_ID}"
+    if [[ -n "${PLAN_LOG}" ]]; then report_plan "training-data"; fi
+  fi
+  info "training-data: bucket-ul se plătește pe volum stocat; se șterge cu \`make training-data-down\`"
+fi
+
 # ---------------------------------------------------------------- inventar
 section "Inventar: resurse etichetate vs. state"
 
@@ -237,6 +261,7 @@ collect_state_arns() {
   terraform -chdir="${PLATFORM_DIR}" state pull 2>/dev/null || true
   terraform -chdir="${SIM_DIR}" state pull 2>/dev/null || true
   terraform -chdir="${DATA_DIR}" state pull 2>/dev/null || true
+  terraform -chdir="${TRAINING_DIR}" state pull 2>/dev/null || true
 }
 
 # Resursele create de servicii în numele nostru, care prin design nu apar în state.

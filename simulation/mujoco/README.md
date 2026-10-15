@@ -41,8 +41,8 @@ make mj-collect MJ_COLLECT_CYCLES=20 MJ_COLLECT_SEED=100   # colectare lungă, u
 make mj-collect MJ_COLLECT_FRAMES=false   # doar senzori: uzura nu are nevoie de poze
 ```
 
-`make mj-collect` are nevoie de `DATA_LAKE_BUCKET` în `.env` (ieșirea `data_lake_bucket` a
-stack-ului `platform`) și de credențialele rolului de operator, luate cu
+`make mj-collect` are nevoie de `DATA_LAKE_BUCKET` în `.env` (ieșirea `bucket_name` a
+stack-ului `training-data`) și de credențialele rolului de operator, luate cu
 `eval "$(./scripts/assume-operator.sh)"`. Fără ele, refuză înainte să atingă bucketul.
 
 Fără Makefile, aceleași lucruri se scriu direct:

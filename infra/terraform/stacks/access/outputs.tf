@@ -18,6 +18,11 @@ output "mfa_required" {
   value       = var.require_mfa
 }
 
+output "modal_oidc_provider_arn" {
+  description = "ARN-ul furnizorului OIDC al Modal, pe care se sprijină rolul din stack-ul `training-data`. Gol când `enable_modal_oidc` este `false`."
+  value       = var.enable_modal_oidc ? aws_iam_openid_connect_provider.modal[0].arn : ""
+}
+
 output "console_switch_role_url" {
   description = "Link de comutare pe rol în consola AWS."
   value       = "https://signin.aws.amazon.com/switchrole?account=${local.account_id}&roleName=${aws_iam_role.operator.name}&displayName=${aws_iam_role.operator.name}"

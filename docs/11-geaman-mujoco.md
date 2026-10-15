@@ -377,7 +377,9 @@ make mj-publish                            # urcă sesiunile deja scrise în sim
 
 `make mj-collect` scrie fiecare familie într-un director de rulare propriu
 (`runs/run-<UTC>/<familie>-<sămânță>/`, cu `MJ_COLLECT_CYCLES` cicluri pe familie), apoi urcă tot
-sub prefixul corpusului:
+sub prefixul corpusului. Este calea scurtă, locală: câteva cicluri, cât să vezi fișierele și să
+verifici planul de urcare. Pentru ore de viață de mașină, colectarea se mută pe containere efemere
+Modal, care scriu direct în bucketul corpusului, cu identitate federată (ADR 0015).
 
 ```
 training-data/mujoco/dt=<zi>/run-<UTC>/manifest.json
@@ -398,8 +400,9 @@ rulării face ca două colectări să nu se amestece niciodată.
 
 **Transportul este AWS CLI** (`aws s3 cp <sesiune> s3://<bucket>/<prefix>/<sesiune> --recursive`,
 plus manifestul), nu un SDK: credențialele vin din rolul de operator, iar așa nu se adaugă `boto3`
-în niciunul dintre cele două venv-uri. Bucketul se ia din `DATA_LAKE_BUCKET` (`.env`, valoarea
-ieșirii `data_lake_bucket` din stack-ul `platform`), iar `--run-dir`, `--prefix`, `--run` și `--dt`
+în niciunul dintre cele două venv-uri. Bucketul se ia din `DATA_LAKE_BUCKET` (`.env`, ieșirea
+`bucket_name` din stack-ul `training-data`), iar
+`--run-dir`, `--prefix`, `--run` și `--dt`
 se pot da direct lui `simulation/mujoco/publish.py`.
 
 **Verificarea dinaintea urcării** stă în `cncdt_mj/export.py` (pur, testat în
