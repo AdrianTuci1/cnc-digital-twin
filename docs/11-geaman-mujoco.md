@@ -19,7 +19,8 @@ inspecție, PNG-urile celor trei puncte de vedere și etichetele pieselor — pe
 familii (**verde**, patru cadre pe ciclu). Din faza 2 lipsesc prinderea (falcile doar ating piesa)
 și stările de așchiere ale mașinii CNC: `CUTTING` nu are încă sursă, iar mărimile axului vin din
 scenariul sesiunii. Starea amănunțită stă în `simulation/mujoco/README.md`.
-Uzura, detectorul, interfața de control și randarea degradată sunt deocamdată doar pe hârtie.
+Uzura și panoul de control (butoane de injectare și reparație) există în viewer; detectorul,
+endpointul local și randarea degradată sunt încă pe hârtie.
 
 ## Cuprins
 
@@ -591,12 +592,16 @@ un nume nou acolo cere bump de versiune plus alinierea Lambda-ului de comenzi.
 Trei intrări, toate locale:
 
 1. **Consolă (REPL)** — merge headless, în CI, în rulări de noapte: `fault grip cnc 0.4`,
-   `repair all`, `rate 20`, `status`.
+   `repair all`, `rate 20`, `status`. Este încă pe listă; comenzile pure există în `control.py`.
 2. **Viewer MuJoCo** — când există display (macOS de dezvoltare, sesiunea DCV a instanței):
-   panou cu butoane pentru injectare, reparație, rată de uzură. Necesită fereastră, deci nu
+   `make mj-view` (ori `view.py --view`) deschide viewer-ul și panoul Tkinter din `panel.py`, cu butoane pentru
+   `Uzură +0.1`, `Uzură +0.25`, `Frecare +0.25`, `Sculă nouă`, `Repară articulații`, `Repară tot`
+   și `Reset degradare`. Panoul citește starea și trimite comenzile prin linii JSON; `--no-panel`
+   îl oprește, iar `view.py` continuă dacă mediul nu are Tkinter. Necesită fereastră, deci nu
    rulează în CI.
 3. **Endpoint HTTP local** (`127.0.0.1`), pentru scenarii scriptate: aceleași comenzi ca în
    REPL, plus un `GET /status` care întoarce sănătatea componentelor și ultimul scor de anomalie.
+   Este încă pe listă.
 
 Panoul rămâne o unealtă de dezvoltare. Operarea se uită în dashboard-urile CloudWatch (ADR 0005).
 
@@ -607,6 +612,7 @@ simulation/mujoco/          # există
   README.md                # instalare, comenzi, structură, intrinsics, stare cunoscută
   requirements.txt         # mujoco==3.15.0, mujoco-menagerie==2026.10.1, numpy, mapbox_earcut
   view.py                   # --check / --render / --demo / --view, peste scena compusă de cncdt_mj.scene
+  panel.py                  # panoul Tkinter de uzură și reparații, pornit de view.py --view
   run.py                    # sesiunea de colectare: cicluri, telemetrie, cadre, fișierele sesiunii
   publish.py                # urcă în bucket corpusul scris de run.py, cu AWS CLI; plan fără --upload
   runs/                     # sesiunile scrise de `make mj-record`; ignorate de git
@@ -621,6 +627,7 @@ simulation/mujoco/          # există
     povs.py                 # cele trei puncte de vedere: cameră, rezoluție, moment, rol; fără MuJoCo
     telemetry.py            # eșantionul pe contract, metadatele cadrului, fișierele sesiunii; fără MuJoCo
     wear.py                 # motorul de uzură: sănătate, efecte în contract, eșecuri, acțiuni; fără MuJoCo
+    control.py              # comenzile panoului și ale viewer-ului: injectare, reparație, reset; fără MuJoCo
     export.py               # corpusul de antrenare: chei în bucket, manifest, verificări; fără MuJoCo
     scene.py                # compunerea: cell.xml plus cele două brațe; importă mujoco
     cell.py                 # contactul cu banda, viteza piesei, forța scrisă în data.xfrc_applied; importă mujoco
@@ -633,19 +640,20 @@ simulation/mujoco/          # există
 simulation/mujoco/cncdt_mj/  # de scris, în fazele 4-5
   detector.py               # RCF local + regula de alarmă (pur, numpy)
   report.py                 # preaviz, rată de detecție, alarme false (pur)
-  control.py                # REPL, endpoint local, punte către viewer
   cell.py                   # are transportul pe benzi și ciclul brațelor; lipsesc prinderea și stările mașinii
 tests/unit/
   test_mujoco_scene.py      # există: layout/part/checks fără MuJoCo, înălțimile față de acest document, camerele de pe flanșe; partea care atinge motorul se rulează cu `make mj-test`
   test_mj_telemetry.py      # există: contractele eșantionului și ale cadrului, planul capturii, fișierele sesiunii
   test_mj_wear.py           # există: ecuația și independența de pas, efectele în contract, eșecurile, acțiunile
+  test_mj_control.py        # există: butoanele panoului, injectarea, reparația, starea trimisă viewer-ului
   test_mj_export.py         # există: cheile din bucket, manifestul, refuzul unui corpus cu găuri
   test_mj_detector.py       # prag, alarmă susținută, preaviz pe episod sintetic
 ```
 
 Injecția de defecțiuni, reparația și rata de uzură nu mai au un modul propriu (`faults.py`):
-trăiesc în `wear.py`, ca acțiuni care își lasă eticheta în `events.jsonl` — aceeași listă de
-comenzi pe care o va chema consola din `control.py`.
+trăiesc în `wear.py`, ca acțiuni care își lasă eticheta în `events.jsonl`. `control.py` le
+expune ca mesaje JSON, iar panoul din `panel.py` și viewer-ul le cheamă prin aceeași interfață;
+consola REPL și endpointul local rămân de scris peste același strat.
 
 **De ce scena nu se poate scrie declarativ.** MJCF nu poate aduce singur modelele din
 `mujoco-menagerie`: `<attach model="...">` nu funcționează în MuJoCo 3.15.0 — încercat cu patru

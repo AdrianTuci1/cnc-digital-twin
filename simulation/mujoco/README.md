@@ -31,6 +31,7 @@ make mj-check    # poarta: compilează scena, măsoară, raportează; iese cu 1 
 make mj-test     # testele geamănului care ating motorul, din venv-ul lui
 make mj-render   # scrie renders/cell.png și renders/arm2_wrist_camera.png
 make mj-demo     # rulează ciclul brațelor și tipărește cifrele fiecărei opriri
+make mj-view     # deschide viewer-ul și panoul de uzură/reparații
 make mj-record   # colectează sesiuni de antrenare, câte una pe familie, în runs/
 make mj-collect  # colectează (MJ_COLLECT_CYCLES cicluri pe familie) și urcă în bucketul data lake
 make mj-collect-plan   # tipărește ce ar urca `make mj-collect`, fără să atingă bucketul
@@ -114,6 +115,35 @@ Viewer-ul rulează în ritm real și tipărește în terminal, la fiecare secund
 ce bandă, cu ce viteză și cât mai are până la linia de oprire. `--speed 0` scoate ritmul real, ca
 sesiunea să alerge cât poate.
 
+### Panoul de uzură și reparații
+
+Odată cu viewer-ul se deschide o fereastră separată cu butoanele de uzură și reparație. Ea
+vorbește cu `view.py` prin linii JSON: comenzile ies pe stdout, iar starea intră pe stdin.
+
+| Buton | Comandă | Efect |
+| --- | --- | --- |
+| Uzură +0.1 / Uzură +0.25 | `inject_tool_wear` | adaugă la uzura sculei |
+| Frecare +0.25 | `inject_joint_friction` | adaugă la frecarea ambelor brațe |
+| Sculă nouă | `replace_tool` | readuce scula la sănătate deplină |
+| Repară articulații | `repair_joints` | readuce ambele brațe |
+| Repară tot | `repair_all` | scula și brațele, fără benzi |
+| Reset degradare | `reset_wear` | toate cele șapte componente și rata de uzură |
+
+Fereastra arată uzura sculei, frecarea articulațiilor, calitatea suprafeței, eșecurile active și
+ultima acțiune. Uzura brațelor și a benzilor curge în timpul simulării; scula se uzează la
+așchiere, iar în viewer se injectează din butoane.
+
+```bash
+# Panoul pornește implicit. `--no-panel` lasă doar viewer-ul.
+simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view
+simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --no-panel
+```
+
+Pe macOS, Python-ul din venv-ul geamănului nu are Tkinter, deci `view.py` pornește panoul cu
+`/usr/bin/python3`; dacă niciun interpret cu Tkinter nu este disponibil, viewer-ul continuă fără
+fereastră și scrie motivul în terminal. Panoul este o unealtă de dezvoltare: aceleași comenzi
+ajung în producție prin schema de control, fără Tkinter.
+
 Suita proiectului (`make test`) rulează fără `mujoco` și include partea pură a testelor
 geamănului, `tests/unit/test_mujoco_scene.py`, plus contractele colectării
 (`tests/unit/test_mj_telemetry.py`), motorul de uzură (`tests/unit/test_mj_wear.py`) și corpusul
@@ -132,6 +162,7 @@ atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care a
 | `cncdt_mj/povs.py` | Cele trei puncte de vedere din care se strânge datasetul: camera, rezoluția, momentul de captură (un punct de lucru al ciclului) și rolul din contract. **Fără MuJoCo.** |
 | `cncdt_mj/telemetry.py` | Contractele: eșantionul brut cu exact câmpurile din `cnc.telemetry.v1.json`, metadatele cadrului de inspecție, etichetele sesiunii, plus un validator mic peste fișierele de schemă (fără dependența `jsonschema`). **Fără MuJoCo.** |
 | `cncdt_mj/wear.py` | Motorul de uzură: sănătatea celor șapte componente pe timpul lor de lucru, efectele în mărimile din contract, eșecurile discrete cu hazard crescător și acțiunile de operator, cu etichetele lor. **Fără MuJoCo.** |
+| `cncdt_mj/control.py` | Comenzile panoului și ale viewer-ului: aceleași nume ca schema de control, plus `reset_wear`; ține `ControlSession` peste motorul de uzură. **Fără MuJoCo.** |
 | `cncdt_mj/export.py` | Corpusul de antrenare: așezarea cheilor în bucket, manifestul și verificările care opresc urcarea unui corpus cu găuri. **Fără MuJoCo.** |
 | `cncdt_mj/scene.py` | Compunerea scenei: `scene/cell.xml` plus cele două brațe atașate programatic, cu camerele de pe flanșe. Unul dintre modulele care importă `mujoco`. |
 | `cncdt_mj/cell.py` | Celula în mișcare: cine e în contact cu banda, ce viteză are piesa, ce forță se scrie în `data.xfrc_applied`. Al doilea modul care importă `mujoco`. |
@@ -140,11 +171,12 @@ atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care a
 | `cncdt_mj/camera.py` | Randarea offscreen: scrierea PNG fără dependențe externe, cadrele știute ale camerei libere și ținerea minte a randatoarelor. Importă `mujoco`. |
 | `scene/cell.xml` | Șablonul celulei. Cifrele nu stau în el: se pun prin substituție, din `layout.scene_geometry()`. |
 | `view.py` | Cele patru moduri: `--check`, `--render`, `--demo`, `--view`. |
+| `panel.py` | Panoul Tkinter de uzură și reparații, pornit de `view.py --view`; vorbește cu viewer-ul prin linii JSON. |
 | `run.py` | Sesiunea de colectare: cicluri întregi, uzura care se acumulează peste ele, telemetrie, cadre, fișierele sesiunii și verificarea lor la sfârșit. |
 | `publish.py` | Urcarea corpusului în bucketul data lake, cu AWS CLI: plan fără `--upload`, credențiale de operator, manifest scris la rădăcina rulării. Doar biblioteca standard. |
 
 Consecința practică a împărțirii: `layout`, `part`, `belt`, `checks`, `moves`, `povs`, `telemetry`,
-`wear` și `export` se importă din
+`wear`, `control` și `export` se importă din
 `.venv`-ul proiectului, unde `mujoco` nu există (ADR 0012), iar tot ce atinge motorul se validează
 rulând `view.py --check`. Lista modulelor de motor (`scene.py`, `cell.py`, `arms.py`, `camera.py`,
 `sensors.py`) este scrisă

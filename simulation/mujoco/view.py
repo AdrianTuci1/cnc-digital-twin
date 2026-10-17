@@ -15,8 +15,10 @@ Patru moduri, toate pe aceeași scenă compusă de `cncdt_mj.scene`:
 * `--view` — deschide viewer-ul interactiv, cu benzile pornite: forța de antrenare se rescrie la
   fiecare pas (`cell.apply_belt_forces`), iar ceasul se ține în ritm real, ca transportul să se
   vadă. `--no-belts` îngheață transportul, `--speed` schimbă ritmul de rulare, iar `--demo` rulează
-  ciclul în fereastră, în locul benzilor goale. Pe macOS viewer-ul merge doar sub `mjpython`, deci
-  scriptul spune asta explicit și refuză să pornească sub `python`.
+  ciclul în fereastră, în locul benzilor goale. Împreună cu viewer-ul se deschide panoul de uzură
+  și reparații (`panel.py`), cu butoanele din schema de control; `--no-panel` îl oprește. Pe macOS
+  viewer-ul merge doar sub `mjpython`, deci scriptul spune asta explicit și refuză să pornească sub
+  `python`.
 
 Se rulează din venviul geamănului (`simulation/mujoco/.venv`), care este singurul loc unde
 `mujoco` există (ADR 0012).
@@ -25,11 +27,18 @@ Se rulează din venviul geamănului (`simulation/mujoco/.venv`), care este singu
 from __future__ import annotations
 
 import argparse
+import functools
+import json
 import math
 import os
+import queue
+import shutil
+import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -39,8 +48,8 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import (arms, belt, camera, cell, checks, layout, moves, part,  # noqa: E402
-                      povs, scene)
+from cncdt_mj import (arms, belt, camera, cell, checks, control, layout, moves,  # noqa: E402
+                      part, povs, scene, wear)
 
 #: Unde se scriu cadrele; directorul e comis, ca dovada vizuală să fie în repo.
 RENDERS_DIR = MUJOCO_DIR / "renders"
@@ -320,6 +329,128 @@ def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespac
     return 0
 
 
+@functools.lru_cache(maxsize=1)
+def panel_python() -> str | None:
+    """Interpretul care are Tkinter: venv-ul geamănului nu îl are pe macOS.
+
+    Panoul este un proces separat, deci nu trebuie să ruleze sub `mjpython`. Se încearcă întâi
+    interpretul curent, apoi `python3` din PATH și, pe macOS, Python-ul de sistem, care vine cu
+    Tkinter. Dacă niciunul nu îl are, viewer-ul continuă fără fereastră și spune de ce.
+    """
+    candidates = (sys.executable, shutil.which("python3"), "/usr/bin/python3")
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            probe = subprocess.run(
+                [candidate, "-c", "import tkinter"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if probe.returncode == 0:
+            return candidate
+    return None
+
+
+class ViewerPanel:
+    """Procesul Tkinter al panoului, cu o coadă de comenzi și un fir de citire.
+
+    Comenzile ies din panou pe stdout, starea intră pe stdin. Viewer-ul nu blochează bucla de
+    simulare: firul de citire doar pune mesajele într-o coadă, iar `poll` le ridică la pasul
+    următor.
+    """
+
+    def __init__(self) -> None:
+        self.process: subprocess.Popen[str] | None = None
+        self.commands: queue.Queue[dict[str, Any]] = queue.Queue()
+        self._reader: threading.Thread | None = None
+
+    def start(self) -> bool:
+        python = panel_python()
+        if python is None:
+            print("Panoul de uzură nu a pornit: niciun Python cu Tkinter în PATH "
+                  "(pe macOS încearcă /usr/bin/python3).", flush=True)
+            return False
+        script = MUJOCO_DIR / "panel.py"
+        try:
+            self.process = subprocess.Popen(
+                [python, str(script)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+        except OSError as exc:
+            print(f"Panoul de uzură nu a pornit: {exc}", flush=True)
+            self.process = None
+            return False
+        self._reader = threading.Thread(target=self._read, name="cncdt-panel", daemon=True)
+        self._reader.start()
+        print(f"Panoul de uzură: {python} {script}", flush=True)
+        return True
+
+    def _read(self) -> None:
+        process = self.process
+        if process is None or process.stdout is None:
+            return
+        for line in process.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                message = control.parse_message(line)
+            except ValueError:
+                continue
+            self.commands.put(message)
+
+    def poll(self) -> list[dict[str, Any]]:
+        """Comenzile primite de la panou de la ultima chemare."""
+        messages: list[dict[str, Any]] = []
+        while True:
+            try:
+                messages.append(self.commands.get_nowait())
+            except queue.Empty:
+                return messages
+
+    def send(self, message: dict[str, Any]) -> None:
+        process = self.process
+        if process is None or process.stdin is None or process.poll() is not None:
+            return
+        try:
+            process.stdin.write(json.dumps(message) + "\n")
+            process.stdin.flush()
+        except (BrokenPipeError, OSError):
+            self.close()
+
+    def close(self) -> None:
+        process, self.process = self.process, None
+        if process is None:
+            return
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        if process.stdout is not None:
+            try:
+                process.stdout.close()
+            except OSError:
+                pass
+
+
 def view(args: argparse.Namespace) -> int:
     """Viewer-ul interactiv, cu benzile pornite; pe macOS are nevoie de `mjpython`."""
     if sys.platform == "darwin" and "MJPYTHON_BIN" not in os.environ:
@@ -348,36 +479,70 @@ def view(args: argparse.Namespace) -> int:
     steps = args.steps or 0
     started = time.monotonic()
     next_report = 0.0
-    with mujoco.viewer.launch_passive(model, data) as viewer:
-        camera.configure_camera(viewer.cam)
-        if args.demo:
-            def hook(model: mujoco.MjModel, data: mujoco.MjData) -> None:
-                """Ține viewer-ul la curent cu starea și ritmul de rulare."""
-                if not viewer.is_running():
-                    raise SystemExit(0)
+    session = control.ControlSession(wear.WearModel(seed=args.seed))
+    panel = ViewerPanel() if args.panel else None
+    if panel is not None and not panel.start():
+        panel = None
+    last_wear_time = float(data.time)
+    next_status = 0.0
+
+    def tick(work: wear.Work) -> None:
+        """Aplică comenzile panoului, avansează uzura și trimite starea înapoi."""
+        nonlocal last_wear_time, next_status
+        if panel is not None:
+            for message in panel.poll():
+                try:
+                    detail = session.apply(message)
+                except (KeyError, ValueError, TypeError) as exc:
+                    detail = f"refuzat: {exc}"
+                print(f"Comandă panoul: {detail}", flush=True)
+        dt = max(0.0, float(data.time) - last_wear_time)
+        last_wear_time = float(data.time)
+        if dt > 0.0:
+            session.advance(dt, work)
+        if panel is not None:
+            now = time.monotonic()
+            if now >= next_status:
+                panel.send(session.status())
+                next_status = now + 0.2
+
+    try:
+        with mujoco.viewer.launch_passive(model, data) as viewer:
+            camera.configure_camera(viewer.cam)
+            if args.demo:
+                def hook(model: mujoco.MjModel, data: mujoco.MjData) -> None:
+                    """Ține viewer-ul la curent cu starea și ritmul de rulare."""
+                    if not viewer.is_running():
+                        raise SystemExit(0)
+                    tick(wear.Work(belts=wear.BELT_COMPONENTS, arms=wear.ARM_COMPONENTS))
+                    if args.speed > 0.0:
+                        delay = started + data.time / args.speed - time.monotonic()
+                        if delay > 0.0:
+                            time.sleep(delay)
+                    viewer.sync()
+
+                return run_demo(model, data, args, str(metadata["part"]["family"]), hook=hook)
+            while viewer.is_running():
+                if args.belts:
+                    cell.apply_belt_forces(
+                        model, data, speed_scale=session.model.belt_speed_scales())
+                mujoco.mj_step(model, data)
+                tick(wear.Work(belts=wear.BELT_COMPONENTS) if args.belts else wear.Work())
                 if args.speed > 0.0:
                     delay = started + data.time / args.speed - time.monotonic()
                     if delay > 0.0:
                         time.sleep(delay)
                 viewer.sync()
-
-            return run_demo(model, data, args, str(metadata["part"]["family"]), hook=hook)
-        while viewer.is_running():
-            if args.belts:
-                cell.apply_belt_forces(model, data)
-            mujoco.mj_step(model, data)
-            if args.speed > 0.0:
-                delay = started + data.time / args.speed - time.monotonic()
-                if delay > 0.0:
-                    time.sleep(delay)
-            viewer.sync()
-            if args.belts and data.time >= next_report:
-                print(transport_line(model, data, parts), flush=True)
-                next_report = data.time + REPORT_PERIOD_S
-            steps -= 1
-            if args.steps and steps <= 0:
-                break
-    return 0
+                if args.belts and data.time >= next_report:
+                    print(transport_line(model, data, parts), flush=True)
+                    next_report = data.time + REPORT_PERIOD_S
+                steps -= 1
+                if args.steps and steps <= 0:
+                    break
+        return 0
+    finally:
+        if panel is not None:
+            panel.close()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -437,6 +602,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--belts", action=argparse.BooleanOptionalAction, default=True,
                        help="în viewer, benzile sunt pornite (implicit); `--no-belts` le oprește, "
                             "ca scena să stea pe loc")
+    parser.add_argument("--panel", action=argparse.BooleanOptionalAction, default=True,
+                       help="în viewer, deschide panoul de uzură și reparații (implicit pornit); "
+                            "`--no-panel` îl lasă închis")
     parser.add_argument("--speed", type=float, default=1.0,
                        help="ritmul de rulare în viewer față de timpul real (implicit 1; "
                             "0 rulează cât de repede merge)")

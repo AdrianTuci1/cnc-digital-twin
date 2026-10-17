@@ -253,6 +253,7 @@ cell-layout: ## Regenerează planul celulei, văzut de sus (docs/diagrams/cnc-ce
 #   simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo
 MJ_DIR     := simulation/mujoco
 MJ_PY      := $(ROOT)/$(MJ_DIR)/.venv/bin/python
+MJ_MJPYTHON := $(ROOT)/$(MJ_DIR)/.venv/bin/mjpython
 # Familiile de piese pe care le parcurge `make mj-demo`. Ciclul atinge locul familiei în raft, deci
 # fiecare familie este o probă separată; `make mj-demo MJ_FAMILIES=wheel_100` scurtează proba.
 MJ_FAMILIES ?= wheel_100 flange_72 bushing_68 wheel_60 pinion_56
@@ -299,7 +300,7 @@ MJ_MODAL_SESSIONS ?= 1
 MJ_MODAL_REQUIRE_WEAR ?= true
 MJ_MODAL_KEEP_LOCAL   ?= false
 
-.PHONY: mj-venv mj-check mj-render mj-demo mj-record mj-test mj-collect mj-publish mj-collect-plan
+.PHONY: mj-venv mj-check mj-render mj-demo mj-view mj-record mj-test mj-collect mj-publish mj-collect-plan
 .PHONY: mj-modal-collect mj-modal-plan
 mj-venv: ## Creează venv-ul geamănului MuJoCo și instalează requirements.txt
 	$(PY) -m venv $(ROOT)/$(MJ_DIR)/.venv
@@ -321,6 +322,10 @@ mj-demo: ## Rulează ciclul brațelor (offscreen), familie cu familie, și rapor
 		echo "== familia $$family"; \
 		cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --demo --family $$family || exit 1; \
 	done
+
+mj-view: ## Deschide viewer-ul MuJoCo și panoul de uzură/reparații
+	@test -x $(MJ_MJPYTHON) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
+	cd $(ROOT) && $(MJ_MJPYTHON) $(MJ_DIR)/view.py --view
 
 mj-test: ## Testele geamănului care ating motorul; rulează din venv-ul lui (pytest e acolo)
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
