@@ -468,6 +468,8 @@ iar un test o verifică, ca planul, scena și clasificatorul să nu se despartă
 lasă la 2 cm în spatele feței deschise; cea mai mare (Ø104) are loc de falci înainte și după ea.
 Codurile citite de pe raft sunt amânate deliberat (`docs/10-dataset-piese.md`).
 
+![Dulapul pe familii, văzut din față: trei rafturi verzi și despărțitorul central](renders/rack_front.png)
+
 Lada de rebut are marginea la 0,62 m, sub nivelul benzii, și **fără perete la est**, chiar sub
 capătul de vest al benzii: piesa neconformă nu are punct de lucru, rămâne pe bandă până la capătul
 ei și cade în ladă. Un perete chiar acolo ar prinde-o și ar ține-o afară.
