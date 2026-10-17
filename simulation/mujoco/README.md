@@ -553,6 +553,31 @@ Lada de rebut are marginea la 0,62 m, sub nivelul benzii, și **fără perete la
 capătul de vest al benzii: piesa neconformă nu are punct de lucru, rămâne pe bandă până la capătul
 ei și cade în ladă. Un perete chiar acolo ar prinde-o și ar ține-o afară.
 
+### Cele cinci familii, în imagini
+
+Cîte un cadru reprezentativ pentru fiecare familie, randat cu `cncdt_mj/part_render.py` din
+generatorul procedural (seed 7, clasă `PASS`, 640×640):
+
+![](renders/parts/wheel_100.png)
+
+`wheel_100` — Ø100, 18 dinți, alezaj Ø40 cu pană, 5 găuri.
+
+![](renders/parts/flange_72.png)
+
+`flange_72` — Ø72, 24 dinți mărunți, alezaj Ø28, 3 găuri.
+
+![](renders/parts/bushing_68.png)
+
+`bushing_68` — Ø68, 20 dinți, alezaj Ø30, 3 găuri.
+
+![](renders/parts/wheel_60.png)
+
+`wheel_60` — Ø60, 18 dinți, alezaj Ø20 cu pană, 5 găuri.
+
+![](renders/parts/pinion_56.png)
+
+`pinion_56` — Ø56, 12 dinți rari, alezaj Ø14 cu pană, 4 găuri.
+
 ## Stare cunoscută
 
 La sămânța 7, `view.py --check` este **verde**: scena se compilează fără avertismente, țintele cad

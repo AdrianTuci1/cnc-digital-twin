@@ -39,6 +39,8 @@ def write_obj(path: Path, vertices_mm: np.ndarray, faces: np.ndarray) -> Path:
     Generatorul dă vîrfurile în milimetri și fețele cu indici de la 0; MuJoCo citește OBJ cu
     indici de la 1. Coordonatele de textură sînt o proiecție plană pe cutia vîrfurilor: destul ca
     striurile periate să curgă continuu peste fața piesei, fără să întindă textura pe dinți.
+    Vîrfurile se repetă pentru fiecare triunghi: normala medie a unui vîrf împărtășit între fața
+    de sus și flancul unui dinte ar înclina toată fața, iar discul ar ieși vălurit.
     """
     vertices = np.asarray(vertices_mm, dtype=np.float64) / 1000.0
     faces = np.asarray(faces, dtype=np.int64)
@@ -47,11 +49,14 @@ def write_obj(path: Path, vertices_mm: np.ndarray, faces: np.ndarray) -> Path:
     uv = (vertices[:, :2] - low) / span
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
-        for (x, y, z), (u, v) in zip(vertices, uv, strict=True):
-            handle.write(f"v {x:.9f} {y:.9f} {z:.9f}\n")
-            handle.write(f"vt {u:.6f} {v:.6f}\n")
-        for a, b, c in faces + 1:
-            handle.write(f"f {a}/{a} {b}/{b} {c}/{c}\n")
+        for ordinal, triangle in enumerate(faces):
+            for index in triangle:
+                x, y, z = vertices[index]
+                u, v = uv[index]
+                handle.write(f"v {x:.9f} {y:.9f} {z:.9f}\n")
+                handle.write(f"vt {u:.6f} {v:.6f}\n")
+            base = 3 * ordinal + 1
+            handle.write(f"f {base}/{base} {base + 1}/{base + 1} {base + 2}/{base + 2}\n")
     return path
 
 
@@ -98,7 +103,7 @@ def scene_xml(mesh_path: Path, part_z_m: float, floor_z_m: float, view: part_ima
     {floor_texture}
     <material name="part" {part_map} rgba="0.70 0.72 0.76 1" specular="0.28" shininess="0.50"/>
     <material name="floor" {floor_map} rgba="0.20 0.21 0.23 1" specular="0.0" shininess="0.0"/>
-    <mesh name="part" file="{mesh_path.as_posix()}"/>
+    <mesh name="part" file="{mesh_path.as_posix()}" smoothnormal="false"/>
   </asset>
   <worldbody>
     <geom name="floor" type="plane" size="4 4 0.01" pos="0 0 {floor_z_m:.9f}" material="floor"/>

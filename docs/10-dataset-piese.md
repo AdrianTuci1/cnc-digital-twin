@@ -182,7 +182,9 @@ Planul are o textură de beton, iar piesa una de metal periat, ambele generate p
 `cncdt_mj/textures.py`; o a treia lumină, laterală, ridică marginea discului, ca un obiect de
 metal să nu se piardă în fundal. Unghiurile, lumina și distanța camerei se trag din poziția
 globală a piesei și din `--render-seed`, un flux separat de seed-ul de geometrie: altfel eticheta
-și condițiile de randare s-ar corela accidental.
+și condițiile de randare s-ar corela accidental. OBJ-ul repetă vîrfurile pe fiecare triunghi:
+dacă un vîrf ar fi împărtășit între fața de sus și flancul unui dinte, normala medie ar înclina
+toată fața, iar discul ar ieși vălurit.
 
 ```bash
 # manifest + imagini, local (venv-ul geamănului are mujoco)
