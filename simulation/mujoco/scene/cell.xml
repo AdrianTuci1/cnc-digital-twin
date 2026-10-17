@@ -135,114 +135,39 @@
             pos="0 0 {cnc_roof_z}" material="cover_mat"/>
     </body>
 
-    <!-- Raftul pe familii: cinci intrări cubice de 0,5 m, câte una pe familie, toate la podeaua de
-         0,85 m, adică la nivelul suprafeței benzii. Fiecare intrare are podeaua subțire și buze
-         scunde pe toate laturile, cât să țină piesa culcată, fără să stea în calea mâinii; deasupra
-         podelei nu se ridică nimic, fiindcă antebrațul brațului 2 mătură peste raft. Sub intrare nu
-         stă un bloc plin: doisprezece picioare și două panouri laterale, la capetele raftului.
-         Numărul intrărilor, cotele și așezarea ies din plan (`docs/diagrams/cell_layout.py`), iar
-         suportul e gri, ca să se deosebească de intrarea verde. -->
+    <!-- Dulapul pe familii: trei rafturi suprapuse, fiecare despărțit în două compartimente de un
+         panou vertical la mijloc. Fața nordică rămâne deschisă, fiindcă pe acolo intră scula;
+         carcasei îi trebuie doar 0,18 m adâncime, ca antebrațul brațului 2 să rămână în afara
+         dulapului. Rafturile și despărțitorul sunt verzi, iar carcasa gri. Numărul rafturilor,
+         cotele și așezarea ies din plan (`docs/diagrams/cell_layout.py`). -->
     <body name="rack" pos="{rack_cx} {rack_cy} 0">
-      <geom name="rack_leg_1" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_1_dx} {rack_leg_1_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_leg_2" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_2_dx} {rack_leg_2_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_leg_3" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_3_dx} {rack_leg_3_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_leg_4" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_4_dx} {rack_leg_4_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_leg_5" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_5_dx} {rack_leg_5_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_leg_6" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_6_dx} {rack_leg_6_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_leg_7" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_7_dx} {rack_leg_7_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_leg_8" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_8_dx} {rack_leg_8_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_leg_9" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_9_dx} {rack_leg_9_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_leg_10" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_10_dx} {rack_leg_10_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_leg_11" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_11_dx} {rack_leg_11_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_leg_12" type="box" size="{rack_leg_hxy} {rack_leg_hxy} {rack_leg_hz}"
-            pos="{rack_leg_12_dx} {rack_leg_12_dy} {rack_leg_z}" material="frame_mat"/>
-      <geom name="rack_panel_west" type="box"
-            size="{rack_panel_hx} {rack_panel_hy} {rack_panel_hz}"
-            pos="{rack_panel_west_dx} {rack_panel_dy} {rack_panel_z}" material="frame_mat"/>
-      <geom name="rack_panel_east" type="box"
-            size="{rack_panel_hx} {rack_panel_hy} {rack_panel_hz}"
-            pos="{rack_panel_east_dx} {rack_panel_dy} {rack_panel_z}" material="frame_mat"/>
+      <!-- Carcasa: lateralele și spatele pe toată înălțimea, fundul și capacul între ele. -->
+      <geom name="rack_side_west" type="box" size="{rack_side_hx} {rack_side_hy} {rack_side_hz}"
+            pos="{rack_side_west_dx} 0 {rack_side_z}" material="frame_mat"/>
+      <geom name="rack_side_east" type="box" size="{rack_side_hx} {rack_side_hy} {rack_side_hz}"
+            pos="{rack_side_east_dx} 0 {rack_side_z}" material="frame_mat"/>
+      <geom name="rack_back" type="box" size="{rack_back_hx} {rack_back_hy} {rack_back_hz}"
+            pos="0 {rack_back_dy} {rack_back_z}" material="frame_mat"/>
+      <geom name="rack_bottom" type="box" size="{rack_board_hx} {rack_board_hy} {rack_board_hz}"
+            pos="0 0 {rack_bottom_z}" material="frame_mat"/>
+      <geom name="rack_top" type="box" size="{rack_board_hx} {rack_board_hy} {rack_board_hz}"
+            pos="0 0 {rack_top_z}" material="frame_mat"/>
 
-      <body name="rack_entry_1" pos="{rack_e1_dx} {rack_e1_dy} {rack_e1_floor}">
-        <geom name="rack_e1_floor" type="box"
-              size="{rack_entry_half} {rack_entry_half} {rack_floor_hz}"
-              pos="0 0 {rack_floor_z}" material="rack_mat"/>
-        <geom name="rack_e1_lip_north" type="box" size="{rack_lip_hx} {rack_lip_hy} {rack_lip_hz}"
-              pos="0 {rack_lip_dy} {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e1_lip_south" type="box" size="{rack_lip_hx} {rack_lip_hy} {rack_lip_hz}"
-              pos="0 {neg_rack_lip_dy} {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e1_lip_east" type="box" size="{rack_lip_hy} {rack_lip_dx} {rack_lip_hz}"
-              pos="{rack_lip_dx} 0 {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e1_lip_west" type="box" size="{rack_lip_hy} {rack_lip_dx} {rack_lip_hz}"
-              pos="{neg_rack_lip_dx} 0 {rack_lip_z}" material="rack_mat"/>
-      </body>
+      <!-- Cele trei rafturi: fața de sus a fiecărui blat este chiar cota podelei compartimentului. -->
+      <geom name="rack_shelf_1" type="box"
+            size="{rack_shelf_hx} {rack_shelf_hy} {rack_shelf_hz}"
+            pos="0 {rack_shelf_dy} {rack_shelf_1_z}" material="rack_mat"/>
+      <geom name="rack_shelf_2" type="box"
+            size="{rack_shelf_hx} {rack_shelf_hy} {rack_shelf_hz}"
+            pos="0 {rack_shelf_dy} {rack_shelf_2_z}" material="rack_mat"/>
+      <geom name="rack_shelf_3" type="box"
+            size="{rack_shelf_hx} {rack_shelf_hy} {rack_shelf_hz}"
+            pos="0 {rack_shelf_dy} {rack_shelf_3_z}" material="rack_mat"/>
 
-      <body name="rack_entry_2" pos="{rack_e2_dx} {rack_e2_dy} {rack_e2_floor}">
-        <geom name="rack_e2_floor" type="box"
-              size="{rack_entry_half} {rack_entry_half} {rack_floor_hz}"
-              pos="0 0 {rack_floor_z}" material="rack_mat"/>
-        <geom name="rack_e2_lip_north" type="box" size="{rack_lip_hx} {rack_lip_hy} {rack_lip_hz}"
-              pos="0 {rack_lip_dy} {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e2_lip_south" type="box" size="{rack_lip_hx} {rack_lip_hy} {rack_lip_hz}"
-              pos="0 {neg_rack_lip_dy} {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e2_lip_east" type="box" size="{rack_lip_hy} {rack_lip_dx} {rack_lip_hz}"
-              pos="{rack_lip_dx} 0 {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e2_lip_west" type="box" size="{rack_lip_hy} {rack_lip_dx} {rack_lip_hz}"
-              pos="{neg_rack_lip_dx} 0 {rack_lip_z}" material="rack_mat"/>
-      </body>
-
-      <body name="rack_entry_3" pos="{rack_e3_dx} {rack_e3_dy} {rack_e3_floor}">
-        <geom name="rack_e3_floor" type="box"
-              size="{rack_entry_half} {rack_entry_half} {rack_floor_hz}"
-              pos="0 0 {rack_floor_z}" material="rack_mat"/>
-        <geom name="rack_e3_lip_north" type="box" size="{rack_lip_hx} {rack_lip_hy} {rack_lip_hz}"
-              pos="0 {rack_lip_dy} {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e3_lip_south" type="box" size="{rack_lip_hx} {rack_lip_hy} {rack_lip_hz}"
-              pos="0 {neg_rack_lip_dy} {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e3_lip_east" type="box" size="{rack_lip_hy} {rack_lip_dx} {rack_lip_hz}"
-              pos="{rack_lip_dx} 0 {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e3_lip_west" type="box" size="{rack_lip_hy} {rack_lip_dx} {rack_lip_hz}"
-              pos="{neg_rack_lip_dx} 0 {rack_lip_z}" material="rack_mat"/>
-      </body>
-
-      <body name="rack_entry_4" pos="{rack_e4_dx} {rack_e4_dy} {rack_e4_floor}">
-        <geom name="rack_e4_floor" type="box"
-              size="{rack_entry_half} {rack_entry_half} {rack_floor_hz}"
-              pos="0 0 {rack_floor_z}" material="rack_mat"/>
-        <geom name="rack_e4_lip_north" type="box" size="{rack_lip_hx} {rack_lip_hy} {rack_lip_hz}"
-              pos="0 {rack_lip_dy} {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e4_lip_south" type="box" size="{rack_lip_hx} {rack_lip_hy} {rack_lip_hz}"
-              pos="0 {neg_rack_lip_dy} {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e4_lip_east" type="box" size="{rack_lip_hy} {rack_lip_dx} {rack_lip_hz}"
-              pos="{rack_lip_dx} 0 {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e4_lip_west" type="box" size="{rack_lip_hy} {rack_lip_dx} {rack_lip_hz}"
-              pos="{neg_rack_lip_dx} 0 {rack_lip_z}" material="rack_mat"/>
-      </body>
-
-      <body name="rack_entry_5" pos="{rack_e5_dx} {rack_e5_dy} {rack_e5_floor}">
-        <geom name="rack_e5_floor" type="box"
-              size="{rack_entry_half} {rack_entry_half} {rack_floor_hz}"
-              pos="0 0 {rack_floor_z}" material="rack_mat"/>
-        <geom name="rack_e5_lip_north" type="box" size="{rack_lip_hx} {rack_lip_hy} {rack_lip_hz}"
-              pos="0 {rack_lip_dy} {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e5_lip_south" type="box" size="{rack_lip_hx} {rack_lip_hy} {rack_lip_hz}"
-              pos="0 {neg_rack_lip_dy} {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e5_lip_east" type="box" size="{rack_lip_hy} {rack_lip_dx} {rack_lip_hz}"
-              pos="{rack_lip_dx} 0 {rack_lip_z}" material="rack_mat"/>
-        <geom name="rack_e5_lip_west" type="box" size="{rack_lip_hy} {rack_lip_dx} {rack_lip_hz}"
-              pos="{neg_rack_lip_dx} 0 {rack_lip_z}" material="rack_mat"/>
-      </body>
+      <!-- Despărțitorul dintre compartimente, de la raftul de jos până sub capac. -->
+      <geom name="rack_divider" type="box"
+            size="{rack_divider_hx} {rack_divider_hy} {rack_divider_hz}"
+            pos="0 {rack_divider_dy} {rack_divider_z}" material="rack_mat"/>
     </body>
 
     <!-- Lada de rebut, sub capătul de vest al benzii 2: podea și trei pereți, cu latura de est

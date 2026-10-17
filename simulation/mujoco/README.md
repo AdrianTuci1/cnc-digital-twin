@@ -163,14 +163,14 @@ scrie propriile poziții nominale, fiindcă ale modelului copil se importă și 
 ## Ce verifică `--check`
 
 Cifrele de referință, la sămânța implicită 7: scena se compilează fără avertismente MuJoCo,
-`nq/nv/nu = 32/30/16`, 36 de corpuri și 236 de geome, iar piesele se așază pe benzi cu derivă sub
+`nq/nv/nu = 32/30/16`, 31 de corpuri și 206 geome, iar piesele se așază pe benzi cu derivă sub
 0,1 mm, cu yaw-ul cerut citit înapoi din scenă (comparat pe cerc, deci 348,5° și −11,5° sunt
 același unghi).
 
 Țintele de prindere, măsurate **în spațiu** de la baza brațului, față de raza de 0,855 m din plan:
 brațul 1 ajunge la 0,704 m (preluare bandă 1), 0,739 m (mașină) și 0,723 m (așezare bandă 2);
-brațul 2 la 0,461 m (preluare bandă 2) și la toate cele cinci intrări ale raftului (între 0,512 m
-și 0,750 m).
+brațul 2 la 0,461 m (preluare bandă 2) și la compartimentele dulapului: 0,667 m pe raftul 1,
+0,692 m pe raftul 2 și 0,804 m pe raftul 3.
 Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md` spune
 explicit că o țintă poate părea la îndemână în desen și să fie prea sus — verificarea de aici este
 cea în spațiu.
@@ -215,28 +215,27 @@ Trei lecții de drum, toate măsurate:
    pe banda 2 iese din mașină exact prin colțul ei sud-vestic; brațul nu are planificator de
    traiectorie, deci intră în carcasă. Măsurat: fără punctul de trecere scula rămânea cu 880 mm de
    țintă și mâna pe mașină, cu el eroarea maximă a ciclului este 17,7 mm.
-3. **Punctul de trecere de deasupra fiecărei intrări din raft** (`moves.RACK_VIA_Z`). Dreapta de la
-   preluarea de pe banda 2 până la o intrare taie rândul din spate al raftului la cota de lucru a
-   benzii, iar falcile agață buzele intrării vecine. Măsurat: scula rămânea cu **280 mm** de țintă,
-   cu 34° de răsucire și mâna pe raft. Cota de călătorie **1,10 m** este cea mai de jos de care
-   trecerea e curată și cea mai de sus pe care o țin servo-urile: la intrarea cea mai depărtată
-   flanșa ajunge la 0,785 m din 0,855 m, pe când la 1,25 m ar sta la 0,846 m, adică 99 % din rază,
-   iar acolo scula rămâne cu 20–30 mm în urmă.
+3. **Punctul de trecere din fața dulapului** (`moves.RACK_VIA_Y`, `moves.RACK_VIA_LIFT_M`).
+   Dreapta de la preluarea de pe banda 2 până la un compartiment taie colțul dulapului la cota de
+   lucru. Trecerea stă la 1,22 m, adică 0,26 m în fața feței deschise, la 5 cm peste punctul de
+   lucru, iar apropierea propriu-zisă se face înclinat, la 45° (`moves.RACK_APPROACH_DEG`). La 30°
+   veriga 5 atingea marginea raftului 2 și scula rămânea la 95 mm de țintă; la 45° toate cele cinci
+   familii ajung în compartimente, cu eroarea maximă de 6,8 mm.
 
 Piedestalul brațelor este cota care nu se poate decide din plan. La 0,55 m ciclul **cade**: ca să
 ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar acolo
 platforma este deasupra lui (`arm2_link3↔belt_out`, 106 mm eroare la punctul de deasupra), iar
-intrările din raft devin de neatins (`arm2_link3↔rack`, peste 1 m eroare). La 0,95 m, cota
+compartimentele dulapului devin de neatins (`arm2_link3↔rack`, peste 1 m eroare). La 0,95 m, cota
 documentată acum, `make mj-demo` încheie ciclul pentru toate cele cinci familii: 17,7 mm eroare
-maximă pe cele 85 de opriri — 10,7 mm la intrarea din raft —, nicio verigă atinsă, 57–59 s
+maximă pe cele 85 de opriri — 6,8 mm în compartimente —, nicio verigă atinsă, 57–59 s
 simulate pe familie.
 Alegerea este scrisă în `docs/11-geaman-mujoco.md` §2 și §10. `view.py --base-z` coboară cota
 pentru măsurători.
 
-Raftul, pe rând: la 0,95 m, toate cele cinci intrări se ating, cu eroare maximă de 10,7 mm
-(`--family` alege familia); la 0,55 m, intrările se ating cu peste 1 m eroare la a cincea. Deci
-intrările deschise ale raftului au scos piedica pe care o puneau cutiile adânci; ce a rămas la
-0,55 m este banda 2 în sine, nu sortarea.
+Dulapul, pe rând: la 0,95 m, toate cele cinci compartimente cu familie se ating, cu eroare maximă
+de 6,8 mm (`--family` alege familia și raftul); la 0,55 m, compartimentele devin de neatins. Deci
+dulapul a scos piedica pe care o puneau cutiile adânci; ce a rămas la 0,55 m este banda 2 în sine,
+nu sortarea.
 
 **Ce lipsește: prinderea.** Mâna Panda se deschide 83 mm, blocul brut are 104 mm și universalul
 110 mm, deci falcile nu pot cuprinde piesa — de aceea o ating razant pe toată cursa. Celula reală
@@ -449,26 +448,25 @@ rezultatul mașinării, nu piesa de intrare. Poziția și rotația fiecăreia su
 prindere să rămână în raza brațului. Yaw-ul se citește înapoi din scenă, fiindcă este eticheta care
 va însoți cadrul de inspecție.
 
-## Raftul pe familii
+## Dulapul pe familii
 
-Cutiile de piese bune și de rebut au fost înlocuite cu un **raft cu cinci intrări cubice de
-0,50 × 0,50 × 0,50 m**, una pe familie de piese din generator (`docs/10-dataset-piese.md`), toate
-pe același nivel, plus o **ladă de rebut** sub capătul de vest al benzii 2. Motivul nu este
-estetic: cutiile aveau pereți până la nivelul benzii, iar antebrațul brațului 2 trecea prin ei.
+Cutiile de piese bune și de rebut au fost înlocuite cu un **dulap cu trei rafturi suprapuse**,
+fiecare despărțit în două compartimente de un panou vertical, plus o **ladă de rebut** sub capătul
+de vest al benzii 2. Motivul nu este estetic: cutiile aveau pereți până la nivelul benzii, iar
+antebrațul brațului 2 trecea prin ei.
 
-Raftul are **un singur nivel**, cu podeaua la 0,85 m, adică la nivelul suprafeței benzii: o intrare
-de 0,5 m așezată la 1,35 m ar cere o rază orizontală de cel mult 0,69 m, iar acolo antebrațul
-brațului 2 mătură chiar peste raft. Rândul din față are trei intrări, cel din spate două, iar golul
-din spatele mijlocului este chiar locul unde se ridică baza brațului 2. Fiecare intrare este un
-**sertar lat**: podea subțire, cu buze de 2 cm pe margine, și nimic ridicat deasupra podelei, ca
-antebrațul să aibă loc. Sub intrări stau **12 picioare** și **două panouri laterale**, la capetele
-raftului, toate sub podea.
+Dulapul are 1,00 × 0,18 m, cu podelele la 0,85 / 1,16 / 1,41 m și fața de sus la 1,69 m. Fața
+nordică e deschisă, iar lateralele, spatele, fundul și capacul formează carcasa. Adâncimea mică și
+apropierea înclinată la 45° sunt perechea măsurată: la 30° veriga 5 a brațului atinge marginea
+raftului 2 și scula rămâne la 95 mm de punct; la 45° toate cele cinci familii ajung în
+compartimente, cu eroarea maximă de 6,8 mm. Un dulap mai adânc ar aduce raftul de deasupra peste
+antebraț.
 
-Ordinea intrărilor este ordinea familiilor din generator — `wheel_100`, `flange_72`, `bushing_68`,
-`wheel_60`, `pinion_56` —, iar un test o verifică, ca planul, scena și clasificatorul să nu se
-despartă. Fiecare piesă se lasă culcată în intrarea familiei ei; cea mai mare (Ø104) are loc de
-falci înainte și după ea. Codurile citite de pe raft sunt amânate deliberat
-(`docs/10-dataset-piese.md`).
+Ordinea compartimentelor este ordinea familiilor din generator — raftul 1: `wheel_100`,
+`flange_72`; raftul 2: `bushing_68`, `wheel_60`; raftul 3: `pinion_56`, apoi un compartiment gol —,
+iar un test o verifică, ca planul, scena și clasificatorul să nu se despartă. Fiecare piesă se
+lasă la 2 cm în spatele feței deschise; cea mai mare (Ø104) are loc de falci înainte și după ea.
+Codurile citite de pe raft sunt amânate deliberat (`docs/10-dataset-piese.md`).
 
 Lada de rebut are marginea la 0,62 m, sub nivelul benzii, și **fără perete la est**, chiar sub
 capătul de vest al benzii: piesa neconformă nu are punct de lucru, rămâne pe bandă până la capătul
@@ -482,8 +480,8 @@ pragul de pixeli. Transportul pe benzi merge: amândouă piesele
 ajung la linia de oprire a benzii și se opresc 13 mm peste ea, fără să cadă din geometrie.
 
 `view.py --demo` este **verde** (`make mj-demo`), la cota documentată a piedestalului: 17,7 mm
-eroare maximă pe cele 80 de opriri — 16 pe fiecare dintre cele cinci familii —, nicio verigă a
-brațelor atinsă, 56,4 s simulate, iar amândouă piesele rămân pe benzile lor. Cifrele ciclului și
+eroare maximă pe cele 85 de opriri — 17 pe fiecare dintre cele cinci familii —, nicio verigă a
+brațelor atinsă, 57–59 s simulate, iar amândouă piesele rămân pe benzile lor. Cifrele ciclului și
 calea lui sunt în secțiunea „Brațele" de mai sus.
 
 `make mj-record` este **verde** pe toate cele cinci familii, cu un ciclu fiecare: patru cadre pe

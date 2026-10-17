@@ -185,114 +185,147 @@ def test_fiecare_tinta_cade_in_raza_bratului() -> None:
             f"{name}: {layout.target_distance(name):.3f} m peste raza {layout.ARM_REACH_M} m")
 
 
-# ---------------------------------------------------------------- raftul pe familii
+# ---------------------------------------------------------------- dulapul pe familii
 
 
-def test_ordinea_intrarilor_este_ordinea_familiilor() -> None:
+def test_ordinea_compartimentelor_este_ordinea_familiilor() -> None:
     """Planul, generatorul și scena folosesc aceeași ordine a familiilor."""
     assert layout.RACK_FAMILIES == tuple(item.name for item in gear.FAMILIES)
     for index, family in enumerate(gear.FAMILIES):
         name = layout.rack_target(family.name)
         item = layout.target(name)
         assert item["key"] == "arm2", f"{name} nu aparține brațului care sortează"
-        assert int(item["slot"]) == index, "intrările se umplu în ordinea familiilor"
-        assert layout.target_z(name) == pytest.approx(layout.rack_floor_z()), (
-            "toate intrările au podeaua la aceeași cotă")
+        assert int(item["slot"]) == index, "compartimentele se umplu în ordinea familiilor"
         assert layout.rack_slot_index(name) == index
         entry = layout.rack_entry(index + 1)
         assert entry["family"] == family.name
+        assert layout.rack_shelf_of(name) == int(entry["shelf"])
+        assert layout.target_z(name) == pytest.approx(float(entry["floor"])), (
+            "ținta stă pe podeaua raftului ei, nu pe podeaua de jos a dulapului")
         cx, cy = layout.rack_entry_center(index + 1)
         assert (float(item["x"]), float(item["y"])) == (pytest.approx(cx), pytest.approx(cy))
     with pytest.raises(KeyError):
         layout.rack_target("familie_inexistenta")
 
 
-def test_raftul_are_cinci_intrari_cubice_pe_un_singur_nivel() -> None:
-    """Raftul e o masă cu cinci intrări de 0,5 m, toate cu podeaua la 0,85 m."""
-    entries = [layout.rack_entry(index) for index in range(1, 6)]
-    assert layout.RACK_ROWS == int(layout.RACK["rows"]) == 2
+def test_dulapul_are_trei_rafturi_cu_doua_compartimente() -> None:
+    """Trei rafturi suprapuse, fiecare despărțit în două de un panou vertical."""
+    assert layout.RACK_SHELVES == int(layout.RACK["levels"]) == 3
+    assert layout.RACK_COLUMNS == int(layout.RACK["columns"]) == 2
     assert layout.RACK_ENTRY_M == pytest.approx(0.5)
-    assert len(layout.RACK_SLOT_TARGETS) == len(entries) == int(layout.RACK["slots"]) == 5
-    assert layout.RACK_ENTRY_M == pytest.approx(float(layout.RACK["w"]) / 3), (
-        "rândul din față are trei intrări")
-    assert layout.RACK_ENTRY_M == pytest.approx(float(layout.RACK["h"]) / 2), (
-        "raftul are două rânduri de adâncime")
-    assert not hasattr(layout, "RACK_LEVELS") and not hasattr(layout, "RACK_LEVEL_PITCH")
-    # Un singur nivel, deci podeaua nu se schimbă de la o intrare la alta.
-    for entry in entries:
-        assert float(entry["floor"]) == pytest.approx(layout.RACK_SHELF_Z)
-    assert layout.rack_floor_z() == pytest.approx(layout.RACK_SHELF_Z)
+    assert layout.RACK_DEPTH_M == pytest.approx(0.18)
+    assert len(layout.RACK_ENTRIES) == int(layout.RACK["slots"]) == 6
+    assert len(layout.RACK_SLOT_TARGETS) == 5, "al șaselea compartiment rămâne gol"
+    assert layout.RACK_ENTRIES[-1]["family"] is None
+
+    assert layout.RACK_FLOORS == pytest.approx((0.85, 1.16, 1.41))
+    assert layout.RACK_TOP_Z == pytest.approx(1.69)
     assert layout.RACK_SHELF_Z == pytest.approx(layout.BELT_SURFACE_Z), (
-        "podeaua raftului stă la nivelul benzii, cota documentată a podelei raftului")
-    # Rândul din față are trei intrări, cel din spate două, iar golul din spatele mijlocului este
-    # chiar locul bazei brațului 2.
-    front = [entry for entry in entries if entry["row"] == 1]
-    back = [entry for entry in entries if entry["row"] == 2]
-    assert (len(front), len(back)) == (3, 2)
-    x0, x1 = layout.rack_row_span(1)
-    assert x0 == pytest.approx(float(layout.RACK["x"]))
-    assert x1 == pytest.approx(float(layout.RACK["x"]) + float(layout.RACK["w"]))
-    base = layout.arm("arm2")
-    for entry in back:
-        assert abs(entry["x"] + layout.RACK_ENTRY_M / 2 - float(base["x"])) >= (
-            layout.RACK_ENTRY_M / 2), "intrarea din spate nu poate sta peste baza brațului 2"
+        "podeaua raftului de jos stă la nivelul benzii")
+    assert layout.rack_floor_z() == pytest.approx(layout.RACK_FLOORS[0])
+    assert float(layout.RACK["w"]) == pytest.approx(2 * layout.RACK_ENTRY_M)
+    assert float(layout.RACK["h"]) == pytest.approx(layout.RACK_DEPTH_M)
+
+    for shelf, floor in enumerate(layout.RACK_FLOORS, start=1):
+        items = [item for item in layout.RACK_ENTRIES if int(item["shelf"]) == shelf]
+        assert len(items) == 2, f"raftul {shelf} are două compartimente"
+        assert [int(item["column"]) for item in items] == [1, 2]
+        for entry in items:
+            assert float(entry["floor"]) == pytest.approx(floor)
+            assert layout.rack_entry_floor(int(entry["index"])) == pytest.approx(floor)
+        x0, x1 = layout.rack_shelf_span(shelf)
+        assert x0 == pytest.approx(min(float(item["x"]) for item in items))
+        assert x1 - x0 == pytest.approx(2 * layout.RACK_ENTRY_M)
+        assert x0 == pytest.approx(float(layout.RACK["x"]))
+
     with pytest.raises(KeyError):
-        layout.rack_entry(6)
+        layout.rack_entry(7)
     with pytest.raises(KeyError):
-        layout.rack_row_span(3)
+        layout.rack_shelf_span(4)
 
 
-def test_intrarea_este_un_cub_deschis_deasupra() -> None:
-    """Podeaua, buzele și picioarele: nimic nu se ridică peste gura intrării."""
+def test_geometria_dulapului_are_carcasa_rafturi_si_despartitor() -> None:
+    """Carcasa, cele trei blaturi și despărțitorul, cu fețele de sus la cotele podelelor."""
     geometry = layout.rack_geometry()
-    assert geometry["rack_entry_half"] == pytest.approx(layout.RACK_ENTRY_M / 2)
-    # Podeaua se așază cu fața de sus chiar la cota din plan, iar buzele se ridică pe marginile ei,
-    # scunde: 2 cm, sub înălțimea la care intră falcile.
-    assert geometry["rack_floor_z"] + geometry["rack_floor_hz"] == pytest.approx(0.0)
-    lip_top = geometry["rack_lip_z"] + geometry["rack_lip_hz"]
-    assert lip_top == pytest.approx(layout.RACK_LIP_H)
-    assert geometry["rack_lip_hx"] == pytest.approx(layout.RACK_ENTRY_M / 2), (
-        "buza curge pe toată latura intrării")
-    for slot in range(1, 6):
-        assert f"rack_e{slot}_dx" in geometry and f"rack_e{slot}_dy" in geometry
-        assert geometry[f"rack_e{slot}_floor"] == pytest.approx(layout.RACK_SHELF_Z)
-    # Suportul: 12 picioare și două panouri laterale, toate de la pardoseală până sub podea.
-    assert len([key for key in geometry if re.fullmatch(r"rack_leg_\d+_dx", key)]) == 12
-    floor_bottom = layout.RACK_SHELF_Z - 2 * geometry["rack_floor_hz"]
-    for key in ("rack_leg_hz", "rack_panel_hz"):
-        assert floor_bottom <= 2 * geometry[key] <= layout.RACK_SHELF_Z, (
-            f"{key}: suportul trebuie să ajungă sub podea, fără să o treacă")
-    for key in ("rack_panel_west_dx", "rack_panel_east_dx"):
-        assert abs(geometry[key]) > float(layout.RACK["w"]) / 2 - 0.05, (
-            "panoul stă la capătul raftului")
+    board = geometry["rack_shelf_hz"]
+    half_depth = layout.RACK_DEPTH_M / 2
+    side = layout.RACK_SIDE_HALF_THICKNESS
+
+    # Lateralele și spatele urcă de la pardoseală până la fața de sus.
+    for name in ("rack_side", "rack_back"):
+        assert geometry[f"{name}_z"] - geometry[f"{name}_hz"] == pytest.approx(0.0)
+        assert geometry[f"{name}_z"] + geometry[f"{name}_hz"] == pytest.approx(
+            layout.RACK_TOP_Z)
+    assert geometry["rack_side_west_dx"] == pytest.approx(
+        -(layout.RACK_ENTRY_M - side))
+    assert geometry["rack_side_east_dx"] == pytest.approx(layout.RACK_ENTRY_M - side)
+    assert geometry["rack_back_dy"] - geometry["rack_back_hy"] == pytest.approx(-half_depth)
+
+    # Fundul și capacul, între laterale.
+    assert geometry["rack_bottom_z"] - geometry["rack_board_hz"] == pytest.approx(0.0)
+    assert geometry["rack_top_z"] + geometry["rack_board_hz"] == pytest.approx(
+        layout.RACK_TOP_Z)
+
+    # Fiecare blat are fața de sus chiar la cota podelei raftului.
+    for number, floor in enumerate(layout.RACK_FLOORS, start=1):
+        assert geometry[f"rack_shelf_{number}_z"] + board == pytest.approx(floor)
+    assert geometry["rack_shelf_dy"] + geometry["rack_shelf_hy"] == pytest.approx(half_depth), (
+        "raftul ajunge până la fața nordică, pe unde intră scula")
+    assert geometry["rack_shelf_dy"] - geometry["rack_shelf_hy"] == pytest.approx(
+        -half_depth + 2 * side), "raftul se sprijină pe fața din spate a carcasei"
+
+    # Despărțitorul urcă de la podeaua de jos până sub capac.
+    assert geometry["rack_divider_z"] - geometry["rack_divider_hz"] == pytest.approx(
+        layout.RACK_FLOORS[0])
+    assert geometry["rack_divider_z"] + geometry["rack_divider_hz"] == pytest.approx(
+        layout.RACK_TOP_Z - 2 * geometry["rack_board_hz"])
+    assert geometry["rack_divider_dy"] == pytest.approx(geometry["rack_shelf_dy"])
+
+    for entry in layout.RACK_ENTRIES:
+        index = int(entry["index"])
+        assert f"rack_e{index}_dx" in geometry and f"rack_e{index}_dy" in geometry
+        assert geometry[f"rack_e{index}_floor"] == pytest.approx(float(entry["floor"]))
+    assert not any(re.match(r"rack_(leg|lip|panel|block|rail)_", key) for key in geometry), (
+        "dulapul are carcasă și rafturi, fără picioare ori buze")
 
 
-def test_fiecare_intrare_incape_cea_mai_mare_piesa() -> None:
-    """Intrarea, din plan: un cub de 0,5 m, cu loc de discul cel mai mare și de falci."""
+def test_fiecare_compartiment_incape_cea_mai_mare_piesa() -> None:
+    """Compartimentul de 0,5 m ține discul cel mai mare, așezat lângă fața deschisă."""
+    front_y = float(layout.RACK["y"]) + float(layout.RACK["h"])
     for item in gear.FAMILIES:
         diameter = 2 * item.nominal.outer_radius * part.MESH_SCALE
         assert layout.RACK_ENTRY_M - diameter > 0.2, (
-            f"{item.name}: Ø{diameter * 1000:.0f} mm într-o intrare de "
+            f"{item.name}: Ø{diameter * 1000:.0f} mm într-un compartiment de "
             f"{layout.RACK_ENTRY_M * 1000:.0f} mm")
-        # Piesa se lasă culcată în intrare, deci podeaua prinde discul întreg, iar buza ține piesa
-        # culcată fără să fie mai înaltă decât ea.
-        assert layout.RACK_LIP_H > 2 * part.gear_half_thickness_m(item.name)
+        radius = diameter / 2
+        for entry in layout.RACK_ENTRIES:
+            if entry["family"] is None:
+                continue
+            _, pick_y = layout.rack_entry_center(int(entry["index"]))
+            assert front_y - pick_y == pytest.approx(0.02), (
+                "piesa stă la 2 cm în spatele feței deschise")
+            supported = front_y - (pick_y - radius)
+            assert supported > radius, (
+                "centrul discului trebuie să stea pe blat, nu în aer")
 
 
-def test_sablonul_are_cinci_intrari_cu_buze_si_un_suport() -> None:
-    """Numărul geomeleor din scenă iese din intrările din plan."""
+def test_sablonul_are_carcasa_rafturi_si_despartitor() -> None:
+    """Șablonul desenează exact dulapul: carcasa, trei rafturi și despărțitorul."""
     template = _read(MUJOCO_DIR / "scene" / "cell.xml")
     geometry = layout.scene_geometry()
-    assert re.findall(r'name="rack_entry_(\d+)"', template) == [str(slot) for slot in range(1, 6)]
-    assert "rack_block_" not in template, "nu mai există trepte pline sub intrări"
-    assert "rack_divider_" not in template and "rack_rail_" not in template
-    for slot in range(1, 6):
-        assert f"rack_e{slot}_dx" in geometry
-        assert f"rack_e{slot}_dy" in geometry
-    assert len(re.findall(r'name="rack_leg_\d+"', template)) == 12
-    assert 'name="rack_panel_west"' in template and 'name="rack_panel_east"' in template
-    for key in ("rack_lip_hx", "rack_lip_hy", "rack_lip_dx", "rack_lip_dy", "rack_lip_hz"):
-        assert key in geometry, f"buza intrării are nevoie de {key}"
+    for name in ("rack_side_west", "rack_side_east", "rack_back", "rack_bottom",
+                 "rack_top", "rack_shelf_1", "rack_shelf_2", "rack_shelf_3",
+                 "rack_divider"):
+        assert f'name="{name}"' in template, f"lipsește {name} din scenă"
+    for prefix in ("rack_entry_", "rack_leg_", "rack_panel_", "rack_lip_", "rack_block_",
+                   "rack_rail_"):
+        assert prefix not in template, f"{prefix} a rămas din vechiul raft"
+    used = {name for name in re.findall(r"\{([a-z0-9_]+)\}", template)
+            if name.startswith("rack_")}
+    missing = used - set(geometry)
+    assert not missing, f"șablonul cere câmpuri lipsă din geometrie: {sorted(missing)}"
+
+
 def test_lada_de_rebut_sta_sub_capatul_de_vest_al_benzii_2() -> None:
     """Lada e la capătul benzii, lată cât ea, cu marginea sub nivelul benzii."""
     geometry = layout.scrap_bin_geometry()
@@ -516,6 +549,35 @@ def test_drumul_unui_punct_urca_si_coboara_prin_toate_trecerile() -> None:
                 + ["sus", "jos", "ridicare"])
             assert steps[-1][1] == item.hover
             assert dict(steps)["jos"] == item.point
+
+
+def test_apropierea_de_dulap_este_inclinata_din_fata() -> None:
+    """Dulapul se încarcă pe fața nordică, cu scula înclinată, fiindcă rafturile sunt suprapuse."""
+    for name in layout.RACK_TARGETS.values():
+        approach = moves.approach(name)
+        assert approach == pytest.approx(moves.RACK_APPROACH)
+        assert approach[1] < 0.0 and approach[2] < 0.0, "scula vine din nord, de sus"
+        angle = math.degrees(math.acos(-approach[2]))
+        assert angle == pytest.approx(moves.RACK_APPROACH_DEG)
+        assert 0.0 < angle < 90.0, "coborârea de sus ar intra în raftul de deasupra"
+    for name in ("belt1_pick", "belt2_drop", "belt2_pick", "cnc_chuck"):
+        assert moves.approach(name) == moves.FROM_ABOVE
+
+
+def test_fiecare_compartiment_are_o_trecere_in_fata_dulapului() -> None:
+    """Trecerea stă în aer liber, în fața feței deschise, la cota de lucru plus 5 cm."""
+    front_y = float(layout.RACK["y"]) + float(layout.RACK["h"])
+    for arm in moves.ROUTES:
+        for item in moves.route(arm):
+            if item.name not in layout.RACK_TARGETS.values():
+                assert item.via == moves.VIA.get(item.name, ())
+                continue
+            assert len(item.via) == 1
+            x, y, z = item.via[0]
+            assert x == pytest.approx(item.point[0])
+            assert y == pytest.approx(moves.RACK_VIA_Y)
+            assert y > front_y, "trecerea trebuie să fie în fața dulapului"
+            assert z == pytest.approx(item.point[2] + moves.RACK_VIA_LIFT_M)
 
 
 # ---------------------------------------------------------------- încadrarea modulelor

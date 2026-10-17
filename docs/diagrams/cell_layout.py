@@ -4,10 +4,11 @@
 
 Fluxul materialului, în ordine: banda 1 alimentează dinspre vest, brațul 1 preia piesa și o
 încarcă în mașină; după ce mașina termină, tot brațul 1 o descarcă și o așază pe banda 2, care
-merge într-un singur sens spre vest. Brațul 2 stă la marginea sudică a benzii 2, iar raftul pe
-familii stă tot la sud de bandă: două niveluri de intrări cubice de 0,5 m, câte una pe familie,
-așezate în jurul bazei brațului 2. Brațul ia piesa de pe bandă și o lasă de sus, culcată, în
-intrarea familiei ei. Verdictul — familia și conformitatea — îl dă camera de pe flanșa brațului 2,
+merge într-un singur sens spre vest. Brațul 2 stă la marginea sudică a benzii 2, iar dulapul pe
+familii stă tot la sud de bandă: trei rafturi suprapuse, fiecare despărțit în două compartimente
+de 0,5 m, câte unul pe familie, așezate în fața bazei brațului 2. Brațul ia piesa de pe bandă și o
+lasă în compartimentul familiei ei, apropiindu-se înclinat de pe fața nordică. Verdictul — familia
+și conformitatea — îl dă camera de pe flanșa brațului 2,
 care fotografiază piesa ținută. O cameră fixă nu există: ruta piesei o decide brațul. Piesa
 neconformă nu are punct de lucru: rămâne pe bandă până la capătul de vest, de unde cade în lada de
 rebut.
@@ -61,84 +62,102 @@ BELT_OUT = dict(name="outfeed_conveyor", kind="belt", x=0.8, y=1.8, w=3.8, h=0.4
 # rămână la aceeași țintă. Nu e o reprezentare reală, iar capacul rămâne la 1,90 m.
 CNC = dict(name="cnc_3axis", kind="cnc", x=3.4, y=2.65, w=1.0, h=0.8)
 
-# Raftul pe familii stă la sud de banda 2, în jurul bazei brațului 2, și are cinci intrări
-# **cubice** de 0,5 m — o celulă de grid pe fiecare latură —, una pe familie: piesa se așază
-# culcată pe podeaua intrării, iar mâna brațului intră de sus. Rândul dinspre bandă are trei
-# intrări, la y = 0,75-1,25 m, iar cel din spate două, la y = 1,25-1,75 m, la capetele rândului
-# din față; locul din spatele mijlocului rămâne gol, fiindcă acolo se ridică baza brațului 2.
+# Dulapul pe familii stă la sud de banda 2, în fața bazei brațului 2, și are trei rafturi
+# suprapuse, fiecare despărțit în două compartimente: șase locuri, dintre care cinci țin câte o
+# familie, iar al șaselea rămâne gol. Este forma dulapului real, nu o masă cu intrări separate.
 #
 # Așezarea nu e liberă, ci iese din măsurătoare. Baza brațului 2 este la (2,70, 1,55), raza de
-# atingere este 0,855 m până la flanșă, iar scula atârnă 0,103 m sub ea și vine de sus. De aceea
-# raftul are **un singur nivel**: o intrare de 0,5 m așezată la 1,35 m ar cere o rază orizontală de
-# cel mult 0,69 m, iar acolo brațul nu mai are loc nici să lucreze, fiindcă antebrațul lui mătură
-# chiar peste raft. Intrările de la podeaua de 0,85 m stau la cel mult 0,74 m de baza brațului, iar
-# de acolo flanșa ajunge la 0,750 m din 0,855 m.
-# `moves.approach_height` refuză scena dacă o intrare iese din rază, iar `make cell-layout`
-# tipărește tabelul de atingere.
+# atingere este 0,855 m până la flanșă, iar scula atârnă 0,103 m sub ea. Un dulap adânc, cu
+# rafturile aliniate, nu se poate încărca de sus: antebrațul brațului 2 trece prin volumul lui.
+# De aceea rafturile au doar 0,18 m adâncime, iar piesa stă aproape de fața nordică, deschisă; scula
+# intră pe deasupra marginii din față, înclinată cu 30° față de verticală. Cotele de mai jos sunt
+# măsurate în scenă (`make mj-check`, `make mj-demo`): la 0,18 m adâncime verigile nu ating dulapul,
+# iar la 0,19 m link5 atinge marginea raftului de deasupra.
 #
-# Sub intrări stau 12 picioare și două panouri laterale, la capetele raftului, toate sub podea:
-# suportul e gri, intrarea e verde. Latura nordică se oprește la 50 mm de platforma benzii 2
-# (1,80 m), iar deasupra podelei nu se ridică nimic, ca brațul să aibă loc să lucreze.
+# Fața nordică este deschisă, iar rafturile au 0,28 m între ele; partea de jos, spatele și lateralele
+# sunt închise, ca să se citească drept dulap. Podeaua de jos stă la 0,85 m, nivelul benzii 2.
+RACK_COLUMNS = 2
+RACK_SHELVES = 3
+
+#: Lățimea nominală a unui compartiment: jumătate din dulap, o celulă de grid. Pereții subțiri
+#: lasă compartimentul util cu ~0,47 m, destul pentru discul de Ø104 mm.
 RACK_ENTRY_M = 0.5
 
-#: Cota podelei nivelului de jos: cota documentată a podelei raftului, adică nivelul suprafeței
-#: benzilor, ca piesa să treacă din bandă în raft fără să urce ori să coboare.
-RACK_FLOOR_Z = 0.85
+#: Adâncimea rafturilor, măsurată: peste 0,18 m, verigile brațului ating marginea raftului de
+#: deasupra când scula intră în compartimentul de sub el.
+RACK_DEPTH_M = 0.18
 
-#: Intrările raftului, în ordinea de umplere: rândul din față de la vest la est, apoi cel din
-#: spate. Coordonatele sunt colțul sud-vest al intrării, ca la celelalte amprente din plan; cota
-#: podelei se scrie aici ca să se poată citi din desen, iar un test o compară cu cota podelei
-#: raftului din `cncdt_mj/layout.py`.
+#: Cota fiecărei podele de raft: nivelul benzii, apoi două trepte de 0,28 m. A treia este aproape
+#: de limita de atingere, de aceea a rămas la 1,41 m.
+RACK_FLOORS = (0.85, 1.16, 1.41)
+
+#: Cota feței de sus a dulapului: ultimul raft plus încă o treaptă.
+RACK_TOP_Z = 1.69
+
+#: Cota la care se așază piesa pe fiecare raft, aproape de fața nordică: acolo ajunge scula fără
+#: să intre cu antebrațul în dulap.
+RACK_PICK_Y = 0.94
+
+#: Intrările dulapului, în ordinea de umplere: raftul de jos de la vest la est, apoi cele de
+#: deasupra. Coordonatele `x` și `y` sunt colțul sud-vest al compartimentului, ca la celelalte
+#: amprente din plan; cota podelei se scrie aici ca să se poată citi din desen. Ultimul
+#: compartiment rămâne fără familie.
 RACK_ENTRIES = (
-    dict(index=1, row=1, family="wheel_100", x=1.95, y=0.75, floor=0.85),
-    dict(index=2, row=1, family="flange_72", x=2.45, y=0.75, floor=0.85),
-    dict(index=3, row=1, family="bushing_68", x=2.95, y=0.75, floor=0.85),
-    dict(index=4, row=2, family="wheel_60", x=1.95, y=1.25, floor=0.85),
-    dict(index=5, row=2, family="pinion_56", x=2.95, y=1.25, floor=0.85),
+    dict(index=1, shelf=1, column=1, family="wheel_100", x=2.20, y=0.78, floor=0.85),
+    dict(index=2, shelf=1, column=2, family="flange_72", x=2.70, y=0.78, floor=0.85),
+    dict(index=3, shelf=2, column=1, family="bushing_68", x=2.20, y=0.78, floor=1.16),
+    dict(index=4, shelf=2, column=2, family="wheel_60", x=2.70, y=0.78, floor=1.16),
+    dict(index=5, shelf=3, column=1, family="pinion_56", x=2.20, y=0.78, floor=1.41),
+    dict(index=6, shelf=3, column=2, family=None, x=2.70, y=0.78, floor=1.41),
 )
 
-#: Gabaritul întregului raft, pentru tabelul de coordonate: reuniunea intrărilor, calculată, ca
-#: desenul și scena să nu se poată despărți de lista de mai sus.
+#: Gabaritul întregului dulap, pentru tabelul de coordonate: reuniunea compartimentelor,
+#: calculată, ca desenul și scena să nu se poată despărți de lista de mai sus.
 RACK = dict(
     name="rack_families", kind="rack",
-    rows=len({item["row"] for item in RACK_ENTRIES}),
+    levels=RACK_SHELVES,
+    columns=RACK_COLUMNS,
     slots=len(RACK_ENTRIES),
     x=min(item["x"] for item in RACK_ENTRIES),
     y=min(item["y"] for item in RACK_ENTRIES),
     w=max(item["x"] for item in RACK_ENTRIES) + RACK_ENTRY_M - min(item["x"] for item in RACK_ENTRIES),
-    h=max(item["y"] for item in RACK_ENTRIES) + RACK_ENTRY_M - min(item["y"] for item in RACK_ENTRIES),
+    h=RACK_DEPTH_M,
 )
 
-# Numele familiilor, în ordinea de umplere a intrărilor: rândul din față de la vest la est, apoi
-# cel din spate. Sunt aceleași nume ca în `cnc_cell/parts/gear.py`; un test verifică potrivirea,
-# ca planul și generatorul să nu se despartă.
+# Numele familiilor, în ordinea de umplere a compartimentelor: raftul de jos de la vest la est,
+# apoi cele de deasupra. Sunt aceleași nume ca în `cnc_cell/parts/gear.py`; un test verifică
+# potrivirea, ca planul și generatorul să nu se despartă.
 RACK_FAMILIES = ("wheel_100", "flange_72", "bushing_68", "wheel_60", "pinion_56")
 
 
 def rack_entry(index: int) -> dict:
     """Intrarea cu numărul dat, în ordinea de umplere (1 = prima)."""
     if not 1 <= index <= len(RACK_ENTRIES):
-        raise KeyError(f"intrare inexistentă în raft: {index}")
+        raise KeyError(f"intrare inexistentă în dulap: {index}")
     return RACK_ENTRIES[index - 1]
 
 
 def rack_entry_center(index: int) -> tuple[float, float]:
-    """Centrul intrării date, în plan."""
+    """Punctul de așezare al piesei în compartimentul dat, în plan.
+
+    Nu este centrul geometric al compartimentului: piesa stă aproape de fața nordică, singurul loc
+    în care scula ajunge fără ca antebrațul să intre în dulap.
+    """
     item = rack_entry(index)
-    return (item["x"] + RACK_ENTRY_M / 2, item["y"] + RACK_ENTRY_M / 2)
+    return (item["x"] + RACK_ENTRY_M / 2, RACK_PICK_Y)
 
 
-def rack_row_entries(row: int) -> tuple[dict, ...]:
-    """Intrările unui rând de adâncime, în ordinea de la vest la est."""
-    items = tuple(item for item in RACK_ENTRIES if item["row"] == row)
+def rack_shelf_entries(shelf: int) -> tuple[dict, ...]:
+    """Compartimentele unui raft, de la vest la est."""
+    items = tuple(item for item in RACK_ENTRIES if item["shelf"] == shelf)
     if not items:
-        raise KeyError(f"rând inexistent în raft: {row}")
+        raise KeyError(f"raft inexistent în dulap: {shelf}")
     return items
 
 
-def rack_row_span(row: int) -> tuple[float, float]:
-    """Felia din lungimea raftului pe care stă rândul dat (``x0``, ``x1``)."""
-    items = rack_row_entries(row)
+def rack_shelf_span(shelf: int) -> tuple[float, float]:
+    """Felia din lungimea dulapului pe care stă raftul dat (``x0``, ``x1``)."""
+    items = rack_shelf_entries(shelf)
     return (min(item["x"] for item in items),
             max(item["x"] for item in items) + RACK_ENTRY_M)
 
@@ -178,12 +197,14 @@ TARGETS = [
     dict(name="cnc_chuck", key="arm1", x=3.46, y=3.16, label="încărcare/descărcare CNC"),
     dict(name="belt2_drop", key="arm1", x=3.25, y=2.0, label="așezare pe banda 2"),
     dict(name="belt2_pick", key="arm2", x=2.7, y=2.0, label="preluare de pe banda 2"),
-    # Fiecare familie are intrarea ei: piesa se lasă culcată pe podeaua intrării, iar intrările se
-    # umplu în ordinea din listă — nivelul de jos de la vest la est, apoi cel de sus.
+    # Fiecare familie are compartimentul ei: piesa se lasă culcată pe podeaua raftului, aproape de
+    # fața nordică, iar compartimentele se umplu în ordinea din listă — raftul de jos de la vest la
+    # est, apoi cele de deasupra. Al șaselea compartiment rămâne gol.
     *(
         dict(name=f"rack_{family}", key="arm2", slot=index,
              x=rack_entry_center(index + 1)[0], y=rack_entry_center(index + 1)[1],
-             label=f"intrarea {index + 1} ({family})")
+             label=(f"raftul {rack_entry(index + 1)['shelf']}, "
+                    f"compartimentul {'AB'[rack_entry(index + 1)['column'] - 1]} ({family})"))
         for index, family in enumerate(RACK_FAMILIES)
     ),
 ]
@@ -344,15 +365,21 @@ def build_svg() -> str:
     svg.append(text(px(CNC["x"] + CNC["w"] / 2), py(CNC["y"] + CNC["h"] / 2) + 16,
                     "stare: idle / cutting", 12, "middle", "#315f86"))
 
-    # Raftul, în proiecție: fiecare intrare e un cub de 0,5 m, cu podeaua desenată la locul ei și
-    # cu numărul în ea. Familia fiecărei intrări stă în legendă, fiindcă într-un pătrat de 95 px
-    # încape doar numărul.
-    for item in RACK_ENTRIES:
-        fill, stroke = COLORS["rack"]
-        svg.append(rect(px(item["x"]), py(item["y"] + RACK_ENTRY_M),
-                        RACK_ENTRY_M * SCALE, RACK_ENTRY_M * SCALE, fill, stroke))
-        cx, cy = rack_entry_center(item["index"])
-        svg.append(text(px(cx), py(cy) + 5, str(item["index"]), 15, "middle", "#2f5c2a", "bold"))
+    # Dulapul, în proiecție de sus: carcasa, cele două compartimente și despărțitorul dintre ele.
+    # Rafturile suprapuse nu se văd separat de sus, deci în celule scriem coloana, iar legenda dă
+    # raftul și familia fiecărui compartiment.
+    case_fill, case_stroke = COLORS["rack_support"]
+    shelf_fill, shelf_stroke = COLORS["rack"]
+    svg.append(rect(px(RACK["x"]), py(RACK["y"] + RACK["h"]),
+                    RACK["w"] * SCALE, RACK["h"] * SCALE, case_fill, case_stroke))
+    for column in (1, 2):
+        x0 = RACK["x"] + (column - 1) * RACK_ENTRY_M + 0.025
+        svg.append(rect(px(x0), py(RACK["y"] + RACK["h"] - 0.005),
+                        (RACK_ENTRY_M - 0.05) * SCALE, (RACK["h"] - 0.01) * SCALE,
+                        shelf_fill, shelf_stroke))
+        svg.append(text(px(RACK["x"] + (column - 0.5) * RACK_ENTRY_M),
+                        py(RACK["y"] + RACK["h"] / 2) + 4, "AB"[column - 1],
+                        13, "middle", "#2f5c2a", "bold"))
 
     # Brațele: bază, rază de atingere, etichetă cu linie de trimitere și camera de pe flanșă.
     for arm in ARMS:
@@ -395,10 +422,11 @@ def build_svg() -> str:
         svg.append('<circle cx="%.1f" cy="%.1f" r="4.5" fill="#1b1b1b" stroke="#ffffff" '
                    'stroke-width="1.4"/>' % (px(target["x"]), py(target["y"])))
 
-    # Raftul și lada de rebut. Fiecare intrare are numărul în ea, iar familia fiecăruia stă în
-    # legendă, fiindcă numele nu încap într-un pătrat de 95 px.
-    svg.append(text(px(RACK["x"] + RACK["w"] / 2), py(RACK["y"] - 0.10),
-                    "Raft pe familii (5 intrări de 0,5 m)", 12, "middle", "#2f5c2a", "bold"))
+    # Dulapul și lada de rebut. Rafturile se citesc din legendă, fiindcă într-o fâșie de 34 px
+    # încape doar litera coloanei.
+    svg.append(text(px(RACK["x"] + RACK["w"] / 2), py(RACK["y"] + RACK["h"] + 0.10),
+                    "Dulap pe familii: 3 rafturi × 2 compartimente", 12, "middle", "#2f5c2a",
+                    "bold"))
     svg.append(text(px(SCRAP_BIN["x"] + SCRAP_BIN["w"] / 2), py(SCRAP_BIN["y"] - 0.06),
                     "Ladă rebut", 12, "middle", "#8a2f2f", "bold"))
 
@@ -436,31 +464,27 @@ def build_legend() -> str:
     swatch(*COLORS["belt"], "Bandă transportoare", "săgeata din interior: sensul de mers")
     swatch(*COLORS["arm"], "Braț robot (Franka Panda)", "cercul punctat: rază de atingere 0,855 m")
     swatch(*COLORS["cnc"], "Mașină CNC, 3 axe", "stare, fără așchiere efectivă")
-    swatch(*COLORS["rack"], "Raft pe familii: 5 intrări de 0,5 m",
-           "podeaua tuturor intrărilor la 0,85 m; piesa se lasă de sus, culcată")
-    swatch(*COLORS["rack_support"], "Suportul raftului, sub podele",
-           "12 picioare și două panouri laterale, la capete")
+    swatch(*COLORS["rack"], "Dulap pe familii: 3 rafturi × 2 compartimente",
+           "podele la 0,85 / 1,16 / 1,41 m; piesa stă în față, pe raft")
+    swatch(*COLORS["rack_support"], "Carcasa dulapului",
+           "laterale, spate și capac; fața nordică rămâne deschisă")
     swatch(*COLORS["trash"], "Ladă rebut", "sub capătul de vest al benzii 2, fără perete la est")
     swatch(*COLORS["camera_wrist"], "Cameră pe braț (pe flanșă)",
            "brațul 2 fotografiază piesa ținută și decide familia și conformitatea")
 
     y += 6
-    out.append(text(x0, y, "Intrările raftului, rândul din față apoi cel din", 12.5, "start",
+    out.append(text(x0, y, "Compartimentele dulapului: raftul de jos întâi,", 12.5, "start",
                     "#222"))
     y += 17
-    out.append(text(x0, y, "spate, iar în rând de la vest la est; piesa se", 12.5, "start",
-                    "#222"))
-    y += 17
-    out.append(text(x0, y, "lasă de sus, culcată, pe podeaua intrării.", 12.5, "start",
+    out.append(text(x0, y, "iar pe raft de la vest la est (A, apoi B).", 12.5, "start",
                     "#222"))
     y += 18
     for index in range(RACK_SLOTS):
         entry = rack_entry(index + 1)
-        row_items = rack_row_entries(entry["row"])
-        place = row_items.index(entry)
-        side = "vest" if place == 0 else ("est" if place == len(row_items) - 1 else "mijloc")
-        out.append(text(x0 + 6, y, "%d. %s — rândul %d, %s" % (
-            entry["index"], entry["family"], entry["row"], side), 11.5, "start", "#3f7a37"))
+        family = entry["family"] or "gol"
+        out.append(text(x0 + 6, y, "%d. raftul %d, compartimentul %s — %s" % (
+            entry["index"], entry["shelf"], "AB"[entry["column"] - 1], family),
+            11.5, "start", "#3f7a37"))
         y += 15
 
     y += 8
@@ -513,8 +537,11 @@ def coordinate_table() -> str:
         ("Bandă 2 (evacuare, un singur sens)", BELT_OUT, "box"),
         ("Braț 2 (Panda #2)", arms["arm2"], "arm"),
         ("Cameră pe brațul 2 (flanșă)", arms["arm2"], "wrist"),
-        ("Raft pe familii (gabaritul celor %d intrări)" % RACK["slots"], RACK, "box"),
-        *[("Intrarea %d (%s)" % (item["index"], item["family"]), item, "entry")
+        ("Dulap pe familii (%d rafturi × %d compartimente)" % (
+            RACK["levels"], RACK["columns"]), RACK, "box"),
+        *[("Raftul %d, compartimentul %s (%s) — podea %s m" % (
+            item["shelf"], "AB"[item["column"] - 1], item["family"] or "gol",
+            ro("%.2f" % item["floor"])), item, "entry")
           for item in RACK_ENTRIES],
         ("Ladă rebut", SCRAP_BIN, "box"),
     ]
@@ -532,8 +559,8 @@ def coordinate_table() -> str:
         elif kind == "entry":
             x0, y0 = float(item["x"]), float(item["y"])
             cx, cy = rack_entry_center(int(item["index"]))
-            span = grid_span(x0, y0, RACK_ENTRY_M, RACK_ENTRY_M).replace("-", "–")
-            size = ro("%.1f × %.1f × %.1f" % (RACK_ENTRY_M, RACK_ENTRY_M, RACK_ENTRY_M))
+            span = grid_span(x0, y0, RACK_ENTRY_M, RACK_DEPTH_M).replace("-", "–")
+            size = ro("%.2f × %.2f" % (RACK_ENTRY_M, RACK_DEPTH_M))
         else:
             cx, cy = item["x"], item["y"]
             span, size = grid_ref(cx, cy), ro("punct, zonă %.2f Ø" % (2 * item["zone"]))
@@ -543,8 +570,12 @@ def coordinate_table() -> str:
 
 
 def reach_table() -> str:
-    """Verificarea care contează: fiecare țintă cade în raza brațului care o deservește."""
-    rows = ["| Braț | Țintă | Distanță în plan (m) | În raza de 0,855 m |",
+    """Distanța orizontală până la fiecare țintă, ca primă verificare a așezării.
+
+    Tabelul nu ține cont de cotă ori de lungimea sculei: verificarea în spațiu, cu unghiul de
+    apropiere al fiecărei ținte, o face `make mj-check` pe scena compilată.
+    """
+    rows = ["| Braț | Țintă | Distanță orizontală (m) | În raza de 0,855 m |",
             "| --- | --- | --- | --- |"]
     names = {"arm1": "Braț 1", "arm2": "Braț 2"}
     arms = {arm["key"]: arm for arm in ARMS}

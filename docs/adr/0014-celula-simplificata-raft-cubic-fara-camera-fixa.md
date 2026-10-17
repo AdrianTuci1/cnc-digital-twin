@@ -1,6 +1,7 @@
 # ADR 0014: Celula se simplifică: raft cubic pe un nivel, verdictul de la braț, mașină simbolică
 
-- **Status:** acceptat
+- **Status:** acceptat parțial; deciziile 1, 2 și 5 despre raft sunt înlocuite de
+  [ADR 0017](0017-dulap-cu-trei-rafturi-si-doua-compartimente.md)
 - **Data:** 2026-10-15
 - **Decizat de:** echipa de proiect
 - **Pornește de la:** ADR 0009 (inspecție vizuală), ADR 0012 (geamănul MuJoCo),

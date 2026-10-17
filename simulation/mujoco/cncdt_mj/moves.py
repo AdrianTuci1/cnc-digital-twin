@@ -23,9 +23,28 @@ from . import part
 #: mișcare controlată.
 APPROACH_HEIGHT_M = 0.12
 
-#: Scula vine de sus în toate punctele de lucru: axul universalului este vertical, iar mașina are
-#: cadrul deschis deasupra mesei, benzile au șinele dincolo de falci, iar raftul este deschis.
+#: Scula vine de sus în punctele de lucru de pe benzi și de la mașină: axul universalului este
+#: vertical, iar mașina are cadrul deschis deasupra mesei, benzile au șinele dincolo de falci.
 FROM_ABOVE: tuple[float, float, float] = (0.0, 0.0, -1.0)
+
+#: Unghiul cu care scula intră în dulapul pe familii, față de verticală, măsurat în scenă. Dulapul
+#: are rafturi suprapuse, deci scula nu poate coborî de sus: intră pe deasupra marginii nordice,
+#: înclinată, iar antebrațul rămâne în afara carcasei. La 30° veriga 5 trece razant peste marginea
+#: raftului 2 când coboară spre raftul 1, iar contactul oprește brațul la 95 mm de țintă; la 45°
+#: drumul trece pe sub margine, cu eroare de sub 7 mm și fără contacte, pentru toate familiile.
+RACK_APPROACH_DEG = 45.0
+RACK_APPROACH: tuple[float, float, float] = (
+    0.0,
+    -math.sin(math.radians(RACK_APPROACH_DEG)),
+    -math.cos(math.radians(RACK_APPROACH_DEG)),
+)
+
+
+def approach(name: str) -> tuple[float, float, float]:
+    """Direcția din care vine scula în punctul de lucru dat."""
+    if name in layout.RACK_TARGETS.values():
+        return RACK_APPROACH
+    return FROM_ABOVE
 
 
 def half_thickness_m(name: str, family: str | None = None) -> float:
@@ -76,28 +95,21 @@ ROUTES: Mapping[str, tuple[str, ...]] = {arm: route_names(arm) for arm in ("arm1
 #: deschis, iar marginile ei stau dincolo de falci.
 TOOL_SPIN_DEG: Mapping[str, float] = {}
 
-#: Cota la care scula călătorește pe deasupra raftului, înainte de a coborî în intrare. Fără ea,
-#: drumul cel mai scurt de la preluarea de pe banda 2 până la o intrare taie rândul din spate la
-#: cota de lucru a benzii, iar falcile agață buzele intrării vecine: măsurat în scenă, mâna se
-#: înțepena în raft și scula rămânea cu 280 mm de țintă, cu 34° de răsucire. Cota stă cu 0,23 m
-#: deasupra buzelor intrărilor (0,87 m) și ține brațul în raza lui comodă: la intrarea cea mai
-#: depărtată, flanșa ajunge la 0,785 m din 0,855 m, pe când de la 1,25 m ar sta la 0,846 m, adică
-#: 99 % din rază, iar de acolo servo-urile lasă scula cu 20-30 mm în urmă, peste pragul de 20 mm.
-#: Coborârea în intrare este verticală, deci marginile intrării rămân dincolo de falci.
-RACK_VIA_Z = 1.10
+#: Cât de departe în fața dulapului trece scula înainte de a se apropia de un raft, și cât de sus
+#: față de punctul de lucru. Fără punctul de trecere, drumul cel mai scurt de la banda 2 la un
+#: compartiment de la 1,41 m ar tăia colțul dulapului la cota de lucru: scula ar intra în
+#: carcasa. Punctul stă în aer liber, la y = 1,22 m, adică la 0,26 m în fața feței deschise.
+RACK_VIA_Y = 1.22
+#: Cât urcă punctul de trecere față de punctul de lucru. La 5 cm, orientarea înclinată la 45° se
+#: atinge din orice poziție de pornire; la 10 cm, brațul nu mai nimerește orientarea la trecerea
+#: spre compartimentul estic al raftului 2 (46 mm eroare), fiindcă încheietura urcă prea mult.
+RACK_VIA_LIFT_M = 0.05
 
 
-def _rack_vias() -> dict[str, tuple[tuple[float, float, float], ...]]:
-    """Punctul de trecere al fiecărei intrări din raft: chiar deasupra intrării, la cota de călătorie.
-
-    Intrarea are 0,50 m latură și este deschisă deasupra, deci locul de deasupra ei este chiar gura
-    pe unde intră scula: ultima bucată a drumului spre intrare coboară pe verticală.
-    """
-    vias = {}
-    for name in layout.RACK_TARGETS.values():
-        item = layout.target(name)
-        vias[name] = ((float(item["x"]), float(item["y"]), RACK_VIA_Z),)
-    return vias
+def _rack_via(name: str, family: str | None) -> tuple[tuple[float, float, float], ...]:
+    """Punctul de trecere din fața compartimentului, la cota de lucru plus un palmier."""
+    x, _, z = work_point(name, family)
+    return ((x, RACK_VIA_Y, z + RACK_VIA_LIFT_M),)
 
 
 #: Punctele prin care trece scula pe drumul spre un punct de lucru, la cota de călătorie. Fără ele,
@@ -109,7 +121,6 @@ def _rack_vias() -> dict[str, tuple[tuple[float, float, float], ...]]:
 #: deasupra capacului meselor benzilor și în afara amprentei mașinii.
 VIA: Mapping[str, tuple[tuple[float, float, float], ...]] = {
     "belt2_drop": ((3.10, 2.95, 1.10),),
-    **_rack_vias(),
 }
 
 
@@ -170,7 +181,7 @@ def approach_height(name: str, tool_length_m: float = 0.0,
     nu e de ajustat retragerea, ci așezarea din plan, ori scula.
     """
     tool_length_m = abs(tool_length_m)
-    direction = np.asarray(FROM_ABOVE, dtype=float)
+    direction = np.asarray(approach(name), dtype=float)
     point = np.asarray(work_point(name, family), dtype=float)
     arm = layout.arm(str(layout.target(name)["key"]))
     base = np.array([float(arm["x"]), float(arm["y"]), layout.ARM_BASE_Z])
@@ -193,10 +204,12 @@ def approach_height(name: str, tool_length_m: float = 0.0,
 def move(name: str, tool_length_m: float = 0.0, family: str | None = None) -> Move:
     """Punctul de lucru cu numele dat, gata de urmat de un braț."""
     item = layout.target(name)
+    via = (_rack_via(name, family) if name in layout.RACK_TARGETS.values()
+           else VIA.get(name, ()))
     return Move(arm=str(item["key"]), name=name, label=str(item["label"]),
-                approach=FROM_ABOVE, point=work_point(name, family),
+                approach=approach(name), point=work_point(name, family),
                 tool_length_m=tool_length_m, spin_deg=TOOL_SPIN_DEG.get(name, 0.0),
-                family=family, via=VIA.get(name, ()))
+                family=family, via=via)
 
 
 def stages(item: Move) -> tuple[tuple[str, tuple[float, float, float]], ...]:

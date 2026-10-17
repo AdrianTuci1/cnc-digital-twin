@@ -60,15 +60,29 @@ BELT_DIRECTIONS: Mapping[str, tuple[float, float]] = {
 #: Ținta de preluare a fiecărei benzi: locul unde se oprește piesa și de unde o ridică brațul.
 BELT_STOP_TARGETS: Mapping[str, str] = {"belt_in": "belt1_pick", "belt_out": "belt2_pick"}
 
-#: Câte rânduri de adâncime are raftul, din plan. Rândurile nu au același număr de intrări: golul
-#: din spatele mijlocului este chiar locul unde se ridică baza brațului 2.
-RACK_ROWS = int(RACK["rows"])
+#: Câte rafturi are dulapul, din plan. Rafturile sunt suprapuse, iar fiecare e despărțit în două
+#: compartimente de un panou vertical.
+RACK_SHELVES = int(RACK["levels"])
+RACK_COLUMNS = int(RACK["columns"])
 
-#: Latura unei intrări din raft, din plan: 0,5 m, o celulă de grid, pe toate laturile.
+#: Lățimea nominală a unui compartiment, din plan: 0,5 m, o celulă de grid.
 RACK_ENTRY_M = float(cell_layout.RACK_ENTRY_M)
 
-#: Intrările raftului, în ordinea de umplere din plan. Fiecare are câte o țintă de prindere,
-#: fiindcă fiecare ține o familie; nu mai rămâne nicio intrare goală.
+#: Adâncimea rafturilor, din plan: 0,18 m. Peste ea, verigile brațului ating marginea raftului de
+#: deasupra când scula intră în compartimentul de sub el; cota e măsurată în scenă.
+RACK_DEPTH_M = float(cell_layout.RACK_DEPTH_M)
+
+#: Cota fiecărei podele de raft, de jos în sus, din plan.
+RACK_FLOORS: tuple[float, ...] = tuple(float(value) for value in cell_layout.RACK_FLOORS)
+
+#: Cota feței de sus a dulapului, din plan.
+RACK_TOP_Z = float(cell_layout.RACK_TOP_Z)
+
+#: Compartimentele dulapului, așa cum le dă planul: raftul, coloana, familia și podeaua.
+RACK_ENTRIES: tuple[Mapping[str, Any], ...] = tuple(cell_layout.RACK_ENTRIES)
+
+#: Compartimentele dulapului, în ordinea de umplere din plan. Cinci au câte o familie; al șaselea
+#: rămâne gol, ca în dulapul real.
 RACK_SLOT_TARGETS: tuple[str, ...] = tuple(RACK_TARGETS[family] for family in RACK_FAMILIES)
 
 # ------------------------------------------------------------------ înălțimile documentate
@@ -79,11 +93,12 @@ BELT_SURFACE_Z = 0.85
 MACHINE_TABLE_Z = 0.75
 #: Capacul de protecție: `docs/11-geaman-mujoco.md` §2.
 MACHINE_COVER_Z = 1.90
-#: Podeaua raftului, adică suprafața pe care stau piesele din intrări: `docs/11-geaman-mujoco.md`
-#: §2. Stă la nivelul suprafeței benzii, ca piesa să treacă din bandă în raft fără să urce ori să
-#: coboare; raftul are un singur nivel, fiindcă o intrare de 0,5 m așezată la 1,35 m ar cere o rază
-#: de cel mult 0,69 m, iar acolo antebrațul brațului 2 mătură chiar peste raft.
-RACK_SHELF_Z = BELT_SURFACE_Z
+#: Podeaua raftului de jos, suprafața pe care stau piesele din compartimentele de jos:
+#: `docs/11-geaman-mujoco.md` §2. Stă la nivelul suprafeței benzii, ca piesa să treacă din bandă în
+#: dulap fără să urce ori să coboare. Rafturile de deasupra urcă la 0,31 m și la 0,25 m peste ea
+#: (:data:`RACK_FLOORS`); un dulap adânc cu rafturi aliniate nu se poate încărca de sus, fiindcă
+#: antebrațul brațului 2 mătură prin volumul lui.
+RACK_SHELF_Z = RACK_FLOORS[0]
 #: Marginea lăzii de rebut, sub capătul de vest al benzii 2: `docs/11-geaman-mujoco.md` §2. Cota
 #: stă sub nivelul benzii, ca piesa care cade de la capătul benzii să treacă peste margine.
 SCRAP_BIN_RIM_Z = 0.62
@@ -114,8 +129,8 @@ DOCUMENTED_HEIGHTS: tuple[DocumentedHeight, ...] = (
     DocumentedHeight("belt_surface", BELT_SURFACE_Z, "benz", "suprafețele de lucru ale benzilor"),
     DocumentedHeight("machine_table", MACHINE_TABLE_Z, "mașin", "masa mașinii"),
     DocumentedHeight("machine_cover", MACHINE_COVER_Z, "capac", "capacul de protecție"),
-    DocumentedHeight("rack_shelf", RACK_SHELF_Z, "raft", "podelele raftului pe familii"),
-    DocumentedHeight("rack_entry", RACK_ENTRY_M, "intr", "latura intrărilor raftului"),
+    DocumentedHeight("rack_shelf", RACK_SHELF_Z, "raft", "podeaua raftului de jos"),
+    DocumentedHeight("rack_entry", RACK_ENTRY_M, "compartiment", "lățimea compartimentului"),
     DocumentedHeight("scrap_bin_rim", SCRAP_BIN_RIM_Z, "lăz", "marginea lăzii de rebut"),
     DocumentedHeight("arm_base", ARM_BASE_Z, "piedestal", "baza brațelor pe piedestal"),
 )
@@ -149,20 +164,15 @@ MACHINE_ROOF_HALF_Z = 0.025
 MACHINE_CHUCK_RADIUS = 0.055
 MACHINE_CHUCK_HALF_Z = 0.04
 
-#: Raftul pe familii: cinci intrări cubice de 0,5 m, fiecare cu podeaua ei subțire și cu buze
-#: scunde pe toate laturile, cât să țină piesa culcată fără să stea în calea mâinii. Sub ele nu
-#: stă nimic plin — opt picioare și două panouri laterale, la capete —, iar deasupra podelei nu se
-#: ridică nimic: antebrațul brațului 2 mătură peste raft. Sunt secțiuni de desen, nu cifre din plan
-#: ori din documentație.
-RACK_FLOOR_HALF_Z = 0.01
-RACK_LIP_H = 0.02
-RACK_LIP_HALF_THICKNESS = 0.005
-RACK_LEG_HALF_XY = 0.02
-#: Cât se retrag picioarele de la muchiile raftului, ca să nu iasă în afară.
-RACK_LEG_INSET = 0.06
-RACK_PANEL_HALF_X = 0.03
-#: Panourile laterale urcă de la pardoseală până sub podeaua raftului.
-RACK_PANEL_HALF_Z = (RACK_SHELF_Z - RACK_FLOOR_HALF_Z) / 2
+#: Dulapul pe familii: carcasa are laterale și spate, un fund și un capac, iar înăuntru stau trei
+#: rafturi despărțite în două de un panou vertical. Fața nordică rămâne deschisă, fiindcă pe acolo
+#: intră scula; rafturile au doar 0,18 m adâncime, ca antebrațul brațului 2 să rămână în afara
+#: dulapului. Sunt secțiuni de desen, nu cifre din plan ori din documentație.
+RACK_SIDE_HALF_THICKNESS = 0.015
+RACK_SHELF_HALF_Z = 0.006
+RACK_DIVIDER_HALF_THICKNESS = 0.015
+#: Rafturile se opresc la fața din spate a carcasei, nu în ea.
+RACK_SHELF_BACK_MARGIN = RACK_SIDE_HALF_THICKNESS
 
 #: Lada de rebut: podea și trei pereți, cu latura de est deschisă, sub capătul de vest al benzii 2.
 SCRAP_BIN_WALL_HALF_THICKNESS = 0.01
@@ -234,33 +244,39 @@ def rack_entry(index: int) -> Mapping[str, Any]:
 
 
 def rack_slot_index(name: str) -> int:
-    """Intrarea unei ținte din raft, în ordinea de umplere (0 = prima, din rândul din față)."""
+    """Compartimentul unei ținte din dulap, în ordinea de umplere (0 = primul)."""
     return int(target(name)["slot"])
 
 
-def rack_row_of(name: str) -> int:
-    """Rândul de adâncime al unei ținte din raft, numerotat de la cel dinspre bandă, de la 1."""
-    return int(rack_entry(rack_slot_index(name) + 1)["row"])
+def rack_shelf_of(name: str) -> int:
+    """Raftul unei ținte din dulap, numerotat de jos în sus, de la 1."""
+    return int(rack_entry(rack_slot_index(name) + 1)["shelf"])
 
 
 def rack_floor_z() -> float:
-    """Cota podelei raftului, singurul nivel al lui."""
+    """Cota podelei raftului de jos, nivelul de la care urcă celelalte."""
     return RACK_SHELF_Z
 
 
-def rack_row_span(row: int) -> tuple[float, float]:
-    """Felia din lungimea raftului pe care stă rândul dat, în lume (``x0``, ``x1``).
+def rack_entry_floor(index: int) -> float:
+    """Cota podelei compartimentului dat, din plan."""
+    return float(cell_layout.rack_entry_floor(index))
 
-    Rândul din spate este mai scurt decât cel din față: mijlocul lui este gol, fiindcă acolo se
-    ridică baza brațului 2.
-    """
-    if not 1 <= row <= RACK_ROWS:
-        raise KeyError(f"rând inexistent în raft: {row}")
-    return tuple(cell_layout.rack_row_span(row))  # type: ignore[return-value]
+
+def target_floor_z(name: str) -> float:
+    """Cota podelei raftului pe care stă ținta dată, dacă e o țintă din dulap."""
+    return rack_entry_floor(rack_slot_index(name) + 1)
+
+
+def rack_shelf_span(shelf: int) -> tuple[float, float]:
+    """Felia din lungimea dulapului pe care stă raftul dat, în lume (``x0``, ``x1``)."""
+    if not 1 <= shelf <= RACK_SHELVES:
+        raise KeyError(f"raft inexistent în dulap: {shelf}")
+    return tuple(cell_layout.rack_shelf_span(shelf))  # type: ignore[return-value]
 
 
 def rack_entry_center(index: int) -> tuple[float, float]:
-    """Centrul unei intrări, în lume."""
+    """Punctul de așezare al piesei în compartimentul dat, în lume."""
     return tuple(cell_layout.rack_entry_center(index))  # type: ignore[return-value]
 
 
@@ -277,7 +293,7 @@ def target_z(name: str) -> float:
     if name == "cnc_chuck":
         return MACHINE_TABLE_Z + MACHINE_CHUCK_HALF_Z
     if name in RACK_TARGETS.values():
-        return rack_floor_z()
+        return target_floor_z(name)
     raise KeyError(f"țintă fără cotă cunoscută: {name}")
 
 
@@ -428,79 +444,70 @@ def machine_geometry() -> dict[str, float]:
     }
 
 
-def _rack_leg_positions() -> tuple[tuple[float, float], ...]:
-    """Unde stau picioarele raftului, în lume.
-
-    Câte un picior sub fiecare muchie de intrare, la toate marginile din adâncime: sub muchia
-    comună a două intrări vecine, ori sub o muchie de capăt, stă un singur picior, nu două lipite.
-    Marginile de capăt ale raftului se retrag cu :data:`RACK_LEG_INSET`, ca piciorul să nu iasă în
-    afară.
-    """
-    x_edges: set[float] = set()
-    y_edges: set[float] = set()
-    for row in range(1, RACK_ROWS + 1):
-        items = cell_layout.rack_row_entries(row)
-        for position, item in enumerate(items):
-            west = float(item["x"]) + (RACK_LEG_INSET if position == 0 else 0.0)
-            east = float(item["x"]) + RACK_ENTRY_M - (
-                RACK_LEG_INSET if position == len(items) - 1 else 0.0)
-            x_edges.update((west, east))
-            y0 = float(item["y"])
-            y_edges.update((y0 + (RACK_LEG_INSET if row == 1 else 0.0),
-                            y0 + RACK_ENTRY_M - (RACK_LEG_INSET if row == RACK_ROWS else 0.0)))
-    return tuple((x, y) for x in sorted(x_edges) for y in sorted(y_edges))
-
-
 def rack_geometry() -> dict[str, float]:
-    """Raftul pe familii: cinci intrări cubice de 0,5 m, fiecare cu podeaua și buzele ei, plus suportul.
+    """Dulapul pe familii: carcasa, cele trei rafturi și despărțitorul din mijloc.
 
-    Așezarea și cotele intrărilor ies din `docs/diagrams/cell_layout.py`, iar podeaua din
-    înălțimile documentate. Fiecare intrare este un cub de 0,5 m: podea subțire, buze scunde pe
-    toate laturile — atât cât să țină piesa culcată, fără să stea în calea mâinii — și nimic
-    deasupra podelei. Sub intrări nu stă un bloc plin: rândul din față și cel din spate se sprijină
-    pe câte patru picioare, iar capetele raftului pe două panouri laterale. Panourile sunt singurele
-    piese pline, stau la capete fiindcă acolo brațul nu ajunge, și se opresc sub podea.
+    Așezarea și cotele rafturilor ies din `docs/diagrams/cell_layout.py`, iar podeaua de jos din
+    înălțimile documentate. Fața nordică rămâne deschisă; lateralele, spatele, fundul și capacul
+    închid dulapul, iar rafturile se opresc înaintea feței deschise. Adâncimea de 0,18 m este
+    măsurată în scenă: la 0,19 m, verigile brațului ating marginea raftului de deasupra.
     """
     cx, cy = center(RACK)
-    entry_half = RACK_ENTRY_M / 2
-    leg_hz = (RACK_SHELF_Z - RACK_FLOOR_HALF_Z) / 2
+    hx = float(RACK["w"]) / 2
+    hy = float(RACK["h"]) / 2
+    side = RACK_SIDE_HALF_THICKNESS
+    board = RACK_SHELF_HALF_Z
+    # Rafturile pornesc de la fața din spate a carcasei și merg până la fața nordică deschisă.
+    shelf_hy = hy - RACK_SHELF_BACK_MARGIN
+    shelf_dy = RACK_SHELF_BACK_MARGIN
+    divider_z0 = RACK_FLOORS[0]
+    divider_z1 = RACK_TOP_Z - 2 * board
     values: dict[str, float] = {
         "rack_cx": cx,
         "rack_cy": cy,
-        "rack_entry_half": entry_half,
-        "rack_floor_hz": RACK_FLOOR_HALF_Z,
-        "rack_floor_z": -RACK_FLOOR_HALF_Z,
-        "rack_lip_hx": entry_half,
-        "rack_lip_hy": RACK_LIP_HALF_THICKNESS,
-        "rack_lip_dx": entry_half - RACK_LIP_HALF_THICKNESS,
-        "rack_lip_dy": entry_half - RACK_LIP_HALF_THICKNESS,
-        "rack_lip_hz": RACK_LIP_H / 2,
-        "rack_lip_z": RACK_LIP_H / 2,
-        "rack_leg_hxy": RACK_LEG_HALF_XY,
-        "rack_leg_hz": leg_hz,
-        "rack_leg_z": leg_hz,
-        "rack_panel_hx": RACK_PANEL_HALF_X,
-        "rack_panel_hy": float(RACK["h"]) / 2,
-        "rack_panel_hz": RACK_PANEL_HALF_Z,
-        "rack_panel_z": RACK_PANEL_HALF_Z,
+        "rack_hx": hx,
+        "rack_hy": hy,
+        "rack_entry_half": RACK_ENTRY_M / 2,
+        "rack_entry_depth_half": hy,
+        # Lateralele și spatele urcă de la pardoseală până la fața de sus.
+        "rack_side_hx": side,
+        "rack_side_hy": hy,
+        "rack_side_hz": RACK_TOP_Z / 2,
+        "rack_side_z": RACK_TOP_Z / 2,
+        "rack_side_west_dx": -(hx - side),
+        "rack_side_east_dx": hx - side,
+        "rack_back_hx": hx - side,
+        "rack_back_hy": side,
+        "rack_back_hz": RACK_TOP_Z / 2,
+        "rack_back_z": RACK_TOP_Z / 2,
+        "rack_back_dy": -hy + side,
+        # Fundul și capacul, între laterale.
+        "rack_board_hx": hx - side,
+        "rack_board_hy": hy,
+        "rack_board_hz": board,
+        "rack_bottom_z": board,
+        "rack_top_z": RACK_TOP_Z - board,
+        # Rafturile, cu fața de sus chiar la cota podelei.
+        "rack_shelf_hx": hx - side,
+        "rack_shelf_hy": shelf_hy,
+        "rack_shelf_hz": board,
+        "rack_shelf_dy": shelf_dy,
+        # Despărțitorul dintre cele două compartimente, pe toată înălțimea.
+        "rack_divider_hx": RACK_DIVIDER_HALF_THICKNESS,
+        "rack_divider_hy": shelf_hy,
+        "rack_divider_hz": (divider_z1 - divider_z0) / 2,
+        "rack_divider_z": (divider_z1 + divider_z0) / 2,
+        "rack_divider_dy": shelf_dy,
     }
+    for number, floor in enumerate(RACK_FLOORS, start=1):
+        values[f"rack_shelf_{number}_z"] = floor - board
 
     for item in cell_layout.RACK_ENTRIES:
         index = int(item["index"])
         ex, ey = cell_layout.rack_entry_center(index)
         values[f"rack_e{index}_dx"] = ex - cx
         values[f"rack_e{index}_dy"] = ey - cy
-        values[f"rack_e{index}_floor"] = rack_floor_z()
-
-    for number, (x, y) in enumerate(_rack_leg_positions(), start=1):
-        values[f"rack_leg_{number}_dx"] = x - cx
-        values[f"rack_leg_{number}_dy"] = y - cy
-
-    # Panourile laterale stau la muchiile de capăt ale raftului, sub podea.
-    values["rack_panel_west_dx"] = float(RACK["x"]) + RACK_PANEL_HALF_X - cx
-    values["rack_panel_east_dx"] = (float(RACK["x"]) + float(RACK["w"])
-                                    - RACK_PANEL_HALF_X - cx)
-    values["rack_panel_dy"] = 0.0
+        values[f"rack_e{index}_floor"] = rack_entry_floor(index)
     return values
 
 
