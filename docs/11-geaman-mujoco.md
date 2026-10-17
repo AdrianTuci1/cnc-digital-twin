@@ -5,7 +5,8 @@ Plan de implementare pentru al doilea geamăn al celulei CNC. Decizia arhitectur
 **ce** se construiește, în ce ordine și cum se verifică.
 
 Stare: faza 0 (documentația) s-a terminat, iar din faza 2 există scena MJCF din
-`simulation/mujoco/`, cu piesa generată, cele două brațe, cele trei puncte de vedere și dulapul pe
+`simulation/mujoco/`, cu piesa generată, cele două brațe, punctele de vedere de proces și de
+prindere și dulapul pe
 familii, plus transportul pe benzi (`belt.py`, `cell.py`) cu linie de oprire în plan. Verificarea
 scenei,
 `view.py --check`, este **verde**: țintele cad în raza brațelor, camerele de pe flanșe au punctul
@@ -15,10 +16,11 @@ benzii. `view.py --demo` rulează ciclul brațelor până la capăt pentru toate
 (**verde**), cu eroarea maximă a sculei de 17,7 mm la așezarea pe banda 2 și 7,0 mm în
 compartimentele dulapului, fără nicio verigă atinsă. Colectarea datelor
 există: `make mj-record` scrie sesiuni întregi — telemetrie pe contract, metadatele cadrelor de
-inspecție, PNG-urile celor trei puncte de vedere și etichetele pieselor — pentru toate cele cinci
-familii (**verde**, patru cadre pe ciclu). Din faza 2 lipsesc prinderea (falcile doar ating piesa)
-și stările de așchiere ale mașinii CNC: `CUTTING` nu are încă sursă, iar mărimile axului vin din
-scenariul sesiunii. Starea amănunțită stă în `simulation/mujoco/README.md`.
+inspecție, PNG-urile punctelor de vedere de proces și de prindere, plus etichetele pieselor —
+pentru toate cele cinci familii (**verde**, zece cadre pe ciclu, dintre care șase de prindere).
+Din faza 2 lipsește prinderea: falcile doar ating piesa, iar piesa rămîne pe bandă. Fereastra
+`CUTTING` există ca timp de așchiere, fără axe animate, iar mărimile axului vin din scenariul
+sesiunii. Starea amănunțită stă în `simulation/mujoco/README.md`.
 Uzura și panoul de control (butoane de injectare și reparație) există în viewer; detectorul,
 endpointul local și randarea degradată sunt încă pe hârtie.
 
@@ -64,7 +66,7 @@ benzii o dă exclusiv forța exterioară.
 | Bandă 2 (evacuare) | ca banda 1, cu un singur sens de mers, spre vest, și linia ei de oprire la ținta de preluare a brațului 2 | viteza, numărul de piese | ca la banda 1 |
 | Dulap pe familii | trei rafturi suprapuse, fiecare despărțit în două compartimente de 0,50 m, în coloana `G2–G4`; podelele la 0,85 / 1,16 / 1,41 m, fața vestică deschisă, iar piesa se lasă înclinat, la 50° în compartimentul sudic și 30° în cel nordic, în compartimentul familiei | numărul de piese pe compartiment | — |
 | Ladă rebut | o ladă pe podea, sub capătul de vest al benzii 2, cu trei pereți scurți și latura de est deschisă; piesa neconformă rămâne pe bandă, trece de linia de oprire a brațului 2 și cade de la capătul benzii | numărul de rebuturi | — |
-| Camere | trei puncte de vedere: câte o cameră pe flanșa fiecărui braț și camera liberă. Verdictul de calitate îl dă cadrul de pe flanșa brațului 2, care vede piesa ținută în falci — rolul `sorting` din `cnc.qa.snapshot.v1.json`; rolul `inspection` a rămas definit în schemă, dar geamănul nu-l mai produce | cadru RGB offscreen + scor de calitate | — |
+| Camere | punctele de vedere de proces: câte o cameră pe flanșa fiecărui braț și camera liberă. Verdictul de calitate îl dă cadrul de pe flanșa brațului 2, care vede piesa ținută în falci — rolul `sorting` din `cnc.qa.snapshot.v1.json`; rolul `inspection` a rămas definit în schemă, dar geamănul nu-l mai produce. Secvența de prindere adaugă cîte trei cadre pe fiecare flanșă | cadru RGB offscreen + scor de calitate | — |
 
 Stările mașinii CNC sunt exact enumerația din `cnc.telemetry.v1.json`: `IDLE`, `LOADING`,
 `CUTTING`, `UNLOADING`, `INSPECTING`. Ciclul complet — bandă 1 → braț 1 → CNC → braț 1 →
@@ -100,11 +102,14 @@ adică în spatele obiectivului. Măsurat acum cu `view.py --check`: punctul de 
 120 mm, abaterea față de axul optic e 0,0°, iar spațiul liber până la materialul brațului este de
 **41 mm**, peste pragul `checks.MIN_LENS_CLEARANCE_M`.
 
-**Cele trei puncte de vedere** sunt registrul din `cncdt_mj/povs.py`, care este pur: nume de
-cameră, rezoluție, moment de captură și rol. Cadrul se ia la punctele de lucru ale ciclului,
-imediat după ce scula s-a așezat pe poziția de jos. Pe ciclu ies patru cadre: două de pe flanșa
-brațului 1 (blocul brut în falci și piesa în universal), unul de pe flanșa brațului 2 (verdictul)
-și unul general al celulei, cu piesa în locul familiei ei.
+**Cele trei puncte de vedere** fizice — cîte o cameră pe flanșa fiecărui braț și camera liberă —
+sunt registrul din `cncdt_mj/povs.py`, care este pur: nume de cameră, rezoluție, moment de captură
+și rol. Cadrul de proces se ia la punctele de lucru ale ciclului, imediat după ce scula s-a așezat
+pe poziția de jos; secvența de prindere folosește aceleași camere de pe flanșe. Pe ciclu ies zece
+cadre: patru de proces
+(două de pe flanșa brațului 1 — blocul brut în falci și piesa în universal —, unul de pe flanșa
+brațului 2, cu verdictul, și unul general al celulei, cu piesa în locul familiei ei) plus șase de
+prindere, cîte trei pe fiecare braț: apropiere, piesa între fălci și ridicare.
 
 ### Poziționarea în celulă: grid de 0,5 m
 
@@ -403,21 +408,46 @@ scriu direct în bucketul corpusului, cu identitate federată (ADR 0015). Codul 
 
 ```bash
 make mj-modal-plan                         # ce ar lansa, fără să lanseze nimic
-make mj-modal-collect                      # 25 de cicluri pe familie, 1 sesiune în paralel
+make mj-modal-collect                      # 25 de cicluri pe familie, cadre pe GPU T4
 make mj-modal-collect MJ_MODAL_CYCLES=500 MJ_MODAL_SESSIONS=2
+make mj-modal-collect MJ_MODAL_FRAMES=false    # doar senzori, pe CPU
 ```
 
 `MJ_MODAL_CYCLES` dă ciclurile fiecărei sesiuni, `MJ_MODAL_SESSIONS` câte sesiuni ale aceleiași
 familii rulează în paralel, cu semințe vecine (`MJ_MODAL_REQUIRE_WEAR`, implicit `true`, păstrează
 poarta de uzură, iar `MJ_MODAL_KEEP_LOCAL=true` păstrează copia din volumul Modal după urcare).
-Fiecare sesiune are propriul container, iar la final un singur container urcă rularea, cu aceeași
-verificare ca `make mj-collect`. Cadrele nu sînt încă suportate pe această cale: randarea cere GPU
-și context grafic, deci prima fază este doar senzori.
+Fiecare sesiune are propriul container, iar la final un singur container urcă rularea.
+
+**Cadrele rulează pe GPU.** Cu `MJ_MODAL_FRAMES=true` (implicit), containerul primește un T4 și
+`MUJOCO_GL=egl`, iar `run.py` scrie aceleași zece cadre pe ciclu ca local: patru de proces și șase
+de prindere. Cum telemetria are deja corpusul ei, sesiunea scrie **doar cadrele** (`--only-frames`):
+`frames/`, `frames.jsonl` și `session.json`, fără eșantioane, uzură ori evenimente. Rezultatul urcă
+sub un prefix propriu, `training-data/grasp/`, prin `publish_frames.py`, care verifică fiecare rînd
+al indexului înainte de urcare. `MJ_MODAL_TELEMETRY=true` readuce sesiunea completă sub
+`training-data/mujoco/`, cu poarta de uzură. Pentru o probă care nu atinge bucketul, ambele intrări
+acceptă `--no-upload`: datele rămîn în volumul Modal, sub numele rulării.
+
+```
+training-data/grasp/dt=<zi>/run-<UTC>/manifest.json
+training-data/grasp/dt=<zi>/run-<UTC>/<familie>-<sămânță>/{frames.jsonl, session.json, frames/}
+```
+
+Fără cadre (`MJ_MODAL_FRAMES=false`), sesiunile rămîn pe CPU și urcă tot corpusul de senzori sub
+`training-data/mujoco/`:
 
 ```
 training-data/mujoco/dt=<zi>/run-<UTC>/manifest.json
 training-data/mujoco/dt=<zi>/run-<UTC>/<familie>-<sămânță>/{samples.jsonl, frames.jsonl, …, frames/}
 ```
+
+**Imaginile de calitate ale pieselor** nu ies din ciclul celulei, ci din randatorul de piese:
+`render_parts.py` reconstruiește fiecare variantă din manifest, o așază pe un plan și o
+fotografiază din patru unghiuri, cu un seed de randare independent de geometrie. Local:
+`make mj-parts-dataset` (manifest + imagini) ori `make mj-parts-images` (doar cadrele). Pe Modal,
+`make mj-modal-parts` generează manifestul într-un container CPU, randează feliile în containere
+GPU T4 și urcă totul sub `training-data/parts/dt=<zi>/run-<UTC>/`; `PARTS_SHARDS` dă numărul de
+containere (implicit 8), iar `PARTS_COUNT`, `PARTS_VIEWS` și `PARTS_SIZE` dimensiunea setului.
+Fiindcă fiecare felie păstrează poziția globală a piesei, unghiurile nu depind de împărțire.
 
 **Colectarea de uzură rulează fără camere.** Modelul de uzurare citește senzori tabulari, nu poze:
 `make mj-collect MJ_COLLECT_FRAMES=false` pune `--no-frames`, iar o sesiune scade de la ~1,9 MB pe
@@ -614,7 +644,11 @@ simulation/mujoco/          # există
   view.py                   # --check / --render / --demo / --view, peste scena compusă de cncdt_mj.scene
   panel.py                  # panoul Tkinter de uzură și reparații, pornit de view.py --view
   run.py                    # sesiunea de colectare: cicluri, telemetrie, cadre, fișierele sesiunii
+  render_parts.py           # imaginile de calitate ale pieselor: manifest, cadre, felii paralele
   publish.py                # urcă în bucket corpusul scris de run.py, cu AWS CLI; plan fără --upload
+  publish_frames.py         # urcă doar cadrele (training-data/grasp/); plan fără --upload
+  publish_parts.py          # urcă imaginile de piese (training-data/parts/); plan fără --upload
+  modal_collect.py          # aplicația Modal: sesiuni pe CPU/GPU T4, datasetul de piese, urcare
   runs/                     # sesiunile scrise de `make mj-record`; ignorate de git
   scene/cell.xml            # șablonul celulei; cifrele se pun prin substituție, nu stau în el
   cncdt_mj/
@@ -624,7 +658,9 @@ simulation/mujoco/          # există
     belt.py                 # direcțiile benzilor, viteza de suprafață, forța cu limita de frecare; fără MuJoCo
     checks.py               # regulile verificării pe nume de corpuri (contacte normale); fără MuJoCo
     moves.py                # punctele de lucru ale fiecărui braț: ordine, apropiere, treceri; fără MuJoCo
-    povs.py                 # cele trei puncte de vedere: cameră, rezoluție, moment, rol; fără MuJoCo
+    povs.py                 # punctele de vedere de proces și de prindere: cameră, rezoluție, moment, rol; fără MuJoCo
+    part_images.py          # planul imaginilor de calitate: unghiuri, nume, index, split-uri; fără MuJoCo
+    part_render.py          # randatorul unei variante de piesă, pe scenă minimă; importă mujoco
     telemetry.py            # eșantionul pe contract, metadatele cadrului, fișierele sesiunii; fără MuJoCo
     wear.py                 # motorul de uzură: sănătate, efecte în contract, eșecuri, acțiuni; fără MuJoCo
     control.py              # comenzile panoului și ale viewer-ului: injectare, reparație, reset; fără MuJoCo
@@ -694,7 +730,9 @@ o integrează exact pe timpul de lucru al fiecăreia, compune mărimile de așch
 discrete și primește acțiunile de operator. Testele pure sunt `tests/unit/test_mj_wear.py`.
 
 Din faza 3 există scrierea sesiunii: `make mj-record` parcurge un ciclu pe fiecare familie și scrie
-cele șapte ieșiri (patru cadre pe ciclu), iar `samples.jsonl` respectă întocmai contractul.
+cele șapte ieșiri (zece cadre pe ciclu, dintre care șase de prindere), iar `samples.jsonl`
+respectă întocmai contractul. `run.py --only-frames` sare peste telemetrie și scrie doar cadrele,
+indexul și `session.json`, pentru corpusul de imagini.
 Există și **colectarea cu urcare în bucket**: `make mj-collect` scrie sesiunile într-un director de
 rulare propriu și le urcă sub `training-data/mujoco/dt=<zi>/run-<UTC>/`, cu manifestul corpusului
 lângă ele; `cncdt_mj/export.py` verifică sesiunile înainte, iar `publish.py` urcă prin AWS CLI

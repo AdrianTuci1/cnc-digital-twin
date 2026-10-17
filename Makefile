@@ -292,16 +292,40 @@ MJ_PUBLISH_PY     := $(PY)
 # verificare de uzură ca `make mj-collect`. Secretele stau în secretul Modal `cncdt-aws`.
 #   MJ_MODAL_CYCLES    câte cicluri pe sesiune (implicit 25; 500 e o rulare de ore de mașină)
 #   MJ_MODAL_SESSIONS  câte sesiuni în paralel pe familie, cu semințe vecine (implicit 1)
+#   MJ_MODAL_FRAMES    scrie cadrele pe GPU T4 și le urcă sub `training-data/grasp/`
+#                      (implicit true); fără ele, sesiunea este doar senzori
+#   MJ_MODAL_TELEMETRY adaugă senzorii și uzura la sesiunea cu cadre (implicit false;
+#                      telemetria are deja corpusul ei, iar cadrele sînt ce lipsește)
 #   MJ_MODAL_REQUIRE_WEAR  refuză corpusul fără semnal de uzură (implicit true)
 #   MJ_MODAL_KEEP_LOCAL    păstrează copia din volumul Modal după urcare (implicit false)
 MJ_MODAL_APP      := $(MJ_DIR)/modal_collect.py
 MJ_MODAL_CYCLES   ?= 25
 MJ_MODAL_SESSIONS ?= 1
+MJ_MODAL_FRAMES   ?= true
+MJ_MODAL_TELEMETRY ?= false
 MJ_MODAL_REQUIRE_WEAR ?= true
 MJ_MODAL_KEEP_LOCAL   ?= false
 
+# Datasetul de imagini de calitate (`make mj-parts-images`, `make mj-modal-parts`).
+#   PARTS_COUNT        câte variante de piese (implicit 220)
+#   PARTS_VIEWS        câte cadre pe piesă (implicit 4)
+#   PARTS_SIZE         latura cadrului, în pixeli (implicit 640)
+#   PARTS_SHARDS       câte containere GPU randează în paralel pe Modal (implicit 8)
+#   PARTS_SEED0        primul seed de geometrie (implicit 0)
+#   PARTS_SHUFFLE_SEED sămânța amestecului și a split-urilor (implicit 0)
+#   PARTS_RENDER_SEED  sămânța condițiilor de randare, independentă de geometrie (implicit 0)
+PARTS_OUT ?= ml/artifacts/parts
+PARTS_COUNT ?= 220
+PARTS_VIEWS ?= 4
+PARTS_SIZE ?= 640
+PARTS_SHARDS ?= 8
+PARTS_SEED0 ?= 0
+PARTS_SHUFFLE_SEED ?= 0
+PARTS_RENDER_SEED ?= 0
+PARTS_RUN_NAME ?=
+
 .PHONY: mj-venv mj-check mj-render mj-demo mj-view mj-record mj-test mj-collect mj-publish mj-collect-plan
-.PHONY: mj-modal-collect mj-modal-plan
+.PHONY: mj-modal-collect mj-modal-plan mj-parts-images mj-parts-dataset mj-parts-plan mj-modal-parts
 mj-venv: ## Creează venv-ul geamănului MuJoCo și instalează requirements.txt
 	$(PY) -m venv $(ROOT)/$(MJ_DIR)/.venv
 	$(MJ_PY) -m pip install --quiet --upgrade pip
@@ -378,20 +402,60 @@ mj-collect-plan: ## Tipărește ce ar urca `make mj-collect`, fără să atingă
 MJ_MODAL_ARGS = --families "$(MJ_FAMILIES)" --cycles $(MJ_MODAL_CYCLES) --rate $(MJ_COLLECT_RATE) \
                 --seed $(MJ_COLLECT_SEED) --sessions-per-family $(MJ_MODAL_SESSIONS) \
                 --bucket "$(DATA_LAKE_BUCKET)" --inject "$(MJ_COLLECT_INJECT)" \
+                $(if $(filter true,$(MJ_MODAL_FRAMES)),--frames,) \
+                $(if $(filter true,$(MJ_MODAL_TELEMETRY)),--telemetry,) \
                 $(if $(MJ_COLLECT_MACHINING_S),--machining-s "$(MJ_COLLECT_MACHINING_S)",) \
                 $(if $(filter true,$(MJ_MODAL_REQUIRE_WEAR)),,--no-require-wear) \
                 $(if $(filter true,$(MJ_MODAL_KEEP_LOCAL)),--keep-local,)
 
-mj-modal-plan: ## Tipărește cum ar arăta colectarea pe Modal, fără să lanseze nimic
-	@echo "modal run $(MJ_MODAL_APP) $(MJ_MODAL_ARGS)"
+MJ_MODAL_PARTS_ARGS = --count $(PARTS_COUNT) --seed0 $(PARTS_SEED0) \
+                --shuffle-seed $(PARTS_SHUFFLE_SEED) --views $(PARTS_VIEWS) \
+                --size $(PARTS_SIZE) --shards $(PARTS_SHARDS) \
+                --render-seed $(PARTS_RENDER_SEED) --bucket "$(DATA_LAKE_BUCKET)" \
+                $(if $(PARTS_RUN_NAME),--run "$(PARTS_RUN_NAME)",) \
+                $(if $(filter true,$(MJ_MODAL_KEEP_LOCAL)),--keep-local,)
+
+mj-modal-plan: ## Tipărește cum ar arăta rulările pe Modal, fără să lanseze nimic
+	@echo "modal run $(MJ_MODAL_APP)::main $(MJ_MODAL_ARGS)"
+	@echo "modal run $(MJ_MODAL_APP)::parts $(MJ_MODAL_PARTS_ARGS)"
 	@echo "sesiuni: $(words $(MJ_FAMILIES)) familii × $(MJ_MODAL_SESSIONS) = $$(( $(words $(MJ_FAMILIES)) * $(MJ_MODAL_SESSIONS) ))"
+	@echo "piese:   $(PARTS_COUNT) variante × $(PARTS_VIEWS) cadre, în $(PARTS_SHARDS) felii GPU"
 	@echo "imaginea: codice din repo; secrete: cncdt-aws; volum: cncdt-mujoco-corpus"
 
-mj-modal-collect: ## Colectează pe Modal, în paralel, și urcă corpusul în bucket (cere `modal`)
+mj-modal-collect: ## Colectează pe Modal (cadre pe GPU T4) și urcă corpusul (cere `modal`)
 	@command -v modal >/dev/null || { echo "lipsește CLI-ul modal: 'pipx install modal', apoi 'modal token set'"; exit 1; }
 	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'make training-data-status' (ieșirea bucket_name)"; exit 1; }
 	@test -n "$(MODAL_WORKSPACE_ID)" || { echo "lipsește MODAL_WORKSPACE_ID: pune-l în .env (din 'modal token info')"; exit 1; }
-	cd $(ROOT) && modal run $(MJ_MODAL_APP) $(MJ_MODAL_ARGS)
+	cd $(ROOT) && modal run $(MJ_MODAL_APP)::main $(MJ_MODAL_ARGS)
+
+mj-parts-plan: ## Tipărește câte imagini de piese ar ieși din manifestul existent
+	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
+	@test -f $(PARTS_OUT)/parts.jsonl || { echo "lipsește $(PARTS_OUT)/parts.jsonl: rulează 'make mj-parts-dataset'"; exit 1; }
+	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/render_parts.py --manifest $(PARTS_OUT)/parts.jsonl \
+		--out $(PARTS_OUT) --views $(PARTS_VIEWS) --width $(PARTS_SIZE) --height $(PARTS_SIZE) \
+		--render-seed $(PARTS_RENDER_SEED) --plan
+
+mj-parts-images: ## Randează imaginile de calitate din manifestul existent, local
+	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
+	@test -f $(PARTS_OUT)/parts.jsonl || { echo "lipsește $(PARTS_OUT)/parts.jsonl: rulează 'make mj-parts-dataset'"; exit 1; }
+	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/render_parts.py --manifest $(PARTS_OUT)/parts.jsonl \
+		--out $(PARTS_OUT) --views $(PARTS_VIEWS) --width $(PARTS_SIZE) --height $(PARTS_SIZE) \
+		--render-seed $(PARTS_RENDER_SEED)
+
+mj-parts-dataset: ## Generează manifestul de piese și randează imaginile local
+	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
+	cd $(ROOT) && $(PY) simulation/scripts/generate-parts.py --count $(PARTS_COUNT) \
+		--seed0 $(PARTS_SEED0) --shuffle-seed $(PARTS_SHUFFLE_SEED) --balanced --split \
+		--out $(PARTS_OUT)
+	cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/render_parts.py --manifest $(PARTS_OUT)/parts.jsonl \
+		--out $(PARTS_OUT) --views $(PARTS_VIEWS) --width $(PARTS_SIZE) --height $(PARTS_SIZE) \
+		--render-seed $(PARTS_RENDER_SEED)
+
+mj-modal-parts: ## Generează și randează datasetul de piese pe GPU-uri Modal, apoi îl urcă
+	@command -v modal >/dev/null || { echo "lipsește CLI-ul modal: 'pipx install modal', apoi 'modal token set'"; exit 1; }
+	@test -n "$(DATA_LAKE_BUCKET)" || { echo "lipsește DATA_LAKE_BUCKET: pune-l în .env, din 'make training-data-status' (ieșirea bucket_name)"; exit 1; }
+	@test -n "$(MODAL_WORKSPACE_ID)" || { echo "lipsește MODAL_WORKSPACE_ID: pune-l în .env (din 'modal token info')"; exit 1; }
+	cd $(ROOT) && modal run $(MJ_MODAL_APP)::parts $(MJ_MODAL_PARTS_ARGS)
 
 # ---------------------------------------------------------------- acces (rol de operator)
 # Stack-ul `access` are state local și se aplică o singură dată per cont, cu profilul de ADMIN,

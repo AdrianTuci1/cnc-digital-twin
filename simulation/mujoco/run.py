@@ -82,6 +82,8 @@ class Session:
     start_ms: int
     cycles: int
     frames_on: bool = True
+    grasp_frames: bool = True
+    only_frames: bool = False
 
     #: Uzura: aceeași peste toate ciclurile sesiunii, fiindcă scena se recompune, mașina nu.
     wear: wear.WearModel = field(default_factory=wear.WearModel)
@@ -169,7 +171,13 @@ class Recorder:
 
     # ------------------------------------------------------------ la fiecare pas
     def __call__(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
-        """Un pas de simulare: uzura, apoi eșantionul, dacă a venit rândul lui."""
+        """Un pas de simulare: uzura, apoi eșantionul, dacă a venit rândul lui.
+
+        Cu `--only-frames` nu se adună nimic din telemetrie: telemetria are deja corpusul ei,
+        iar sesiunea trebuie să scrie doar PNG-urile și indexul lor.
+        """
+        if self.session.only_frames:
+            return
         self.steps += 1
         for failure in self.session.wear.advance(float(model.opt.timestep), self.work):
             self.session.events.append(self.failure_row(failure))
@@ -240,6 +248,20 @@ class Recorder:
         for item in povs.at_stage(self.stage):
             if self.key(item, self.stage) not in self.taken:
                 self.capture(item, self.stage)
+
+    def after_substage(self, point: str, substage: str) -> None:
+        """Cadrele secvenței de prindere, după fiecare moment al mișcării.
+
+        Se cheamă după ``reach_point``, cînd scula s-a așezat pe momentul respectiv. Cadrele sînt
+        opționale (`--no-grasp-frames`): fără ele, o sesiune rămîne la cele patru cadre de proces.
+        """
+        if self.stage is None or not self.frames_on or not self.session.grasp_frames:
+            return
+        phase = f"{point}-{substage}"
+        for item in povs.at_grasp(point, substage):
+            key = f"{item.name}@{phase}"
+            if key not in self.taken:
+                self.capture(item, phase)
 
     def capture(self, item: povs.Pov, stage: str) -> None:
         """Un cadru al unui punct de vedere, plus rândurile lui: indexul și metadatele contractului.
@@ -319,10 +341,11 @@ def run_cycle(model: mujoco.MjModel, data: mujoco.MjData, recorder: Recorder,
             for stage, point in moves.stages(item):
                 arms.reach_point(model, data, arm, point, item.approach, item.spin_deg,
                                  settle=settle, hook=recorder)
+                recorder.after_substage(item.name, stage)
                 if stage == "jos":
                     recorder.after_stage()
             recorder.leave()
-            if item.name == MACHINE_TARGET:
+            if item.name == MACHINE_TARGET and not recorder.session.only_frames:
                 machining(model, data, recorder, machining_s)
     recorder.begin_phase(None, wear.Work())
     return float(data.time) - started
@@ -363,12 +386,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frames", action=argparse.BooleanOptionalAction, default=True,
                         help="scrie cadrele și metadatele lor (implicit); `--no-frames` lasă doar "
                              "telemetria, mult mai repede")
+    parser.add_argument("--grasp-frames", action=argparse.BooleanOptionalAction, default=True,
+                        help="scrie și secvența de prindere (apropiere, piesa în falci, ridicare) "
+                             "de pe fiecare flanșă (implicit); `--no-grasp-frames` păstrează doar "
+                             "cadrele de proces")
+    parser.add_argument("--only-frames", action="store_true",
+                        help="scrie doar cadrele, indexul lor și session.json; telemetria, uzura "
+                             "și evenimentele sînt deja colectate în alt corpus")
     return parser
 
 
 def run_session(args: argparse.Namespace) -> int:
     """Sesiunea întreagă: ciclurile, scrierea fișierelor și verificarea lor."""
     family = args.family or part.family().name
+    if args.only_frames and not args.frames:
+        print("--only-frames cere cadre: scoate `--no-frames`")
+        return 1
     directory = Path(args.out) if args.out else RUNS_DIR / f"{family}-{args.seed}"
     try:
         injections = wear.parse_injections(args.inject)
@@ -378,10 +411,13 @@ def run_session(args: argparse.Namespace) -> int:
     wear_model = wear.WearModel(seed=args.seed, rate=args.rate)
     session = Session(directory=directory, name=directory.name, seed=args.seed, family=family,
                       sample_hz=args.sample_hz, start_ms=args.start_ms, cycles=args.cycles,
-                      frames_on=args.frames, wear=wear_model)
-    plan = povs.frames_per_cycle(family)
+                      frames_on=args.frames, grasp_frames=args.grasp_frames,
+                      only_frames=args.only_frames, wear=wear_model)
+    plan = povs.frames_per_cycle(family, grasp=args.grasp_frames)
     print(f"Sesiune: {directory} | familia {family} | {args.cycles} cicluri | "
-          f"{args.sample_hz:g} Hz | cadre: {'da' if args.frames else 'nu'}")
+          f"{args.sample_hz:g} Hz | cadre: {'da' if args.frames else 'nu'}"
+          + (f" (prindere: {'da' if args.grasp_frames else 'nu'})" if args.frames else "")
+          + (" | doar cadre, fără telemetrie" if args.only_frames else ""))
     print(f"  puncte de vedere: {', '.join(f'{item.name} ({stage})' for stage, item in plan)}")
     print(f"  uzură: rata {args.rate:g}×, așchiere {args.machining_s:g} s pe ciclu"
           + (f", injecții: {', '.join(args.inject)}" if args.inject else ""))
@@ -423,6 +459,7 @@ def run_session(args: argparse.Namespace) -> int:
         "samples": len(session.samples),
         "snapshots": len(session.snapshots),
         "frames": len(session.frames),
+        "grasp_frames": sum(1 for row in session.frames if row["pov"].endswith("_grasp")),
         "readings": len(session.readings),
         "wear_rows": len(session.wear_rows),
         "events": len(session.events),
@@ -439,6 +476,8 @@ def run_session(args: argparse.Namespace) -> int:
         "python": platform.python_version(),
         "start_ms": args.start_ms,
         "frames_on": args.frames,
+        "grasp_frames": bool(args.frames and args.grasp_frames),
+        "only_frames": bool(args.only_frames),
         "device_id": telemetry.DEVICE_ID,
         "cell_id": telemetry.CELL_ID,
         "topic": telemetry.TELEMETRY_TOPIC,
@@ -452,48 +491,57 @@ def run_session(args: argparse.Namespace) -> int:
             "health_end": {name: round(value, 6) for name, value in wear_model.health.items()},
         },
     }
-    telemetry.write_jsonl(session.path(telemetry.SAMPLE_FILE), session.samples)
-    telemetry.write_jsonl(session.path(telemetry.SNAPSHOT_FILE), session.snapshots)
+    written = [telemetry.FRAME_FILE]
     telemetry.write_jsonl(session.path(telemetry.FRAME_FILE), session.frames)
-    telemetry.write_jsonl(session.path(telemetry.READING_FILE), session.readings)
-    telemetry.write_jsonl(session.path(telemetry.WEAR_FILE), session.wear_rows)
-    telemetry.write_jsonl(session.path(telemetry.EVENT_FILE), session.events)
+    if not args.only_frames:
+        written = [telemetry.SAMPLE_FILE, telemetry.SNAPSHOT_FILE, telemetry.FRAME_FILE,
+                   telemetry.READING_FILE, telemetry.WEAR_FILE, telemetry.EVENT_FILE]
+        telemetry.write_jsonl(session.path(telemetry.SAMPLE_FILE), session.samples)
+        telemetry.write_jsonl(session.path(telemetry.SNAPSHOT_FILE), session.snapshots)
+        telemetry.write_jsonl(session.path(telemetry.READING_FILE), session.readings)
+        telemetry.write_jsonl(session.path(telemetry.WEAR_FILE), session.wear_rows)
+        telemetry.write_jsonl(session.path(telemetry.EVENT_FILE), session.events)
+    written.append(telemetry.SESSION_FILE)
     telemetry.write_json(session.path(telemetry.SESSION_FILE), telemetry.session_record(
         session=session.name, scenario=scenario, totals=totals, cycles=session.labels))
 
-    for row in session.samples:
-        failures.extend(f"eșantion: {item}" for item in telemetry.validate_sample(row))
-    for row in session.snapshots:
-        failures.extend(f"cadru: {item}" for item in telemetry.validate_snapshot(row))
+    if not args.only_frames:
+        for row in session.samples:
+            failures.extend(f"eșantion: {item}" for item in telemetry.validate_sample(row))
+        for row in session.snapshots:
+            failures.extend(f"cadru: {item}" for item in telemetry.validate_snapshot(row))
+        if len(session.wear_rows) != len(session.samples):
+            failures.append(f"rânduri de uzură lipsă: {len(session.wear_rows)} din "
+                            f"{len(session.samples)}")
     expected = len(plan) * args.cycles
     if args.frames and len(session.frames) != expected:
         failures.append(f"cadre lipsă: {len(session.frames)} din {expected}")
-    if len(session.wear_rows) != len(session.samples):
-        failures.append(f"rânduri de uzură lipsă: {len(session.wear_rows)} din "
-                        f"{len(session.samples)}")
 
     print(f"\nSesiune scrisă în {directory}")
-    for name in (telemetry.SAMPLE_FILE, telemetry.SNAPSHOT_FILE, telemetry.FRAME_FILE,
-                 telemetry.READING_FILE, telemetry.WEAR_FILE, telemetry.EVENT_FILE,
-                 telemetry.SESSION_FILE):
+    for name in written:
         print(f"  {name:<18} {session.path(name).stat().st_size / 1024:8.1f} KB")
     print(f"  cadre            {totals['frames']} PNG, în {totals['cycles']} cicluri "
-          f"({totals['wall_time_s']:.1f} s de ceas real)")
-    print(f"  în contract      {totals['samples']} eșantioane, {totals['snapshots']} cadre de "
-          f"inspecție, {totals['sim_time_s']:.2f} s simulat")
+          f"({totals['wall_time_s']:.1f} s de ceas real), "
+          f"din care {totals['grasp_frames']} de prindere")
+    if args.only_frames:
+        print(f"  doar cadre       {totals['frames']} imagini, fără telemetrie, "
+              f"{totals['sim_time_s']:.2f} s simulat")
+    else:
+        print(f"  în contract      {totals['samples']} eșantioane, {totals['snapshots']} cadre "
+              f"de inspecție, {totals['sim_time_s']:.2f} s simulat")
 
-    def health(*names: str) -> float:
-        """Sănătatea cea mai mică dintre componentele date: cea care dă tonul celulei."""
-        return min(wear_model.health_of(name) for name in names)
+        def health(*names: str) -> float:
+            """Sănătatea cea mai mică dintre componentele date: cea care dă tonul celulei."""
+            return min(wear_model.health_of(name) for name in names)
 
-    print(f"  uzură la final   scula h={health('cnc_tool'):.3f} | articulații "
-          f"h={health(*wear.ARM_COMPONENTS):.3f} | benzi h={health(*wear.BELT_COMPONENTS):.3f} | "
-          f"calitate {wear_model.surface_quality():.3f} | {wear_model.temp_c:.1f} °C")
-    print("  componente       " + ", ".join(
-        f"{name} {wear_model.severity(name)}" for name in wear.component_names()))
-    print(f"  etichete         {totals['events']} evenimente "
-          f"({sum(1 for row in session.events if row['event'] == 'failure')} eșecuri, "
-          f"{sum(1 for row in session.events if row['event'] == 'action')} acțiuni)")
+        print(f"  uzură la final   scula h={health('cnc_tool'):.3f} | articulații "
+              f"h={health(*wear.ARM_COMPONENTS):.3f} | benzi h={health(*wear.BELT_COMPONENTS):.3f} "
+              f"| calitate {wear_model.surface_quality():.3f} | {wear_model.temp_c:.1f} °C")
+        print("  componente       " + ", ".join(
+            f"{name} {wear_model.severity(name)}" for name in wear.component_names()))
+        print(f"  etichete         {totals['events']} evenimente "
+              f"({sum(1 for row in session.events if row['event'] == 'failure')} eșecuri, "
+              f"{sum(1 for row in session.events if row['event'] == 'action')} acțiuni)")
 
     if failures:
         print(f"\nSesiune: CĂZUTĂ ({len(failures)})")

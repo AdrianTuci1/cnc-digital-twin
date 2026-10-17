@@ -53,10 +53,12 @@ credențiale temporare cu `sts:AssumeRoleWithWebIdentity`.
    `GetObject`, `AbortMultipartUpload` pe obiecte și `ListBucket` pe bucket.
 4. **Secretul Modal nu conține chei.** Poartă `AWS_ROLE_ARN` și `AWS_REGION`; credențialele
    apar în container, temporare, la fiecare pornire.
-5. **Prima rulare este pe senzori, fără cadre.** `run.py --no-frames` nu deschide niciun
-   randator, deci containerul nu are nevoie de GPU și nici de un context grafic; modelul de uzură
-   citește oricum senzori tabulari (regula din `docs/11` §4). Cadrele pentru clasificatorul de
-   piese vin într-o rulare separată, pe un container cu GPU și `MUJOCO_GL=egl`.
+5. **Două căi de colectare, după ce lipsește.** `run.py --no-frames` nu deschide niciun randator:
+   containerul rămâne pe CPU, iar modelul de uzură citește senzori tabulari (regula din `docs/11`
+   §4). `run.py --frames --only-frames`, pe un container cu GPU T4 și `MUJOCO_GL=egl`, scrie doar
+   cadrele și indexul lor, fiindcă telemetria are deja corpusul ei; rezultatul urcă sub
+   `training-data/grasp/`. Imaginile de calitate ale pieselor au o a treia cale, tot pe GPU-uri
+   Modal (`modal_collect.py::parts`), și urcă sub `training-data/parts/`.
 6. **Gardul de lansare rămâne închis până la o confirmare explicită.** Bucket-ul se plătește pe
    volum stocat, iar corpusul crește la fiecare colectare, deci `stacks/training-data` are aceeași
    `precondition` ca `sim` și `sim-data` (`ops/runbooks/launch-guard.md`).

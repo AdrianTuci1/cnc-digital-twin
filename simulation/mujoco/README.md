@@ -36,8 +36,11 @@ make mj-record   # colectează sesiuni de antrenare, câte una pe familie, în r
 make mj-collect  # colectează (MJ_COLLECT_CYCLES cicluri pe familie) și urcă în bucketul data lake
 make mj-collect-plan   # tipărește ce ar urca `make mj-collect`, fără să atingă bucketul
 make mj-publish  # urcă în bucket sesiunile deja scrise în runs/
-make mj-modal-collect  # colectează pe Modal, în containere paralele, și urcă în bucket
-make mj-modal-plan     # tipărește ce ar lansa `make mj-modal-collect`, fără să lanseze nimic
+make mj-modal-collect  # cadre pe GPU T4, containere paralele, urcate în bucket
+make mj-modal-plan     # tipărește ce ar lansa țintele Modal, fără să lanseze nimic
+make mj-parts-dataset  # manifest + imagini de calitate ale pieselor, local
+make mj-parts-images   # doar imaginile, din manifestul existent
+make mj-modal-parts    # datasetul de piese pe GPU-uri Modal, urcat în bucket
 make mj-demo MJ_FAMILIES="wheel_100 pinion_56"   # doar familiile cerute, ca proba să fie scurtă
 make mj-record MJ_RECORD_CYCLES=20   # sesiune de antrenare: 20 de cicluri pe familie
 make mj-collect MJ_COLLECT_CYCLES=20 MJ_COLLECT_SEED=100   # colectare lungă, urcată direct
@@ -53,8 +56,16 @@ stack-ului `training-data`) și de credențialele rolului de operator, luate cu
 sesiune, toate în paralel, și nu are nevoie de credențiale locale: containerele primesc un token de
 identitate, pe care îl schimbă pe credențiale temporare ale rolului `cncdt-<mediu>-modal-collector`
 (ADR 0015). Are nevoie de CLI-ul `modal` autentificat și de secretul `cncdt-aws`, pe care îl
-creează comanda dată de `make training-data-status`. Cadrele nu sînt încă suportate pe această
-cale: randarea cere GPU și context grafic, iar modelul de uzură citește senzori.
+creează comanda dată de `make training-data-status`.
+
+Sesiunile cu cadre rulează pe un GPU T4, cu `MUJOCO_GL=egl`, și scriu **doar cadrele**
+(`run.py --only-frames`): `frames/`, `frames.jsonl` și `session.json`, fără telemetrie, fiindcă
+aceasta are deja corpusul ei. Rezultatul urcă sub `training-data/grasp/` prin
+`publish_frames.py`; `--no-upload` păstrează proba doar în volumul Modal. `MJ_MODAL_FRAMES=false`
+readuce colectarea de senzori pe CPU, iar
+`MJ_MODAL_TELEMETRY=true` adaugă telemetria la sesiunea cu cadre și urcă sub
+`training-data/mujoco/`. Datasetul de imagini de calitate ale pieselor se produce separat, cu
+`make mj-modal-parts`, și urcă sub `training-data/parts/`.
 
 Fără Makefile, aceleași lucruri se scriu direct:
 
@@ -159,7 +170,9 @@ atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care a
 | `cncdt_mj/belt.py` | Benzile: direcția fiecărei benzi, viteza de suprafață și forța de antrenare cu limita de frecare Coulomb. **Fără MuJoCo.** |
 | `cncdt_mj/checks.py` | Regulile verificării care lucrează pe nume de corpuri și pe cifre, nu pe starea motorului (de pildă care contacte ale unui braț sunt normale), plus pragurile verificării, împărțite cu `view.py`. **Fără MuJoCo.** |
 | `cncdt_mj/moves.py` | Mișcările: ce puncte deservește fiecare braț, în ce ordine, din ce parte vine scula, cu ce rotire și prin ce puncte de trecere. Cotele punctelor de lucru ies din înălțimile documentate. **Fără MuJoCo.** |
-| `cncdt_mj/povs.py` | Cele trei puncte de vedere din care se strânge datasetul: camera, rezoluția, momentul de captură (un punct de lucru al ciclului) și rolul din contract. **Fără MuJoCo.** |
+| `cncdt_mj/povs.py` | Punctele de vedere din care se strânge datasetul: camera, rezoluția, momentul de captură (un punct de lucru al ciclului ori un moment al prinderii) și rolul din contract. **Fără MuJoCo.** |
+| `cncdt_mj/part_images.py` | Planul imaginilor de calitate: unghiurile fiecărui cadru, distanța camerei, numele și indexul JSON Lines, split-urile train/val/test. **Fără MuJoCo.** |
+| `cncdt_mj/part_render.py` | Randatorul unei variante: scena minimă cu plan, lumină direcțională și camera de sus, apoi PNG-ul. Importă `mujoco`. |
 | `cncdt_mj/telemetry.py` | Contractele: eșantionul brut cu exact câmpurile din `cnc.telemetry.v1.json`, metadatele cadrului de inspecție, etichetele sesiunii, plus un validator mic peste fișierele de schemă (fără dependența `jsonschema`). **Fără MuJoCo.** |
 | `cncdt_mj/wear.py` | Motorul de uzură: sănătatea celor șapte componente pe timpul lor de lucru, efectele în mărimile din contract, eșecurile discrete cu hazard crescător și acțiunile de operator, cu etichetele lor. **Fără MuJoCo.** |
 | `cncdt_mj/control.py` | Comenzile panoului și ale viewer-ului: aceleași nume ca schema de control, plus `reset_wear`; ține `ControlSession` peste motorul de uzură. **Fără MuJoCo.** |
@@ -172,14 +185,18 @@ atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care a
 | `scene/cell.xml` | Șablonul celulei. Cifrele nu stau în el: se pun prin substituție, din `layout.scene_geometry()`. |
 | `view.py` | Cele patru moduri: `--check`, `--render`, `--demo`, `--view`. |
 | `panel.py` | Panoul Tkinter de uzură și reparații, pornit de `view.py --view`; vorbește cu viewer-ul prin linii JSON. |
-| `run.py` | Sesiunea de colectare: cicluri întregi, uzura care se acumulează peste ele, telemetrie, cadre, fișierele sesiunii și verificarea lor la sfârșit. |
+| `run.py` | Sesiunea de colectare: cicluri întregi, uzura care se acumulează peste ele, telemetrie, cadre, fișierele sesiunii și verificarea lor la sfârșit. `--only-frames` scrie doar cadrele și indexul lor. |
+| `render_parts.py` | CLI-ul imaginilor de calitate: citește manifestul, reconstruiește fiecare variantă și randează cadrele, cu felii pentru containere paralele. |
 | `publish.py` | Urcarea corpusului în bucketul data lake, cu AWS CLI: plan fără `--upload`, credențiale de operator, manifest scris la rădăcina rulării. Doar biblioteca standard. |
+| `publish_frames.py` | Urcarea doar a cadrelor (`training-data/grasp/`): verifică fiecare rînd al indexului, scrie manifestul rulării. Doar biblioteca standard. |
+| `publish_parts.py` | Urcarea datasetului de imagini de calitate (`training-data/parts/`): unește indexurile felilor, verifică etichetele și PNG-urile, scrie manifestul. Doar biblioteca standard. |
+| `modal_collect.py` | Aplicația Modal: sesiuni pe CPU sau GPU T4, datasetul de piese pe GPU-uri, identitate federată și urcare directă în bucket. |
 
 Consecința practică a împărțirii: `layout`, `part`, `belt`, `checks`, `moves`, `povs`, `telemetry`,
-`wear`, `control` și `export` se importă din
+`wear`, `control`, `export` și `part_images` se importă din
 `.venv`-ul proiectului, unde `mujoco` nu există (ADR 0012), iar tot ce atinge motorul se validează
 rulând `view.py --check`. Lista modulelor de motor (`scene.py`, `cell.py`, `arms.py`, `camera.py`,
-`sensors.py`) este scrisă
+`sensors.py`, `part_render.py`) este scrisă
 explicit în `tests/unit/test_mujoco_scene.py`: un modul nou care importă `mujoco` trebuie declarat
 acolo, altfel testul cade.
 
@@ -405,18 +422,20 @@ eșecuri reale (`belt_slip`, `spindle_bearing`, `tool_break`) și le scrie ca et
 1 lasă piesa în universal, iar cifrele ei — sarcină de ax, vibrație, temperatură, avans, debit de
 răcire, `tool_wear_index` — ies din motorul de uzură.
 
-**Cele trei puncte de vedere** sunt registrul din `cncdt_mj/povs.py`, iar pe ciclu ies patru cadre:
+**Punctele de vedere** sunt registrul din `cncdt_mj/povs.py`, iar pe ciclu ies zece cadre:
 
 | Punct de vedere | Cameră | Moment | Rol |
 | --- | --- | --- | --- |
 | `arm1_wrist` | pe flanșa brațului 1 | la preluarea blocului brut și în universal | — |
 | `arm2_wrist` | pe flanșa brațului 2 | la preluarea roții de pe banda 2 | `sorting` — verdictul de calitate |
+| `arm1_grasp` | pe flanșa brațului 1 | apropiere, piesa între fălci, ridicare | — |
+| `arm2_grasp` | pe flanșa brațului 2 | apropiere, piesa între fălci, ridicare | — |
 | `cell` | liberă, cadru larg | când piesa ajunge în locul familiei | — |
 
 Verdictul care decide ruta este cadrul de pe **flanșa brațului 2**: el vede piesa ținută în falci,
 de aproape, la ~2,6 px/mm. Rolul `inspection` a rămas definit în `cnc.qa.snapshot.v1.json`, dar
 geamănul nu-l mai produce: nu mai există un al doilea cadru cu rol. Cadrul cu rol (`sorting`) intră
-în `snapshots.jsonl`, toate cele patru intră în `frames.jsonl`, alături de familie, defect și
+în `snapshots.jsonl`, toate cadrele intră în `frames.jsonl`, alături de familie, defect și
 verdict.
 
 **Verificarea la sfârșitul sesiunii** validează fiecare eșantion și fiecare cadru de inspecție
@@ -526,8 +545,9 @@ eroare maximă pe cele 85 de opriri — 17 pe fiecare dintre cele cinci familii 
 brațelor atinsă, 57–59 s simulate, iar amândouă piesele rămân pe benzile lor. Cifrele ciclului și
 calea lui sunt în secțiunea „Brațele" de mai sus.
 
-`make mj-record` este **verde** pe toate cele cinci familii, cu un ciclu fiecare: patru cadre pe
-ciclu, 653–675 de eșantioane în contract pe sesiune, ~65 s simulați în ~3 s de ceas real (circa
+`make mj-record` este **verde** pe toate cele cinci familii, cu un ciclu fiecare: zece cadre pe
+ciclu, dintre care șase de prindere, 653–675 de eșantioane în contract pe sesiune, ~65 s simulați
+în ~3 s de ceas real (circa
 22 de ori mai repede decât ritmul real). Cadrele de pe flanșa brațului 2 și cel general
 se citesc cu ochiul; universul gol și poziția falcilor se schimbă când intră prinderea.
 

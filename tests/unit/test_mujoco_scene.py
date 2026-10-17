@@ -613,11 +613,13 @@ def _imported_top_levels(source: str) -> set[str]:
 
 #: Modulele care ating motorul: se validează rulând `view.py --check`, din venv-ul geamănului.
 #: `camera.py` randează cadrele sesiunii, iar `sensors.py` citește mărimile din `MjData`.
-ENGINE_MODULES = ("scene.py", "cell.py", "arms.py", "camera.py", "sensors.py")
+ENGINE_MODULES = ("scene.py", "cell.py", "arms.py", "camera.py", "sensors.py",
+                  "part_render.py")
 
 
 def test_modulele_pure_nu_importa_motorul() -> None:
-    """`layout`, `part`, `belt`, `checks`, `povs` și `telemetry` se importă fără `mujoco`."""
+    """`layout`, `part`, `belt`, `checks`, `povs`, `telemetry` și `part_images` se importă fără
+    `mujoco`."""
     for path in sorted(PACKAGE_DIR.glob("*.py")):
         if path.name in ENGINE_MODULES:
             continue
@@ -689,3 +691,21 @@ def test_scena_se_compileaza_si_cadrele_de_pe_flansa_contin_punctul_de_strangere
         clearance = scene.lens_clearance(model, data, f"{arm}_wrist_camera", arm)
         assert clearance >= checks.MIN_LENS_CLEARANCE_M, \
             f"obiectivul camerei de pe {arm} stă în materialul brațului ({clearance * 1000:.0f} mm)"
+
+
+def test_o_varianta_de_piesa_se_randeaza_ca_imagine_de_calitate(tmp_path: Path) -> None:
+    """Randatorul de piese scrie un PNG cu conținut, la unghiul din plan.
+
+    Se rulează doar cînd testele au `mujoco` (venv-ul geamănului). Un cadru negru ar trece de
+    existența fișierului, dar ar avea cîteva sute de octeți; o piesă randată trece de pragul de
+    mai jos, care prinde și o scenă fără lumină, și una cu camera îndreptată în altă parte.
+    """
+    pytest.importorskip("mujoco", reason="randarea cere mujoco, din venv-ul geamănului")
+    from cncdt_mj import part_images, part_render
+
+    variant = gear.build_variant(7, family="pinion_56")
+    view = part_images.plan_views(0, 1)[0]
+    path = part_render.render_variant(
+        variant, tmp_path / "part.png", view, width=160, height=160)
+    assert path.is_file()
+    assert path.stat().st_size > 2000, "cadrul pare gol: verifică lumina și camera"

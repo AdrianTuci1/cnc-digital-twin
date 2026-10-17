@@ -29,6 +29,11 @@ CELL_FRAME = (1280, 960)
 #: Rolul din `telemetry/schemas/cnc.qa.snapshot.v1.json` al cadrului care decide ruta piesei.
 ROLE_SORTING = "sorting"
 
+#: Momentele secvenței de prindere, în ordinea în care le parcurge scula: urcarea deasupra
+#: punctului, coborîrea pe el și ridicarea. Cadrele sînt pentru antrenarea prinderii, nu pentru
+#: verdict: arată falcile apropiindu-se, închise pe piesă și ridicîndu-se.
+GRASP_SUBSTAGES = ("sus", "jos", "ridicare")
+
 
 @dataclass(frozen=True)
 class Pov:
@@ -49,6 +54,11 @@ class Pov:
     #: Rolul cadrului în contractul de inspecție, dacă rândul lui intră în `snapshots.jsonl`.
     role: str | None = None
 
+    #: Punctele de lucru la care se fotografiază secvența de prindere, la fiecare moment din
+    #: :data:`GRASP_SUBSTAGES`. Un punct de vedere de prindere nu are `stages`: el nu așteaptă
+    #: așezarea pe punct, ci trece prin toate momentele mișcării.
+    grasp_points: tuple[str, ...] = ()
+
     @property
     def resolution(self) -> tuple[int, int]:
         """Rezoluția cadrului, ca pereche."""
@@ -64,6 +74,10 @@ POVS: tuple[Pov, ...] = (
     Pov("cell", "cadrul general al celulei, din camera liberă: piesa în locul familiei ei",
         None, *CELL_FRAME, stages=tuple(layout.rack_target(family)
                                        for family in layout.RACK_FAMILIES)),
+    Pov("arm1_grasp", "secvența de prindere a brațului 1: apropiere, piesa în falci, ridicare",
+        "arm1_wrist_camera", *PROCESS_FRAME, grasp_points=("belt1_pick",)),
+    Pov("arm2_grasp", "secvența de prindere a brațului 2: apropiere, piesa în falci, ridicare",
+        "arm2_wrist_camera", *PROCESS_FRAME, grasp_points=("belt2_pick",)),
 )
 
 
@@ -80,14 +94,31 @@ def at_stage(stage: str) -> tuple[Pov, ...]:
     return tuple(item for item in POVS if stage in item.stages)
 
 
-def frames_per_cycle(family: str) -> tuple[tuple[str, Pov], ...]:
+def at_grasp(point: str, substage: str) -> tuple[Pov, ...]:
+    """Punctele de vedere ale secvenței de prindere, la un moment al unui punct de lucru.
+
+    ``point`` este punctul de lucru (``belt1_pick``, ``belt2_pick``), iar ``substage`` unul din
+    :data:`GRASP_SUBSTAGES`. Un moment necunoscut nu are cadre, în loc să ridice eroare: apelantul
+    este bucla de mișcare, care poate trece prin alte momente fără să fotografieze.
+    """
+    if substage not in GRASP_SUBSTAGES:
+        return ()
+    return tuple(item for item in POVS if point in item.grasp_points)
+
+
+def frames_per_cycle(family: str, grasp: bool = False) -> tuple[tuple[str, Pov], ...]:
     """Cadrele unui ciclu, în ordinea în care se iau: momentul, apoi punctul de vedere.
 
     Ordinea momentelor este ordinea ciclului brațelor (`moves.route_names`), ca planul capturii să
-    nu rămână în urmă dacă ruta se schimbă; locul din raft depinde de familie.
+    nu rămână în urmă dacă ruta se schimbă; locul din raft depinde de familie. Cu ``grasp``,
+    fiecare punct de preluare primește și cele trei momente ale secvenței de prindere.
     """
     plan: list[tuple[str, Pov]] = []
     for arm in moves.ROUTES:
         for stage in moves.route_names(arm, family):
             plan.extend((stage, item) for item in at_stage(stage))
+            if grasp:
+                for substage in GRASP_SUBSTAGES:
+                    plan.extend((f"{stage}-{substage}", item)
+                                for item in at_grasp(stage, substage))
     return tuple(plan)

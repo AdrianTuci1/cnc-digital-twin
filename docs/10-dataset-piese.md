@@ -170,14 +170,53 @@ etichetă și condițiile de randare.
 - **familiile**: fiecare nominal trece validarea și rămâne la distanță de fiecare defect,
   familiile se deosebesc în plan, iar numărul greșit de dinți nu coincide cu nicio familie.
 
-Ce nu se poate verifica aici: cum arată piesa randată. Asta cere Isaac Sim.
+Ce nu se poate verifica aici: cum arată piesa randată. Verificarea asta se face cu
+`tests/unit/test_mujoco_scene.py`, care randează o variantă și cere ca PNG-ul să nu fie gol;
+imaginea se inspectează apoi cu ochiul.
+
+## Randarea și datasetul de imagini
+
+`simulation/mujoco/render_parts.py` reconstruiește fiecare variantă din manifest (parametrii
+compleți, deci geometria este exactă), o așază pe un plan și o fotografiază din camera de sus.
+Unghiurile, lumina și distanța camerei se trag din poziția globală a piesei și din
+`--render-seed`, un flux separat de seed-ul de geometrie: altfel eticheta și condițiile de
+randare s-ar corela accidental.
+
+```bash
+# manifest + imagini, local (venv-ul geamănului are mujoco)
+make mj-parts-dataset PARTS_COUNT=220 PARTS_VIEWS=4 PARTS_SIZE=640
+
+# doar cadrele, din manifestul existent
+make mj-parts-images
+
+# pe GPU-uri Modal: manifestul într-un container, cadrele în PARTS_SHARDS containere
+make mj-modal-parts PARTS_COUNT=220 PARTS_SHARDS=8
+```
+
+Ieșirea locală stă în `ml/artifacts/parts/` (ignorat de git), iar cea din bucket sub
+`training-data/parts/dt=<zi>/run-<UTC>/`:
+
+```
+parts.jsonl            # etichetele: part_id, seed, family, verdict, defect, params
+parts-train.jsonl      # split-urile, stratificate pe clasă
+parts-val.jsonl
+parts-test.jsonl
+images.jsonl           # indexul: PNG -> familie, defect, verdict, split, unghi, rezoluție
+images-<split>.jsonl   # același index, pe split
+images/<familie>/<clasă>/<piesă>-vNN.png
+manifest.json          # ce conține datasetul, de unde se citește, revizia git
+```
+
+Fiecare rînd din index poartă `part_id`, `view`, `path`, `family`, `defect`, `verdict`, `split`,
+`azimuth_deg`, `elevation_deg`, `distance_m`, `width` și `height`. Antrenarea citește indexul;
+inferența primește doar imaginea. `publish_parts.py` verifică înainte de urcare că fiecare rînd
+are etichetă și că fiecare PNG există, apoi unește indexurile felilor.
 
 ## Ce urmează
 
-1. **Randarea**: bucla care încarcă o variantă, o fotografiază din camera de sus și scrie
-   imaginea plus snapshot-ul, cu seed de randare separat. Se scrie pe renderer-ul geamănului
-   MuJoCo: Isaac Sim a ieșit din uz, iar piesa este o extruziune plană, văzută de sus, deci
-   cadrul de inspecție se poate produce local, fără GPU în cloud.
-2. **Antrenarea**: clasificator de imagini pe SageMaker, cu două capete (familie, conformitate),
+1. **Antrenarea**: clasificator de imagini pe SageMaker, cu două capete (familie, conformitate),
    pe split-urile din manifest.
+2. **Prinderea**: model de grasp pe cadrele de prindere din `training-data/grasp/`; fizica
+   falcilor nu este încă modelată, deci cadrele arată apropierea, piesa între fălci și ridicarea,
+   iar piesa rămîne pe bandă.
 3. **Verificarea**: baseline pe metadate, etichete amestecate, geometrie decuplată de etichetă.

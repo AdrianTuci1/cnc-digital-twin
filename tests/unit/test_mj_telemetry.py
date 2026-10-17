@@ -198,9 +198,9 @@ def test_starea_masinii_acopera_toate_punctele_de_lucru() -> None:
 
 
 def test_registrul_punctelor_de_vedere_are_nume_unice_si_camere_din_plan() -> None:
-    """Cele trei puncte de vedere privesc camere care există: cele de pe flanșe și cea liberă."""
+    """Punctele de vedere privesc camere care există: cele de pe flanșe și cea liberă."""
     names = [item.name for item in povs.POVS]
-    assert names == ["arm1_wrist", "arm2_wrist", "cell"]
+    assert names == ["arm1_wrist", "arm2_wrist", "cell", "arm1_grasp", "arm2_grasp"]
     assert len(set(names)) == len(names)
     known = {f"{item['key']}_wrist_camera" for item in layout.ARMS}
     for item in povs.POVS:
@@ -219,9 +219,12 @@ def test_verdictul_vine_de_la_camera_de_pe_flansa_bratului_2() -> None:
 def test_fiecare_punct_de_vedere_are_un_moment_de_captura() -> None:
     """Un punct de vedere fără moment nu s-ar fotografia niciodată, tăcut."""
     for item in povs.POVS:
-        assert item.stages, item.name
+        assert item.stages or item.grasp_points, item.name
     assert {item.name for item in povs.at_stage("belt2_pick")} == {"arm2_wrist"}
     assert {item.name for item in povs.at_stage("cnc_chuck")} == {"arm1_wrist"}
+    assert {item.name for item in povs.at_grasp("belt1_pick", "jos")} == {"arm1_grasp"}
+    assert {item.name for item in povs.at_grasp("belt2_pick", "ridicare")} == {"arm2_grasp"}
+    assert povs.at_grasp("belt2_pick", "trecere 1") == ()
 
 
 def test_planul_unui_ciclu_are_toate_cadrele_o_singura_data() -> None:
@@ -241,6 +244,22 @@ def test_planul_unui_ciclu_are_toate_cadrele_o_singura_data() -> None:
         assert stages <= set(moves.route_names("arm1", family)) \
             | set(moves.route_names("arm2", family))
         assert layout.rack_target(family) in stages
+
+
+def test_planul_de_prindere_adauga_trei_momente_pe_fiecare_brat() -> None:
+    """Secvența de prindere dă cîte trei cadre pe braț, fără să dubleze cadrul de proces."""
+    for family in layout.RACK_FAMILIES:
+        plan = povs.frames_per_cycle(family, grasp=True)
+        counted = Counter(item.name for _, item in plan)
+        assert counted == Counter({"arm1_wrist": 2, "arm2_wrist": 1, "cell": 1,
+                                   "arm1_grasp": 3, "arm2_grasp": 3}), family
+        keys = [f"{item.name}@{stage}" for stage, item in plan]
+        assert len(keys) == len(set(keys)), f"cadru luat de două ori: {keys}"
+        grasp_stages = {stage for stage, item in plan if item.name.endswith("_grasp")}
+        assert grasp_stages == {
+            "belt1_pick-sus", "belt1_pick-jos", "belt1_pick-ridicare",
+            "belt2_pick-sus", "belt2_pick-jos", "belt2_pick-ridicare",
+        }
 
 
 # ---------------------------------------------------------------- fișierele sesiunii
