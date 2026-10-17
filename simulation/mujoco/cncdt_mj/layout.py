@@ -82,8 +82,7 @@ RACK_TOP_Z = float(cell_layout.RACK_TOP_Z)
 #: Compartimentele dulapului, așa cum le dă planul: raftul, coloana, familia și podeaua.
 RACK_ENTRIES: tuple[Mapping[str, Any], ...] = tuple(cell_layout.RACK_ENTRIES)
 
-#: Compartimentele dulapului, în ordinea de umplere din plan. Cinci au câte o familie; al șaselea
-#: rămâne gol, ca în dulapul real.
+#: Compartimentele dulapului, în ordinea de umplere din plan. Toate șase au câte o familie.
 RACK_SLOT_TARGETS: tuple[str, ...] = tuple(RACK_TARGETS[family] for family in RACK_FAMILIES)
 
 # ------------------------------------------------------------------ înălțimile documentate
@@ -164,12 +163,15 @@ MACHINE_POST_INSET = 0.06
 MACHINE_ROOF_HALF_Z = 0.025
 MACHINE_CHUCK_RADIUS = 0.055
 MACHINE_CHUCK_HALF_Z = 0.04
-#: Fălcile universalului: un mic cilindru pe fața lui, care ține piesa ridicată cu 10 mm.
+#: Fălcile universalului: un cilindru îngust pe fața lui, care ține piesa ridicată cu 20 mm.
 #: Fără el, vîrful falcelor brațului coboară sub centrul piesei și se sprijină pe fața
 #: universalului înainte să închidă pe piesă — măsurat în scenă: închiderea se oprea la 4 mm.
-#: Discul de Ø70 mm stă pe fălci, iar brațul are loc să închidă pe piesa de deasupra.
-MACHINE_CHUCK_JAW_RADIUS = 0.035
-MACHINE_CHUCK_JAW_HALF_Z = 0.005
+#: E îngust și înalt intenționat: corpul falcelor brațului coboară ~20 mm sub punctul de
+#: strîngere, iar o piesă îngustă (triunghi, legătură) e prinsă numai dacă muchia ei iese în
+#: afara suportului. La raza veche de 35 mm, falcile se opreau în suport, iar piesa rămînea
+#: neprinsă; la un suport scund, corpul falcelor atingea fața universalului.
+MACHINE_CHUCK_JAW_RADIUS = 0.010
+MACHINE_CHUCK_JAW_HALF_Z = 0.010
 MACHINE_CHUCK_TOP_Z = MACHINE_TABLE_Z + 2 * MACHINE_CHUCK_HALF_Z
 MACHINE_CHUCK_JAW_TOP_Z = MACHINE_CHUCK_TOP_Z + 2 * MACHINE_CHUCK_JAW_HALF_Z
 

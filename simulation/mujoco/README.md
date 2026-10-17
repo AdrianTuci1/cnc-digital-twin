@@ -309,8 +309,9 @@ scenei și pornesc inactive; `view.py --check` refuză o scenă în care vreuna 
 
 **Limita prinderii adevărate.** Mâna Panda se deschide 80 mm, blocul brut are 104 mm, iar discul
 `wheel_100` tot 104 mm; falcile coboară atunci peste fața de sus și apasă pe ea, iar legătura rigidă
-este cea care ține piesa. Pentru `bushing_68`, `wheel_60` și `pinion_56` falcile închid pe diametru.
-Ambele căi se raportează la fel: contact, deschidere măsurată și reușită, în `session.json`.
+este cea care ține piesa. Pentru `gusset_72`, `hex_68`, `link_68` și `pinion_56` falcile închid pe
+contur, pe lățimea piesei. Ambele căi se raportează la fel: contact, deschidere măsurată și
+reușită, în `session.json`.
 
 **Variația de poziție.** Locurile de așezare de pe banda 2 și din raft primesc o abatere
 deterministă din sămînță (`grasp_cycle.varied_xy`), ținută pe suprafață de `part.on_surface_xy`:
@@ -538,12 +539,13 @@ la x = 3,20 m. Astfel brațul se rotește aproximativ 90° între preluarea de p
 (măsurat 85–89° la raftul 1), față de aproximativ 130° în așezarea anterioară. Apropierea
 înclinată are două unghiuri măsurate: 50° în compartimentul sudic, unde
 raftul 3 stă aproape de limita de atingere, și 30° în cel nordic, unde 45° răsucește încheietura
-până la limită. Toate cele șase familii ajung în compartimente, cu eroarea maximă de 7,0 mm. Un
-dulap cu fața mutată spre braț ar aduce raftul de deasupra peste antebraț.
+până la limită. Toate cele șase familii ajung în compartimente; la cele două semințe de probă,
+abaterea piesei față de centrul compartimentului a fost de cel mult 52 mm, sub toleranța de 60 mm.
+Un dulap cu fața mutată spre braț ar aduce raftul de deasupra peste antebraț.
 
 Ordinea compartimentelor este ordinea familiilor din generator — raftul 1: `wheel_100`,
-`flange_72`; raftul 2: `bushing_68`, `wheel_60`; raftul 3: `pinion_56`, apoi un compartiment gol —,
-iar un test o verifică, ca planul, scena și clasificatorul să nu se despartă. Fiecare piesă se
+`gusset_72`; raftul 2: `hex_68`, `link_68`; raftul 3: `pinion_56`, `plate_84` —, iar un test o
+verifică, ca planul, scena și clasificatorul să nu se despartă. Fiecare piesă se
 lasă la 2 cm în spatele feței deschise; cea mai mare (Ø104) are loc de falci înainte și după ea.
 Codurile citite de pe raft sunt amânate deliberat (`docs/10-dataset-piese.md`).
 
@@ -562,17 +564,17 @@ generatorul procedural (seed 7, clasă `PASS`, 640×640):
 
 `wheel_100` — Ø100, 18 dinți, alezaj Ø40 cu pană, 5 găuri.
 
-![](renders/parts/flange_72.png)
+![](renders/parts/gusset_72.png)
 
-`flange_72` — Ø72, 24 dinți mărunți, alezaj Ø28, 3 găuri.
+`gusset_72` — cornier triunghiular cu cerc încadrător Ø72, colțuri R6, alezaj Ø14, 3 găuri Ø5.
 
-![](renders/parts/bushing_68.png)
+![](renders/parts/hex_68.png)
 
-`bushing_68` — Ø68, 20 dinți, alezaj Ø30, 3 găuri.
+`hex_68` — piuliță hexagonală cu cerc încadrător Ø68, colțuri R6, alezaj Ø24, 6 găuri Ø4.
 
-![](renders/parts/wheel_60.png)
+![](renders/parts/link_68.png)
 
-`wheel_60` — Ø60, 18 dinți, alezaj Ø20 cu pană, 5 găuri.
+`link_68` — legătură de 68 × 28 mm, capete semicirculare, alezaj Ø12, 2 găuri Ø8.
 
 ![](renders/parts/pinion_56.png)
 
@@ -580,8 +582,8 @@ generatorul procedural (seed 7, clasă `PASS`, 640×640):
 
 ![](renders/parts/plate_84.png)
 
-`plate_84` — 84 × 56 mm, colțuri R8, alezaj Ø18, 4 găuri Ø6. Singura piesă fără siluetă
-circulară, ca rularea să arate imediat altceva decât o roată.
+`plate_84` — 84 × 56 mm, colțuri R8, alezaj Ø18, 4 găuri Ø6. Împreună cu cornierul, hexagonul
+și legătura, face ca rularea să arate imediat altceva decât o serie de roți.
 
 ## Stare cunoscută
 
@@ -597,8 +599,8 @@ ciclu, nicio verigă a brațelor atinsă, ~70 s simulate, iar piesa ajunge în c
 sus.
 
 `make mj-record` este **verde** pe toate cele șase familii, cu un ciclu fiecare: zece cadre pe
-ciclu, dintre care șase de prindere, 790–823 eșantioane în contract pe sesiune, 79–82 s simulați
-în 3,6–4,9 s de ceas real (de 17–22 de ori mai repede decât ritmul real). `session.json`
+ciclu, dintre care șase de prindere, 790–824 eșantioane în contract pe sesiune, 79–82 s simulați
+în 3,6–4,8 s de ceas real (de 16–23 de ori mai repede decât ritmul real). `session.json`
 păstrează jurnalul celor șase prinderi ale fiecărui ciclu, cu contact, deschidere și reușită.
 Cadrele de pe flanșa brațului 2 și cel general se citesc cu ochiul.
 

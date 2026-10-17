@@ -91,8 +91,9 @@ activă.
 **Limita prinderii adevărate.** Deschiderea maximă a mâinii Panda este 80 mm. `wheel_100` are
 discul de 100 mm, deci falcile coboară peste fața de sus și apasă pe ea; legătura rigidă este cea
 care ține piesa, exact cum celula din Isaac Sim o leagă de griper. `plate_84` are 84 × 56 mm și se
-prinde pe latura scurtă, iar piesele mici (`flange_72`, `bushing_68`, `wheel_60`, `pinion_56`)
-închid pe diametru. Ambele căi sînt raportate la fel: contact, deschiderea măsurată și reușita.
+prinde pe latura scurtă, iar celelalte piese (`gusset_72`, `hex_68`, `link_68`, `pinion_56`) închid
+pe contur, pe lățimea lor. Ambele căi sînt raportate la fel: contact, deschiderea măsurată și
+reușita.
 
 **Variația de poziție.** Locurile de așezare de pe banda 2 și din compartimentul raftului primesc o
 abatere deterministă din sămînță, ținută pe suprafață de `part.on_surface_xy`: fiecare ciclu arată
@@ -171,11 +172,11 @@ ca planul și scena să nu se poată contrazice.
 | Cameră pe brațul 2 (flanșă) | (2,45, 1,72) | punct | E4 |
 | Dulap pe familii (3 rafturi × 2 compartimente) | (3,33, 1,29) | 0,30 × 1,0 | G2–G4 |
 | Raftul 1, compartimentul A (wheel_100) — podea 0,85 m | (3,20, 1,04) | 0,30 × 0,50 | G2–G3 |
-| Raftul 1, compartimentul B (flange_72) — podea 0,85 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
-| Raftul 2, compartimentul A (bushing_68) — podea 1,16 m | (3,20, 1,04) | 0,30 × 0,50 | G2–G3 |
-| Raftul 2, compartimentul B (wheel_60) — podea 1,16 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
+| Raftul 1, compartimentul B (gusset_72) — podea 0,85 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
+| Raftul 2, compartimentul A (hex_68) — podea 1,16 m | (3,20, 1,04) | 0,30 × 0,50 | G2–G3 |
+| Raftul 2, compartimentul B (link_68) — podea 1,16 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
 | Raftul 3, compartimentul A (pinion_56) — podea 1,41 m | (3,20, 1,04) | 0,30 × 0,50 | G2–G3 |
-| Raftul 3, compartimentul B (gol) — podea 1,41 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
+| Raftul 3, compartimentul B (plate_84) — podea 1,41 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
 | Ladă rebut | (0,45, 2,00) | 0,6 × 0,4 | A4–B5 |
 
 Fiecare țintă de prindere cade în raza de 0,855 m a brațului care o deservește, măsurată în plan:
@@ -187,17 +188,18 @@ Fiecare țintă de prindere cade în raza de 0,855 m a brațului care o deserve�
 | Braț 1 | așezare pe banda 2 | 0,72 | da |
 | Braț 2 | preluare de pe banda 2 | 0,45 | da |
 | Braț 2 | raftul 1, compartimentul A (wheel_100) | 0,71 | da |
-| Braț 2 | raftul 1, compartimentul B (flange_72) | 0,50 | da |
-| Braț 2 | raftul 2, compartimentul A (bushing_68) | 0,71 | da |
-| Braț 2 | raftul 2, compartimentul B (wheel_60) | 0,50 | da |
+| Braț 2 | raftul 1, compartimentul B (gusset_72) | 0,50 | da |
+| Braț 2 | raftul 2, compartimentul A (hex_68) | 0,71 | da |
+| Braț 2 | raftul 2, compartimentul B (link_68) | 0,50 | da |
 | Braț 2 | raftul 3, compartimentul A (pinion_56) | 0,71 | da |
+| Braț 2 | raftul 3, compartimentul B (plate_84) | 0,50 | da |
 
 Fluxul materialului, desenat punctat pe plan: banda 1 intră din `A7` spre est și lasă **blocul
 brut** — un disc de metal, nu piesa finită — la capătul ei, în `F7`; brațul 1 îl ridică și îl
 încarcă în mașină pe fața vestică. Abia după ce piesa este poziționată în dispozitiv intră
-generatorul procedural: geometria de pe masa mașinii devine roata dințată a familiei, cu clasa ei
-de defect, iar eticheta iese din același `GearParams` care a produs geometria, deci nu se pot
-desincroniza. După ce mașina termină, brațul 1 o descarcă tot el și o așază pe banda 2, în `G5`,
+generatorul procedural: geometria de pe masa mașinii devine piesa familiei, cu clasa ei de defect,
+iar eticheta iese din același `GearParams` care a produs geometria, deci nu se pot desincroniza.
+După ce mașina termină, brațul 1 o descarcă tot el și o așază pe banda 2, în `G5`,
 la o rotație aleatoare. Banda 2 merge într-un singur sens, spre vest. Brațul 2, aflat pe latura
 sudică a benzii, în `F4`, o ridică din `F5` și o lasă în compartimentul familiei ei, în dulapul
 din `G2–G4`, cu podelele rafturilor la 0,85 / 1,16 / 1,41 m, iar podeaua de jos la nivelul
@@ -231,8 +233,8 @@ pe fața deschisă; dacă fața se mută spre braț, raftul de deasupra ajunge p
 carcasei, iar compartimentul de 0,50 m ține discul cel mai mare, Ø104, cu peste 0,2 m de joc.
 
 Fiecare compartiment ține o familie de piese, în ordinea din plan (`docs/diagrams/cell_layout.py`)
-și din generator (`cnc_cell/parts/gear.py`): raftul 1 — `wheel_100`, `flange_72`; raftul 2 —
-`bushing_68`, `wheel_60`; raftul 3 — `pinion_56` și `plate_84`. Compartimentele se umplu de la
+și din generator (`cnc_cell/parts/gear.py`): raftul 1 — `wheel_100`, `gusset_72`; raftul 2 —
+`hex_68`, `link_68`; raftul 3 — `pinion_56` și `plate_84`. Compartimentele se umplu de la
 sud la nord, iar fiecare poartă chiar ținta familiei
 ei. Un test verifică potrivirea celor două ordini, ca dulapul să nu adune familiile în altă ordine
 decât le învață clasificatorul. Codurile citite de pe raft sunt amânate deliberat: vezi

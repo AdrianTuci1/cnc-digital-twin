@@ -44,7 +44,7 @@ PART_BODY = "part_01"
 FINGER_TIP_DROP_M = 0.0085
 PICK_CLEARANCE_M = 0.0015
 
-#: În plus, la universal: fălcile lui țin piesa cu 10 mm deasupra feței (`layout`), deci vîrful
+#: În plus, la universal: fălcile lui țin piesa cu 20 mm deasupra feței (`layout`), deci vîrful
 #: falcelor brațului are loc să închidă pe piesă fără să atingă oțelul. Marja rămasă acoperă
 #: scufundarea servo-urilor, măsurată în scenă la ~6 mm la întinderea asta.
 CHUCK_PICK_CLEARANCE_M = 0.007

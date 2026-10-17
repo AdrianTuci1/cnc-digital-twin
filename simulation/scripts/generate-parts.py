@@ -20,7 +20,7 @@ Exemple::
     ./simulation/scripts/generate-parts.py --count 40 --defect TOOTH_MISSING --seed0 100000
 
     # doar familiile mici, care intră în prinzătorul robotic
-    ./simulation/scripts/generate-parts.py --count 200 --family pinion_56 --family wheel_60
+    ./simulation/scripts/generate-parts.py --count 200 --family pinion_56 --family hex_68
 
 Ieșirea este ignorată de git (``ml/artifacts/``). Manifestul este sursa de adevăr pentru
 etichete și nu are ce căuta pe calea de inferență.

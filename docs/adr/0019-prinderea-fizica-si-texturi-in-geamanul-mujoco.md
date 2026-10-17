@@ -89,3 +89,10 @@ antrenare să poată distinge o prindere reușită de una ratată.
 - `make mj-demo` — ciclul complet, pentru fiecare familie: 6/6 prinderi, zero verificări căzute.
 - `make mj-record` — sesiune cu cadre; `session.json` conține jurnalul prinderilor.
 - `make test` și `make mj-test` — partea pură (texturi, contracte) și partea care atinge motorul.
+
+## Notă (ADR 0021)
+
+Lista familiilor s-a schimbat: `flange_72`, `bushing_68` și `wheel_60` au devenit
+`gusset_72`, `hex_68` și `link_68`. Prinderea rămîne cea descrisă aici; singura ajustare de
+geometrie este suportul universalului, mai îngust și mai înalt, ca falcile să poată închide pe
+piesele înguste fără să atingă suportul.

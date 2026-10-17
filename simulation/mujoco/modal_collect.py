@@ -26,7 +26,7 @@ Rulare, prin Makefile::
 
 Ori direct, din rădăcina repo-ului::
 
-    modal run simulation/mujoco/modal_collect.py::main --families "wheel_100 bushing_68" \
+    modal run simulation/mujoco/modal_collect.py::main --families "wheel_100 hex_68" \
         --cycles 25 --rate 20 --frames --bucket cncdt-dev-training-data-<cont>
     modal run simulation/mujoco/modal_collect.py::parts --count 220 --shards 8 \
         --bucket cncdt-dev-training-data-<cont>
@@ -461,7 +461,7 @@ def main(families: str = "", cycles: int = 25, rate: float = 20.0, seed: int = 1
     """
     family_list = split_list(families)
     if not family_list:
-        raise SystemExit("lipsește lista de familii: dă `--families \"wheel_100 bushing_68\"`")
+        raise SystemExit("lipsește lista de familii: dă `--families \"wheel_100 hex_68\"`")
     if not bucket:
         raise SystemExit("lipsește bucketul: dă `--bucket` (din `make training-data-status`)")
     sessions = [(family, session_seeds(seed, index, sessions_per_family))

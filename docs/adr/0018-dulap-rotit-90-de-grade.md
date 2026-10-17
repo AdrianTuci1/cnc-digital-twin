@@ -78,3 +78,8 @@ de sus; limita a fost acceptată explicit.
 | Dulapul mutat mai spre vest, ca să intre și raftul 3 la 30° | Fața ajunge prea aproape de bază; antebrațul intră în carcasă, iar compartimentele se îngustează. |
 | Raftul 3 coborât sub 1,41 m | Se pierde treapta de 0,25 m și variația de înălțime pe care o învață modelul; cota a fost păstrată. |
 | Trecere în fața raftului de sus | Brațul rămâne într-o ramură din care nu mai coboară pe punct (95 mm eroare); drumul direct urcă pe deasupra dulapului. |
+
+## Notă (ADR 0021)
+
+Ordinea rafturilor și unghiurile de apropiere rămîn valabile; s-au schimbat doar numele și
+siluetele familiilor din compartimente, conform ADR 0021.

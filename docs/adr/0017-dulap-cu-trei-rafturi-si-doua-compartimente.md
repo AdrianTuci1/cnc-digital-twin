@@ -87,3 +87,10 @@ Trei constrângeri au fost măsurate în scenă, nu deduse din desen:
 | Apropiere verticală, de sus | Mâna ar trece prin raftul de deasupra; anvelopa coboară sub punct. |
 | Al șaselea compartiment cu o familie | Generatorul avea cinci familii; un compartiment etichetat suplimentar ar fi cerut o clasă care nu exista. ADR 0020 adaugă `plate_84` și umple compartimentul. |
 | Păstrarea raftului cubic din ADR 0014 | Nu redă dulapul real și ține toate piesele la aceeași cotă, deci nu apare variația de înălțime în date. |
+
+## Notă (ADR 0021)
+
+Numele familiilor din text sînt cele de la data deciziei. ADR 0020 a umplut al șaselea
+compartiment, iar ADR 0021 a schimbat compoziția: `flange_72`, `bushing_68` și `wheel_60` au
+devenit `gusset_72`, `hex_68` și `link_68`. Așezarea dulapului și ordinea compartimentelor au
+rămas aceleași.

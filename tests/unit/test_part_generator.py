@@ -48,9 +48,9 @@ FAMILY_IDS = tuple(family.name for family in FAMILIES)
 # orientare întoarsă ori o piesă degenerată, nu o diferență fină de toleranță.
 VOLUME_BOUNDS_MM3: dict[str, tuple[float, float]] = {
     "wheel_100": (60_000.0, 110_000.0),
-    "flange_72": (20_000.0, 40_000.0),
-    "bushing_68": (23_000.0, 48_000.0),
-    "wheel_60": (21_000.0, 38_000.0),
+    "gusset_72": (9_000.0, 19_000.0),
+    "hex_68": (24_000.0, 44_000.0),
+    "link_68": (12_000.0, 24_000.0),
     "pinion_56": (14_000.0, 24_000.0),
     "plate_84": (42_000.0, 62_000.0),
 }
@@ -213,11 +213,21 @@ def test_family_nominal_is_valid_and_leaves_room_for_defects(family: PartFamily)
             root_half = math.radians(params.tooth_root_width_deg) / 2
             assert tip_half < root_half < math.pi / teeth, f"dinții nu ies la {teeth} dinți"
     else:
-        margin = min(params.half_width, params.half_height)
-        assert params.bore_radius + keyway_depth + 2.0 < margin
+        inradius = params.inradius_mm
+        assert params.bore_radius + keyway_depth + 2.0 < inradius
         assert (params.bolt_circle_radius - params.hole_radius
                 > params.bore_radius + keyway_depth + 2.0)
-        assert params.bolt_circle_radius + params.hole_radius + 2.5 <= margin
+        if family.shape == gear.SHAPE_LINK:
+            # Găurile stau pe axa lungă, nu într-un cerc înscris: se verifică lățimea.
+            assert (params.bolt_circle_radius + params.hole_radius + 2.5
+                    < params.half_width)
+            assert (params.bolt_circle_radius * math.sin(math.radians(15.0))
+                    + params.hole_radius < params.half_height)
+        else:
+            assert params.bolt_circle_radius + params.hole_radius + 2.5 < inradius
+        spacing = (2.0 * params.bolt_circle_radius
+                   * math.sin(math.pi / params.bolt_count))
+        assert spacing > 2.0 * params.hole_radius + 2.0
 
 
 @pytest.mark.parametrize("family,defect", family_cases(), ids=lambda item: getattr(item, "name", item))
@@ -238,7 +248,7 @@ def test_every_defect_changes_the_geometry(family: PartFamily, defect: str) -> N
 
 
 def test_families_are_distinct_in_plan_view() -> None:
-    """Familiile se deosebesc prin ce se vede de sus: diametru, dinți, alezaj și găuri."""
+    """Familiile se deosebesc prin ce se vede de sus: siluetă, gabarit, alezaj și găuri."""
     signatures = {
         (
             family.shape,
@@ -250,14 +260,41 @@ def test_families_are_distinct_in_plan_view() -> None:
         for family in FAMILIES
     }
     assert len(signatures) == len(FAMILIES)
-    diameters = sorted(family.diameter_mm for family in FAMILIES if family.supports_teeth)
+    gears = [family for family in FAMILIES if family.supports_teeth]
+    assert len(gears) == 2
+    diameters = sorted(family.diameter_mm for family in gears)
     gaps = [later - earlier for earlier, later in itertools.pairwise(diameters)]
     assert all(gap >= 4.0 for gap in gaps), diameters
-    assert len({family.teeth for family in FAMILIES if family.supports_teeth}) >= 4
-    plate = next(family for family in FAMILIES if not family.supports_teeth)
+    assert len({family.shape for family in FAMILIES}) >= 5
+    plate = FAMILY_BY_NAME["plate_84"]
     assert plate.nominal.half_width > plate.nominal.half_height
     assert plate.diameter_mm == pytest.approx(
         math.hypot(plate.nominal.half_width, plate.nominal.half_height) * 2)
+
+
+def test_doar_doua_familii_sunt_roti_dintate() -> None:
+    """Restul celulei are altă siluetă, ca rularea să nu pară o singură piesă."""
+    assert [family.name for family in FAMILIES if family.supports_teeth] == [
+        "wheel_100", "pinion_56"]
+    assert len([family for family in FAMILIES if not family.supports_teeth]) == 4
+
+
+@pytest.mark.parametrize(
+    ("family_name", "width_mm", "height_mm"),
+    [
+        ("gusset_72", 53.2, 47.7),
+        ("hex_68", 58.5, 65.7),
+        ("link_68", 67.7, 28.0),
+    ],
+)
+def test_formele_noi_au_gabaritul_asteptat(
+        family_name: str, width_mm: float, height_mm: float) -> None:
+    """Silueta se măsoară pe mesh, nu doar pe parametrii nominali."""
+    variant = build_variant(7, defect=DEFECT_PASS, family=family_name)
+    width = float(variant.vertices[:, 0].max() - variant.vertices[:, 0].min())
+    height = float(variant.vertices[:, 1].max() - variant.vertices[:, 1].min())
+    assert width == pytest.approx(width_mm, rel=0.03), family_name
+    assert height == pytest.approx(height_mm, rel=0.03), family_name
 
 
 def test_placa_are_silueta_dreptunghiulara_si_fara_defecte_de_dinti() -> None:
@@ -293,13 +330,18 @@ def test_pattern_rotation_moves_the_holes_far_enough(family: PartFamily) -> None
 
 
 def test_family_without_keyway_has_no_keyway_defect() -> None:
-    family = FAMILY_BY_NAME["flange_72"]
+    family = FAMILY_BY_NAME["gusset_72"]
     assert family.has_keyway is False
     assert DEFECT_KEYWAY_MISSING not in family.defect_classes()
     with pytest.raises(ValueError):
         build_variant(1, defect=DEFECT_KEYWAY_MISSING, family=family.name)
-    # Restul claselor rămân disponibile.
-    assert set(family.defect_classes()) == set(DEFECT_CLASSES) - {DEFECT_KEYWAY_MISSING}
+    # Fără pană și fără dinți, restul claselor rămân disponibile.
+    assert set(family.defect_classes()) == set(DEFECT_CLASSES) - {
+        DEFECT_KEYWAY_MISSING,
+        DEFECT_TOOTH_MISSING,
+        DEFECT_TOOTH_CHIPPED,
+        DEFECT_TOOTH_COUNT_WRONG,
+    }
 
 
 def test_family_lookup_defaults_and_rejects_unknown_names() -> None:
@@ -321,14 +363,12 @@ def test_family_does_not_disturb_the_reference_part() -> None:
 
 
 def test_smaller_families_fit_the_gripper() -> None:
-    """Peste 80 mm piesa nu intră între fălci; placa se prinde pe latura de 56 mm."""
+    """Peste 80 mm piesa nu intră între fălci; roata mare se prinde pe fața de sus."""
     for family in FAMILIES:
         if family.name == "wheel_100":
             assert family.diameter_mm > 80.0
             continue
-        width = (family.diameter_mm if family.supports_teeth
-                 else 2.0 * min(family.nominal.half_width, family.nominal.half_height))
-        assert width <= 80.0, family.name
+        assert family.grip_width_mm <= 80.0, family.name
 
 
 # ------------------------------------------------------------------ efectul fiecărui defect

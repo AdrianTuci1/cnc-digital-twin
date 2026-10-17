@@ -32,28 +32,31 @@ Ieșirea ajunge în `ml/artifacts/parts/` (ignorat de git). Modulul are nevoie d
 
 ## Familiile de piese
 
-Tabelul `FAMILIES` din generator este singura sursă de adevăr pentru familii. Cinci sunt roți
-dințate plane, iar a șasea este o placă dreptunghiulară cu colțuri rotunjite — același proces,
-aceeași sculă — dar diferă în plan, fiindcă de sus, din camera de inspecție, se vede silueta,
-iar grosimea aproape deloc.
+Tabelul `FAMILIES` din generator este singura sursă de adevăr pentru familii. Două sunt roți
+dințate plane — piesa de referință și pinionul —, iar patru au altă siluetă: placă
+dreptunghiulară, cornier triunghiular, piuliță hexagonală și legătură cu capete semicirculare.
+Același proces, aceeași sculă, dar diferă în plan, fiindcă de sus, din camera de inspecție, se
+vede silueta, iar grosimea aproape deloc.
 
 | Familie | Formă | Gabarit | Dinți | Alezaj | Pană | Găuri de buloane | Grosime | Prindere |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `wheel_100` | roată | Ø100 | 18 | Ø40 | 12 × 5 | 5 × Ø9 pe R35 | 15 | peste fălci (piesa de referință) |
-| `flange_72` | roată | Ø72 | 24 | Ø28 | — | 3 × Ø6 pe R24 | 10 | între fălci |
-| `bushing_68` | roată | Ø68 | 20 | Ø30 | — | 3 × Ø7 pe R22 | 14 | între fălci |
-| `wheel_60` | roată | Ø60 | 18 | Ø20 | 6 × 3,5 | 5 × Ø5 pe R18,5 | 15 | între fălci |
+| `gusset_72` | triunghi | cerc Ø72, latură 62 | — | Ø14 | — | 3 × Ø5 pe R12 | 10 | între fălci |
+| `hex_68` | hexagon | cerc Ø68, lățime 59 | — | Ø24 | — | 6 × Ø4 pe R22 | 14 | între fălci |
+| `link_68` | legătură | 68 × 28, capete semicirculare | — | Ø12 | — | 2 × Ø8 pe R24 | 12 | între fălci |
 | `pinion_56` | roată | Ø56 | 12 | Ø14 | 5 × 3 | 4 × Ø6 pe R15,5 | 12 | între fălci |
 | `plate_84` | placă | 84 × 56, colțuri R8 | — | Ø18 | — | 4 × Ø6 pe R20 | 12 | pe latura de 56 mm |
 
-Placa are diametrul cercului care o încadrează de 101 mm, dar se prinde pe latura scurtă, de
-56 mm, deci încape între fălcile de 80 mm. Silueta dreptunghiulară este și motivul pentru care
-apare în celulă: la o rulare, se vede imediat că piesa nu este o roată.
+Toate piesele, în afară de roata de referință, încap între fălcile de 80 mm: cornierul are
+lățimea de 54 mm, hexagonul 59 mm, legătura 28 mm, iar placa 56 mm pe latura scurtă. Roata
+`wheel_100` are Ø100 și se prinde pe fața de sus, nu pe diametru. Cele patru siluete diferite
+sunt motivul pentru care rularea arată imediat că nu trec doar roți prin celulă.
 
 Regulile pe care tabelul le respectă, verificate în `tests/unit/test_part_generator.py`:
 
-- **formele se deosebesc vizual**: diametrele roților diferă cu cel puțin 4 mm, iar placa are
-  siluetă dreptunghiulară. Sub asta siluetele se confundă la rezoluția camerei de inspecție;
+- **formele se deosebesc vizual**: diametrele celor două roți diferă cu cel puțin 4 mm, iar
+  celelalte patru au siluete distincte — dreptunghi, triunghi, hexagon și capsulă. Sub asta
+  siluetele se confundă la rezoluția camerei de inspecție;
 - **familiile trec validarea și rămân la distanță de fiecare defect**: alezajul mărit cu
   2 mm nu are voie să ajungă în cercul de găuri, gaura deplasată cu 2,5 mm nu are voie să
   iasă din margine, iar lățimile dinților trebuie să rămână valide și la 17 ori 19 dinți.
@@ -93,9 +96,9 @@ imagine.
 
 Magnitudinile sunt fixe, aceleași pe toate familiile: sunt dimensiuni de defect, nu fracțiuni
 din piesă. `KEYWAY_MISSING` are sens doar pe familiile cu pană — `PartFamily.defect_classes()`
-o scoate din liste pentru `flange_72` și `bushing_68` —, iar defectele `TOOTH_*` lipsesc la
-`plate_84`, care nu are dinți. Generatorul refuză combinațiile, ca să nu apară o etichetă de
-rebut pe geometrie corectă.
+o scoate din liste pentru `gusset_72`, `hex_68`, `link_68` și `plate_84` —, iar defectele
+`TOOTH_*` lipsesc la aceleași patru piese, care nu au dinți. Generatorul refuză combinațiile,
+ca să nu apară o etichetă de rebut pe geometrie corectă.
 
 ## Trei reguli de design care nu se văd din cod
 
@@ -107,8 +110,9 @@ testul măsoară direct asta pe fiecare familie.
 
 Aceeași proprietate decide și augmentarea imaginilor la antrenare: `BOLT_PATTERN_ROTATED` este
 definit față de coroana dințată a piesei, deci o rotire în plan a întregului cadru lasă clasa
-neschimbată și poate fi folosită. Scalarea nu poate: familia se citește din mărimea siluetei
-(Ø56…Ø100), iar un zoom ar face o `pinion_56` să arate ca o `wheel_100`.
+neschimbată și poate fi folosită. Scalarea nu poate: roțile se citesc din mărime (Ø56…Ø100),
+iar un zoom ar face o `pinion_56` să arate ca o `wheel_100`; la celelalte familii, forma este
+cea care le desparte.
 
 **Rezoluția dictează dimensiunea minimă a defectului.** Dacă roata umple ~700 px dintr-un cadru
 de 1280, la Ø100 mm rezultă ~0,14 mm pe pixel. Un defect are nevoie de cel puțin ~5 px ca să

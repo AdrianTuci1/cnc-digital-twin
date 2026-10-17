@@ -112,9 +112,9 @@ RACK_PICK_X = RACK_X + 0.02
 #: șase compartimente au acum o familie.
 RACK_ENTRIES = (
     dict(index=1, shelf=1, column=1, family="wheel_100", x=RACK_X, y=RACK_Y, floor=0.85),
-    dict(index=2, shelf=1, column=2, family="flange_72", x=RACK_X, y=RACK_Y + 0.5, floor=0.85),
-    dict(index=3, shelf=2, column=1, family="bushing_68", x=RACK_X, y=RACK_Y, floor=1.16),
-    dict(index=4, shelf=2, column=2, family="wheel_60", x=RACK_X, y=RACK_Y + 0.5, floor=1.16),
+    dict(index=2, shelf=1, column=2, family="gusset_72", x=RACK_X, y=RACK_Y + 0.5, floor=0.85),
+    dict(index=3, shelf=2, column=1, family="hex_68", x=RACK_X, y=RACK_Y, floor=1.16),
+    dict(index=4, shelf=2, column=2, family="link_68", x=RACK_X, y=RACK_Y + 0.5, floor=1.16),
     dict(index=5, shelf=3, column=1, family="pinion_56", x=RACK_X, y=RACK_Y, floor=1.41),
     dict(index=6, shelf=3, column=2, family="plate_84", x=RACK_X, y=RACK_Y + 0.5, floor=1.41),
 )
@@ -137,7 +137,7 @@ RACK = dict(
 # apoi cele de deasupra. Sunt aceleași nume ca în `cnc_cell/parts/gear.py`; un test verifică
 # potrivirea, ca planul și generatorul să nu se despartă.
 RACK_FAMILIES = (
-    "wheel_100", "flange_72", "bushing_68", "wheel_60", "pinion_56", "plate_84",
+    "wheel_100", "gusset_72", "hex_68", "link_68", "pinion_56", "plate_84",
 )
 
 

@@ -129,7 +129,7 @@ def run_dir(tmp_path: Path) -> Path:
     """O colectare cu două familii, așezate ca la `make mj-collect`: rulare → familie-sămânță."""
     root = tmp_path / "runs" / "run-20261015T101112"
     _write_session(root / "wheel_100-100", family="wheel_100", seed=100)
-    _write_session(root / "bushing_68-101", family="bushing_68", seed=101, defects=("PASS",))
+    _write_session(root / "hex_68-101", family="hex_68", seed=101, defects=("PASS",))
     return root
 
 
@@ -148,7 +148,7 @@ def test_run_name_and_date_are_utc() -> None:
 def test_session_directories_finds_every_session_below(run_dir: Path) -> None:
     """Se caută recursiv: sesiunile stau sub directorul rulării, familie cu familie."""
     found = export.session_directories(run_dir)
-    assert [path.name for path in found] == ["bushing_68-101", "wheel_100-100"]
+    assert [path.name for path in found] == ["hex_68-101", "wheel_100-100"]
 
 
 def test_session_directories_on_a_missing_run(tmp_path: Path) -> None:
@@ -180,7 +180,7 @@ def test_plan_places_every_session_under_the_run(run_dir: Path) -> None:
     assert plan.ok
     assert plan.prefix == RUN_PREFIX
     assert [item.key_prefix(plan.prefix) for item in plan.sessions] == [
-        f"{RUN_PREFIX}/bushing_68-101", f"{RUN_PREFIX}/wheel_100-100"]
+        f"{RUN_PREFIX}/hex_68-101", f"{RUN_PREFIX}/wheel_100-100"]
     assert plan.bytes == sum(item.bytes for item in plan.sessions)
 
 
@@ -216,12 +216,12 @@ def test_manifest_says_what_the_corpus_holds(run_dir: Path) -> None:
     assert manifest["files"]["wear"] == telemetry.WEAR_FILE
     assert manifest["frames_dir"] == telemetry.FRAMES_DIR
     assert [item["name"] for item in manifest["sessions"]] == [
-        "bushing_68-101", "wheel_100-100"]
-    assert manifest["sessions"][0]["prefix"] == f"{RUN_PREFIX}/bushing_68-101/"
+        "hex_68-101", "wheel_100-100"]
+    assert manifest["sessions"][0]["prefix"] == f"{RUN_PREFIX}/hex_68-101/"
     assert manifest["totals"] == {"sessions": 2, "samples": 8, "frames": 8,
                                   "bytes": plan.bytes, "health_min": 0.85, "failures": 0,
                                   "carries_wear": True}
-    assert manifest["labels"]["families"] == ["bushing_68", "wheel_100"]
+    assert manifest["labels"]["families"] == ["hex_68", "wheel_100"]
     assert manifest["labels"]["defects"] == {"PASS": 3, "POROSITY": 1}
     assert manifest["source"]["mujoco_version"] == "3.15.0"
     assert manifest["source"]["schemas"]["samples"] == "1.0.0"
@@ -278,7 +278,7 @@ def test_check_session_accepts_a_session_without_cameras(tmp_path: Path) -> None
     Colectarea de uzură nu are nevoie de poze: rulează cu `--no-frames`, iar `session.json`
     declară zero cadre. Fișierele de cadre sunt goale dinadins, deci nu sunt o gaură.
     """
-    directory = _write_session(tmp_path / "wheel_60-100", family="wheel_60", cycles=1,
+    directory = _write_session(tmp_path / "link_68-100", family="link_68", cycles=1,
                                frames_per_cycle=0)
     assert export.check_session(directory) == []
 
@@ -315,7 +315,7 @@ def test_plan_refuses_a_corpus_with_problems(run_dir: Path) -> None:
     (run_dir / "wheel_100-100" / telemetry.WEAR_FILE).unlink()
     plan = export.plan_export(run_dir, "exemplu-data-lake", when=MOMENT)
     assert not plan.ok
-    assert [item.name for item in plan.sessions] == ["bushing_68-101"]
+    assert [item.name for item in plan.sessions] == ["hex_68-101"]
     assert plan.problems == ("wheel_100-100: lipsește wear.jsonl",)
 
 
@@ -382,14 +382,14 @@ def test_coverage_counts_the_gap_at_a_cycle_boundary(run_dir: Path) -> None:
 
 def test_corpus_without_wear_signal_is_flagged(run_dir: Path) -> None:
     """Un corpus în care totul a rămas sănătos nu poate antrena un model de uzură."""
-    for path in (run_dir / "wheel_100-100", run_dir / "bushing_68-101"):
+    for path in (run_dir / "wheel_100-100", run_dir / "hex_68-101"):
         _set_uniform_wear(path, 0.999)
     plan = export.plan_export(run_dir, "exemplu-data-lake", when=MOMENT)
     assert plan.ok
     assert not plan.covers_wear
     assert plan.health_min == 0.999
 
-    _write_wear(run_dir / "bushing_68-101", [{"ts_ms": index * 100, "cnc_tool_health": 0.42}
+    _write_wear(run_dir / "hex_68-101", [{"ts_ms": index * 100, "cnc_tool_health": 0.42}
                                              for index in range(4)])
     warm = export.plan_export(run_dir, "exemplu-data-lake", when=MOMENT)
     assert warm.covers_wear
@@ -398,7 +398,7 @@ def test_corpus_without_wear_signal_is_flagged(run_dir: Path) -> None:
 
 def test_failures_alone_count_as_wear_signal(run_dir: Path) -> None:
     """Un eșec înregistrat este semnal chiar când componentele stau aproape de 1,0."""
-    for path in (run_dir / "wheel_100-100", run_dir / "bushing_68-101"):
+    for path in (run_dir / "wheel_100-100", run_dir / "hex_68-101"):
         _set_uniform_wear(path, 0.995)
     telemetry.write_jsonl(run_dir / "wheel_100-100" / telemetry.EVENT_FILE, [
         telemetry.event_row(ts_ms=100, sim_time_s=0.1, cycle=telemetry.cycle_id(1),
@@ -434,7 +434,7 @@ def test_check_session_reports_a_wear_file_without_health(run_dir: Path) -> None
 def test_publish_refuses_to_upload_a_corpus_without_wear(run_dir: Path,
                                                          capsys: pytest.CaptureFixture) -> None:
     """`--require-wear` oprește urcarea înainte de credențiale, cu motivul scris în clar."""
-    for path in (run_dir / "wheel_100-100", run_dir / "bushing_68-101"):
+    for path in (run_dir / "wheel_100-100", run_dir / "hex_68-101"):
         _set_uniform_wear(path, 0.999)
     with pytest.raises(SystemExit) as stopped:
         publish_main(["--run-dir", str(run_dir), "--bucket", "exemplu-data-lake",

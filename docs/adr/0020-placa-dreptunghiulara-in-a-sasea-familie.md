@@ -57,3 +57,9 @@ R8, alezaj central Ø18 și patru găuri Ø6 pe un cerc R20.
 - `make mj-demo` și `make mj-record`: ciclul complet pentru `plate_84`, cu piesa în raftul 3
   nord și 6/6 prinderi.
 - `simulation/mujoco/renders/parts/plate_84.png`: cadrul de catalog al plăcii.
+
+## Notă (ADR 0021)
+
+Placa rămîne a șasea familie. ADR 0021 schimbă restul compoziției, astfel încît doar două
+familii mai sînt roți dințate, iar afirmația de aici că placa este singura piesă fără siluetă
+circulară nu mai descrie starea actuală.
