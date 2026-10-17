@@ -69,13 +69,15 @@ CNC = dict(name="cnc_3axis", kind="cnc", x=3.4, y=2.65, w=1.0, h=0.8)
 # Așezarea nu e liberă, ci iese din măsurătoare. Baza brațului 2 este la (2,70, 1,55), raza de
 # atingere este 0,855 m până la flanșă, iar scula atârnă 0,103 m sub ea. Un dulap adânc, cu
 # rafturile aliniate, nu se poate încărca de sus: antebrațul brațului 2 trece prin volumul lui.
-# De aceea rafturile au doar 0,18 m adâncime, iar piesa stă aproape de fața nordică, deschisă; scula
-# intră pe deasupra marginii din față, înclinată cu 30° față de verticală. Cotele de mai jos sunt
-# măsurate în scenă (`make mj-check`, `make mj-demo`): la 0,18 m adâncime verigile nu ating dulapul,
-# iar la 0,19 m link5 atinge marginea raftului de deasupra.
+# De aceea fața dinspre braț stă la 0,96 m, iar piesa la 2 cm în spatele ei; scula intră pe deasupra
+# marginii din față, înclinată la 45°. Cotele de mai jos sunt măsurate în scenă (`make mj-check`,
+# `make mj-demo`): cu fața la 0,96 m verigile nu ating dulapul; dacă fața se mută spre braț, link5
+# atinge marginea raftului de deasupra.
 #
-# Fața nordică este deschisă, iar rafturile au 0,28 m între ele; partea de jos, spatele și lateralele
-# sunt închise, ca să se citească drept dulap. Podeaua de jos stă la 0,85 m, nivelul benzii 2.
+# Dulapul are 0,30 m adâncime; cei 0,12 m din spate nu intră în calea brațului, fiindcă fața și
+# punctele de așezare au rămas la cotele măsurate. Fața nordică este deschisă, iar rafturile au
+# 0,31 m și 0,25 m între ele; partea de jos, spatele și lateralele sunt închise, ca să se citească
+# drept dulap. Podeaua de jos stă la 0,85 m, nivelul benzii 2.
 RACK_COLUMNS = 2
 RACK_SHELVES = 3
 
@@ -83,12 +85,13 @@ RACK_SHELVES = 3
 #: lasă compartimentul util cu ~0,47 m, destul pentru discul de Ø104 mm.
 RACK_ENTRY_M = 0.5
 
-#: Adâncimea rafturilor, măsurată: peste 0,18 m, verigile brațului ating marginea raftului de
-#: deasupra când scula intră în compartimentul de sub el.
-RACK_DEPTH_M = 0.18
+#: Adâncimea totală a dulapului: 0,30 m, cu fața dinspre braț la 0,96 m. Cei 0,12 m din spate
+#: stau în afara anvelopei brațului; dacă fața se mută spre braț, verigile ating marginea
+#: raftului de deasupra.
+RACK_DEPTH_M = 0.30
 
-#: Cota fiecărei podele de raft: nivelul benzii, apoi două trepte de 0,28 m. A treia este aproape
-#: de limita de atingere, de aceea a rămas la 1,41 m.
+#: Cota fiecărei podele de raft: nivelul benzii, apoi treptele de 0,31 m și 0,25 m. A treia este
+#: aproape de limita de atingere, de aceea a rămas la 1,41 m.
 RACK_FLOORS = (0.85, 1.16, 1.41)
 
 #: Cota feței de sus a dulapului: ultimul raft plus încă o treaptă.
@@ -103,12 +106,12 @@ RACK_PICK_Y = 0.94
 #: amprente din plan; cota podelei se scrie aici ca să se poată citi din desen. Ultimul
 #: compartiment rămâne fără familie.
 RACK_ENTRIES = (
-    dict(index=1, shelf=1, column=1, family="wheel_100", x=2.20, y=0.78, floor=0.85),
-    dict(index=2, shelf=1, column=2, family="flange_72", x=2.70, y=0.78, floor=0.85),
-    dict(index=3, shelf=2, column=1, family="bushing_68", x=2.20, y=0.78, floor=1.16),
-    dict(index=4, shelf=2, column=2, family="wheel_60", x=2.70, y=0.78, floor=1.16),
-    dict(index=5, shelf=3, column=1, family="pinion_56", x=2.20, y=0.78, floor=1.41),
-    dict(index=6, shelf=3, column=2, family=None, x=2.70, y=0.78, floor=1.41),
+    dict(index=1, shelf=1, column=1, family="wheel_100", x=2.20, y=0.66, floor=0.85),
+    dict(index=2, shelf=1, column=2, family="flange_72", x=2.70, y=0.66, floor=0.85),
+    dict(index=3, shelf=2, column=1, family="bushing_68", x=2.20, y=0.66, floor=1.16),
+    dict(index=4, shelf=2, column=2, family="wheel_60", x=2.70, y=0.66, floor=1.16),
+    dict(index=5, shelf=3, column=1, family="pinion_56", x=2.20, y=0.66, floor=1.41),
+    dict(index=6, shelf=3, column=2, family=None, x=2.70, y=0.66, floor=1.41),
 )
 
 #: Gabaritul întregului dulap, pentru tabelul de coordonate: reuniunea compartimentelor,

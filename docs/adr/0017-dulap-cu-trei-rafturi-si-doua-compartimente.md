@@ -23,18 +23,20 @@ Trei constrângeri au fost măsurate în scenă, nu deduse din desen:
 2. **La 30°, veriga 5 atinge marginea raftului 2** când scula coboară spre raftul 1, după ce
    brațul vine din preluarea de pe banda 2. Contactul oprește brațul la **95 mm** de punct, cu
    11,8° de răsucire. Contactul este razant (0,1 mm), dar schimbă ramura cinematicii inverse.
-3. **Adâncimea și unghiul sunt o pereche.** La 0,18 m adâncime și 45°, toate cele cinci ținte se
-   ating cu eroare de cel mult **6,8 mm**, fără nicio verigă atinsă. Punctul de trecere trebuie să
-   stea la 5 cm peste punctul de lucru; la 10 cm, compartimentul estic al raftului 2 nu-și atinge
-   orientarea la trecere (46 mm eroare), fiindcă încheietura urcă prea mult.
+3. **Fața de intrare și unghiul sunt o pereche.** Cu fața la 0,96 m (adâncimea de atunci 0,18 m)
+   și 45°, toate cele cinci ținte se ating cu eroare de cel mult **6,8 mm**, fără nicio verigă
+   atinsă. Punctul de trecere trebuie să stea la 5 cm peste punctul de lucru; la 10 cm,
+   compartimentul estic al raftului 2 nu-și atinge orientarea la trecere (46 mm eroare), fiindcă
+   încheietura urcă prea mult.
 
 ## Decizie
 
 1. **Dulapul are trei rafturi suprapuse, fiecare cu două compartimente**, despărțite de un panou
-   vertical la mijloc. Gabaritul exterior este 1,00 × 0,18 m, cu colțul sud-vest în (2,20, 0,78),
+   vertical la mijloc. Gabaritul exterior este 1,00 × 0,30 m, cu colțul sud-vest în (2,20, 0,66),
    iar podelele rafturilor la 0,85 / 1,16 / 1,41 m. Fața de sus este la 1,69 m, iar fața nordică,
-   spre brațul 2, rămâne deschisă. Lateralele, spatele, fundul și capacul formează carcasa.
-2. **Fiecare compartiment are 0,50 × 0,18 m**, iar punctul de așezare stă la 2 cm în spatele feței
+   spre brațul 2, rămâne deschisă la 0,96 m. Lateralele, spatele, fundul și capacul formează
+   carcasa; cei 0,12 m din spate, față de varianta de 0,18 m, stau în afara anvelopei brațului.
+2. **Fiecare compartiment are 0,50 × 0,30 m**, iar punctul de așezare stă la 2 cm în spatele feței
    deschise, la cota podelei plus jumătatea grosimii piesei. Discul cel mai mare (Ø104) are centrul
    pe blat și peste 0,2 m de joc lateral; marginea lui dinspre nord iese 3,2 cm peste față.
 3. **Scula intră înclinat, la 45° față de verticală**, dinspre nord: direcția de apropiere este
@@ -57,14 +59,16 @@ Trei constrângeri au fost măsurate în scenă, nu deduse din desen:
 - Scena scade de la 36 de corpuri și 236 de geome la **31 de corpuri și 206 geome**: cele cinci
   corpuri de intrare, cele 12 picioare, panourile și buzele dispar, iar carcasa, cele trei rafturi
   și despărțitorul intră în corpul `rack`.
-- În plan, cele trei rafturi se suprapun, deci desenul arată un singur dreptunghi de 1,00 × 0,18 m;
+- În plan, cele trei rafturi se suprapun, deci desenul arată un singur dreptunghi de 1,00 × 0,30 m;
   cotele rafturilor stau în legendă și în tabelul de coordonate, nu în desen.
 - Falcile pot atinge blatul când lasă piesa. Atingerea falcilor este raportată, nu tratată ca
   eșec, fiindcă falcile sunt scula; o verigă care atinge dulapul rămâne eșec.
 - Prinderea nu este modelată, deci piesa nu se așază fizic pe raft după eliberare. Ținta este
   centrul piesei, ca la toate celelalte puncte de lucru.
-- Adâncimea de 0,18 m este limita măsurată: un dulap mai adânc readuce veriga 5 peste marginea
-  raftului de deasupra, iar o apropiere de 30° readuce contactul chiar la această adâncime.
+- Fața de intrare la 0,96 m este limita măsurată: dacă fața se mută spre braț, veriga 5 atinge
+  marginea raftului de deasupra, iar o apropiere de 30° aduce contactul chiar la această cotă.
+  Adâncimea totală de 0,30 m se întinde în spate, în afara anvelopei; a fost mărită fără să
+  schimbe fața, țintele sau rezultatul `make mj-demo`.
 - Rafturile nu sunt egal distanțate: 0,31 m între primele două și 0,25 m între ultimele două.
   Ambele intervale lasă piesa și falcile să intre, iar podeaua de jos rămâne la nivelul benzii.
 
@@ -74,7 +78,7 @@ Trei constrângeri au fost măsurate în scenă, nu deduse din desen:
 | --- | --- |
 | Apropiere la 30° cu același dulap | Veriga 5 atinge marginea raftului 2 și brațul se oprește la 95 mm de punct. |
 | Apropiere la 45° cu trecerea la 10 cm peste punct | Compartimentul estic al raftului 2 nu-și atinge orientarea la trecere (46 mm eroare). |
-| Dulap adânc, de 0,24–0,30 m | Antebrațul intră în carcasă; mâna nu mai are loc sub raftul de deasupra. |
+| Dulap cu fața mutată spre braț la 0,24–0,30 m | Antebrațul intră în carcasă; mâna nu mai are loc sub raftul de deasupra. |
 | Rafturi aliniate, cu brațul retras | Scoate brațul 2 din raza benzii 2 ori a lăzii de rebut; baza lui este acolo din măsurători de atingere. |
 | Apropiere verticală, de sus | Mâna ar trece prin raftul de deasupra; anvelopa coboară sub punct. |
 | Al șaselea compartiment cu o familie | Generatorul are cinci familii; un compartiment etichetat suplimentar ar cere o clasă care nu există. |

@@ -72,11 +72,11 @@
 <rect x="114.6" y="438.0" width="117.8" height="76.0" rx="3" fill="#ecaaaa" stroke="#9b3b3b" stroke-width="1.6"/>
 <text x="829.0" y="272.5" font-size="14" text-anchor="middle" fill="#1d4467" font-weight="bold" opacity="1.00">Mașină CNC 3 axe</text>
 <text x="829.0" y="292.5" font-size="12" text-anchor="middle" fill="#315f86" font-weight="normal" opacity="1.00">stare: idle / cutting</text>
-<rect x="506.0" y="673.6" width="190.0" height="34.2" rx="3" fill="#e3e6ea" stroke="#8b949e" stroke-width="1.6"/>
-<rect x="510.8" y="674.5" width="85.5" height="32.3" rx="3" fill="#aed7a8" stroke="#3f7a37" stroke-width="1.6"/>
-<text x="553.5" y="694.7" font-size="13" text-anchor="middle" fill="#2f5c2a" font-weight="bold" opacity="1.00">A</text>
-<rect x="605.8" y="674.5" width="85.5" height="32.3" rx="3" fill="#aed7a8" stroke="#3f7a37" stroke-width="1.6"/>
-<text x="648.5" y="694.7" font-size="13" text-anchor="middle" fill="#2f5c2a" font-weight="bold" opacity="1.00">B</text>
+<rect x="506.0" y="673.6" width="190.0" height="57.0" rx="3" fill="#e3e6ea" stroke="#8b949e" stroke-width="1.6"/>
+<rect x="510.8" y="674.5" width="85.5" height="55.1" rx="3" fill="#aed7a8" stroke="#3f7a37" stroke-width="1.6"/>
+<text x="553.5" y="706.1" font-size="13" text-anchor="middle" fill="#2f5c2a" font-weight="bold" opacity="1.00">A</text>
+<rect x="605.8" y="674.5" width="85.5" height="55.1" rx="3" fill="#aed7a8" stroke="#3f7a37" stroke-width="1.6"/>
+<text x="648.5" y="706.1" font-size="13" text-anchor="middle" fill="#2f5c2a" font-weight="bold" opacity="1.00">B</text>
 <circle cx="648.5" cy="352.5" r="162.4" fill="none" stroke="#a85f13" stroke-width="1.1" stroke-dasharray="4 6" opacity="0.5"/>
 <circle cx="648.5" cy="352.5" r="22.8" fill="#f4b071" stroke="#a85f13" stroke-width="1.6"/>
 <text x="192.5" y="352.5" font-size="13" text-anchor="start" fill="#7a4408" font-weight="bold" opacity="1.00">Braț 1 (Panda #1)</text>

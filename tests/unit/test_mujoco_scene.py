@@ -213,7 +213,7 @@ def test_dulapul_are_trei_rafturi_cu_doua_compartimente() -> None:
     assert layout.RACK_SHELVES == int(layout.RACK["levels"]) == 3
     assert layout.RACK_COLUMNS == int(layout.RACK["columns"]) == 2
     assert layout.RACK_ENTRY_M == pytest.approx(0.5)
-    assert layout.RACK_DEPTH_M == pytest.approx(0.18)
+    assert layout.RACK_DEPTH_M == pytest.approx(0.30)
     assert len(layout.RACK_ENTRIES) == int(layout.RACK["slots"]) == 6
     assert len(layout.RACK_SLOT_TARGETS) == 5, "al șaselea compartiment rămâne gol"
     assert layout.RACK_ENTRIES[-1]["family"] is None

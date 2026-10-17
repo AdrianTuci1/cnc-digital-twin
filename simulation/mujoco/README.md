@@ -455,12 +455,13 @@ fiecare despărțit în două compartimente de un panou vertical, plus o **ladă
 de vest al benzii 2. Motivul nu este estetic: cutiile aveau pereți până la nivelul benzii, iar
 antebrațul brațului 2 trecea prin ei.
 
-Dulapul are 1,00 × 0,18 m, cu podelele la 0,85 / 1,16 / 1,41 m și fața de sus la 1,69 m. Fața
-nordică e deschisă, iar lateralele, spatele, fundul și capacul formează carcasa. Adâncimea mică și
-apropierea înclinată la 45° sunt perechea măsurată: la 30° veriga 5 a brațului atinge marginea
-raftului 2 și scula rămâne la 95 mm de punct; la 45° toate cele cinci familii ajung în
-compartimente, cu eroarea maximă de 6,8 mm. Un dulap mai adânc ar aduce raftul de deasupra peste
-antebraț.
+Dulapul are 1,00 × 0,30 m, cu podelele la 0,85 / 1,16 / 1,41 m și fața de sus la 1,69 m. Fața
+nordică e deschisă, iar lateralele, spatele, fundul și capacul formează carcasa. Cei 0,12 m din
+spate stau în afara anvelopei brațului: fața a rămas la 0,96 m, iar punctele de așezare la 0,94 m.
+Fața de intrare și apropierea înclinată la 45° sunt perechea măsurată: la 30° veriga 5 a brațului
+atinge marginea raftului 2 și scula rămâne la 95 mm de punct; la 45° toate cele cinci familii ajung
+în compartimente, cu eroarea maximă de 6,8 mm. Un dulap cu fața mutată spre braț ar aduce raftul de
+deasupra peste antebraț.
 
 Ordinea compartimentelor este ordinea familiilor din generator — raftul 1: `wheel_100`,
 `flange_72`; raftul 2: `bushing_68`, `wheel_60`; raftul 3: `pinion_56`, apoi un compartiment gol —,

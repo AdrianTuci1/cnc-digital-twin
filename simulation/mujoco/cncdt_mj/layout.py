@@ -68,8 +68,9 @@ RACK_COLUMNS = int(RACK["columns"])
 #: Lățimea nominală a unui compartiment, din plan: 0,5 m, o celulă de grid.
 RACK_ENTRY_M = float(cell_layout.RACK_ENTRY_M)
 
-#: Adâncimea rafturilor, din plan: 0,18 m. Peste ea, verigile brațului ating marginea raftului de
-#: deasupra când scula intră în compartimentul de sub el; cota e măsurată în scenă.
+#: Adâncimea totală a dulapului, din plan: 0,30 m, cu fața dinspre braț la 0,96 m. Cei 0,12 m
+#: din spate stau în afara anvelopei brațului; dacă fața se mută spre braț, verigile ating
+#: marginea raftului de deasupra.
 RACK_DEPTH_M = float(cell_layout.RACK_DEPTH_M)
 
 #: Cota fiecărei podele de raft, de jos în sus, din plan.
@@ -166,8 +167,8 @@ MACHINE_CHUCK_HALF_Z = 0.04
 
 #: Dulapul pe familii: carcasa are laterale și spate, un fund și un capac, iar înăuntru stau trei
 #: rafturi despărțite în două de un panou vertical. Fața nordică rămâne deschisă, fiindcă pe acolo
-#: intră scula; rafturile au doar 0,18 m adâncime, ca antebrațul brațului 2 să rămână în afara
-#: dulapului. Sunt secțiuni de desen, nu cifre din plan ori din documentație.
+#: intră scula; dulapul are 0,30 m adâncime, dar cei 0,12 m din spate stau în afara anvelopei
+#: brațului. Sunt secțiuni de desen, nu cifre din plan ori din documentație.
 RACK_SIDE_HALF_THICKNESS = 0.015
 RACK_SHELF_HALF_Z = 0.006
 RACK_DIVIDER_HALF_THICKNESS = 0.015
@@ -449,8 +450,9 @@ def rack_geometry() -> dict[str, float]:
 
     Așezarea și cotele rafturilor ies din `docs/diagrams/cell_layout.py`, iar podeaua de jos din
     înălțimile documentate. Fața nordică rămâne deschisă; lateralele, spatele, fundul și capacul
-    închid dulapul, iar rafturile se opresc înaintea feței deschise. Adâncimea de 0,18 m este
-    măsurată în scenă: la 0,19 m, verigile brațului ating marginea raftului de deasupra.
+    închid dulapul, iar rafturile se opresc înaintea feței deschise. Dulapul are 0,30 m adâncime,
+    cu fața la 0,96 m: cei 0,12 m din spate stau în afara anvelopei brațului, iar dacă fața se
+    mută spre braț, verigile ating marginea raftului de deasupra.
     """
     cx, cy = center(RACK)
     hx = float(RACK["w"]) / 2

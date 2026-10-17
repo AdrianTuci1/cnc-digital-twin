@@ -137,9 +137,9 @@
 
     <!-- Dulapul pe familii: trei rafturi suprapuse, fiecare despărțit în două compartimente de un
          panou vertical la mijloc. Fața nordică rămâne deschisă, fiindcă pe acolo intră scula;
-         carcasei îi trebuie doar 0,18 m adâncime, ca antebrațul brațului 2 să rămână în afara
-         dulapului. Rafturile și despărțitorul sunt verzi, iar carcasa gri. Numărul rafturilor,
-         cotele și așezarea ies din plan (`docs/diagrams/cell_layout.py`). -->
+         dulapul are 0,30 m adâncime, iar cei 0,12 m din spate stau în afara anvelopei brațului.
+         Rafturile și despărțitorul sunt verzi, iar carcasa gri. Numărul rafturilor, cotele și
+         așezarea ies din plan (`docs/diagrams/cell_layout.py`). -->
     <body name="rack" pos="{rack_cx} {rack_cy} 0">
       <!-- Carcasa: lateralele și spatele pe toată înălțimea, fundul și capacul între ele. -->
       <geom name="rack_side_west" type="box" size="{rack_side_hx} {rack_side_hy} {rack_side_hz}"
