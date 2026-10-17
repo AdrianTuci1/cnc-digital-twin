@@ -23,26 +23,41 @@ from . import part
 #: mișcare controlată.
 APPROACH_HEIGHT_M = 0.12
 
+#: Cât de departe de limita de atingere rămâne retragerea de deasupra raftului. Raftul 3 stă
+#: aproape de sferă, iar un punct chiar pe limită nu se atinge din mers: servo-urile lasă 112 mm.
+#: Marja de 4 cm intră numai la rafturi, ca retragerile de pe benzi și de la mașină să rămână cele
+#: măsurate.
+RACK_APPROACH_MARGIN_M = 0.04
+
 #: Scula vine de sus în punctele de lucru de pe benzi și de la mașină: axul universalului este
 #: vertical, iar mașina are cadrul deschis deasupra mesei, benzile au șinele dincolo de falci.
 FROM_ABOVE: tuple[float, float, float] = (0.0, 0.0, -1.0)
 
 #: Unghiul cu care scula intră în dulapul pe familii, față de verticală, măsurat în scenă. Dulapul
-#: are rafturi suprapuse, deci scula nu poate coborî de sus: intră pe deasupra marginii nordice,
-#: înclinată, iar antebrațul rămâne în afara carcasei. La 30° veriga 5 trece razant peste marginea
-#: raftului 2 când coboară spre raftul 1, iar contactul oprește brațul la 95 mm de țintă; la 45°
-#: drumul trece pe sub margine, cu eroare de sub 7 mm și fără contacte, pentru toate familiile.
-RACK_APPROACH_DEG = 45.0
+#: are rafturi suprapuse, deci scula nu poate coborî de sus: intră dinspre vest, pe deasupra
+#: marginii feței deschise, înclinată, iar antebrațul rămâne în afara carcasei. Compartimentul
+#: sudic cere 50°: la 45° flanșa urcă prea mult și raftul 3 iese cu 13 mm din rază, iar la 30° cu
+#: 91 mm. Compartimentul nordic stă aproape drept în fața bazei, iar la 45° încheietura se
+#: răsucește până la limită (85,7° eroare); la 30° intră drept, fără contacte, pe toate rafturile.
+RACK_APPROACH_DEG = 50.0
+RACK_APPROACH_NORTH_DEG = 30.0
 RACK_APPROACH: tuple[float, float, float] = (
+    math.sin(math.radians(RACK_APPROACH_DEG)),
     0.0,
-    -math.sin(math.radians(RACK_APPROACH_DEG)),
     -math.cos(math.radians(RACK_APPROACH_DEG)),
+)
+RACK_APPROACH_NORTH: tuple[float, float, float] = (
+    math.sin(math.radians(RACK_APPROACH_NORTH_DEG)),
+    0.0,
+    -math.cos(math.radians(RACK_APPROACH_NORTH_DEG)),
 )
 
 
 def approach(name: str) -> tuple[float, float, float]:
     """Direcția din care vine scula în punctul de lucru dat."""
     if name in layout.RACK_TARGETS.values():
+        if layout.rack_column_of(name) == 2:
+            return RACK_APPROACH_NORTH
         return RACK_APPROACH
     return FROM_ABOVE
 
@@ -98,18 +113,31 @@ TOOL_SPIN_DEG: Mapping[str, float] = {}
 #: Cât de departe în fața dulapului trece scula înainte de a se apropia de un raft, și cât de sus
 #: față de punctul de lucru. Fără punctul de trecere, drumul cel mai scurt de la banda 2 la un
 #: compartiment de la 1,41 m ar tăia colțul dulapului la cota de lucru: scula ar intra în
-#: carcasa. Punctul stă în aer liber, la y = 1,22 m, adică la 0,26 m în fața feței deschise.
-RACK_VIA_Y = 1.22
-#: Cât urcă punctul de trecere față de punctul de lucru. La 5 cm, orientarea înclinată la 45° se
-#: atinge din orice poziție de pornire; la 10 cm, brațul nu mai nimerește orientarea la trecerea
-#: spre compartimentul estic al raftului 2 (46 mm eroare), fiindcă încheietura urcă prea mult.
+#: carcasa. Punctul stă în aer liber, la x = 2,92 m, adică la 0,26 m în fața feței vestice.
+RACK_VIA_X = 2.92
+#: Raza minimă față de baza brațului la care poate sta trecerea. Compartimentul nordic e aproape
+#: de bază, iar la 0,22 m brațul intră în zona moartă a umărului și nu mai nimerește orientarea
+#: (217 mm eroare); trecerea lui se mută spre est, în fața feței, până iese din zona moartă.
+RACK_VIA_MIN_RADIUS_M = 0.35
+#: Cât urcă punctul de trecere față de punctul de lucru. La 5 cm, trecerile se ating cu eroare de
+#: sub 6 mm; o urcare mai mare nu ajută, fiindcă trecerea stă deja în afara carcasei, iar
+#: încheietura urcă degeaba.
 RACK_VIA_LIFT_M = 0.05
 
 
 def _rack_via(name: str, family: str | None) -> tuple[tuple[float, float, float], ...]:
     """Punctul de trecere din fața compartimentului, la cota de lucru plus un palmier."""
-    x, _, z = work_point(name, family)
-    return ((x, RACK_VIA_Y, z + RACK_VIA_LIFT_M),)
+    if layout.rack_shelf_of(name) == layout.RACK_SHELVES:
+        # Raftul de sus e la limita de atingere; un punct de trecere în fața lui lasă brațul
+        # într-o ramură din care nu mai nimerește coborârea. Drumul direct de la bandă urcă pe
+        # deasupra dulapului, fără să atingă marginea.
+        return ()
+    _, y, z = work_point(name, family)
+    base = layout.arm("arm2")
+    dy = y - float(base["y"])
+    dx_min = math.sqrt(max(0.0, RACK_VIA_MIN_RADIUS_M**2 - dy**2))
+    x = max(RACK_VIA_X, float(base["x"]) + dx_min)
+    return ((x, y, z + RACK_VIA_LIFT_M),)
 
 
 #: Punctele prin care trece scula pe drumul spre un punct de lucru, la cota de călătorie. Fără ele,
@@ -198,7 +226,9 @@ def approach_height(name: str, tool_length_m: float = 0.0,
         raise ValueError(
             f"punctul de lucru {name} este cu {abs(room) * 1000:.0f} mm în afara razei brațului, "
             f"cu scula de {tool_length_m * 1000:.0f} mm")
-    return min(APPROACH_HEIGHT_M, room)
+    if name in layout.RACK_TARGETS.values():
+        room -= RACK_APPROACH_MARGIN_M
+    return max(0.0, min(APPROACH_HEIGHT_M, room))
 
 
 def move(name: str, tool_length_m: float = 0.0, family: str | None = None) -> Move:

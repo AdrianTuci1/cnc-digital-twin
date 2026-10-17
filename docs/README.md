@@ -36,6 +36,7 @@ Sursa de adevăr pentru decizii. Codul spune *ce* se întâmplă; documentele de
 | [0015](adr/0015-colectare-pe-modal-cu-bucket-dedicat-si-oidc.md) | Colectarea lungă pe Modal, cu bucket dedicat și federare OIDC, fără chei statice |
 | [0016](adr/0016-notebook-urile-ajung-in-repo-prin-s3.md) | Notebook-urile din Studio ajung în repo prin sincronizare în S3, cu output-urile golite |
 | [0017](adr/0017-dulap-cu-trei-rafturi-si-doua-compartimente.md) | Dulap cu trei rafturi și două compartimente pe raft, cu apropiere înclinată la 45° |
+| [0018](adr/0018-dulap-rotit-90-de-grade.md) | Dulapul brațului 2 este rotit 90°, cu fața vestică spre braț și două unghiuri de apropiere |
 
 ## Convenții
 

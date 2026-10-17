@@ -12,7 +12,7 @@ scenei,
 de strângere în cadru, iar
 amândouă piesele parcurg banda la viteza de suprafață și se opresc la 13 mm peste linia de oprire a
 benzii. `view.py --demo` rulează ciclul brațelor până la capăt pentru toate cele cinci familii
-(**verde**), cu eroarea maximă a sculei de 17,7 mm la așezarea pe banda 2 și 6,8 mm în
+(**verde**), cu eroarea maximă a sculei de 17,7 mm la așezarea pe banda 2 și 7,0 mm în
 compartimentele dulapului, fără nicio verigă atinsă. Colectarea datelor
 există: `make mj-record` scrie sesiuni întregi — telemetrie pe contract, metadatele cadrelor de
 inspecție, PNG-urile celor trei puncte de vedere și etichetele pieselor — pentru toate cele cinci
@@ -61,7 +61,7 @@ benzii o dă exclusiv forța exterioară.
 | Mașină CNC, 3 axe | un cub simbolic de 1,0 × 0,8 m, cu capacul la 1,90 m: cabinet, masă, universal și capac, fără axe în scenă; stările din contract, iar `CUTTING` este o fereastră de timp | vibrație RMS și vârf, sarcină ax, temperatură, avans | profil de sarcină și vibrație aplicat ca forță pe corpul axului, în funcție de stare și uzură |
 | Braț 2 (sortare) | același model Panda, pe latura sudică a benzii 2, la 0,25 m de șina ei sudică | ca la brațul 1 | ca la brațul 1 |
 | Bandă 2 (evacuare) | ca banda 1, cu un singur sens de mers, spre vest, și linia ei de oprire la ținta de preluare a brațului 2 | viteza, numărul de piese | ca la banda 1 |
-| Dulap pe familii | trei rafturi suprapuse, fiecare despărțit în două compartimente de 0,50 m, în coloanele `E2–G2`; podelele la 0,85 / 1,16 / 1,41 m, fața nordică deschisă, iar piesa se lasă înclinat, la 45°, în compartimentul familiei | numărul de piese pe compartiment | — |
+| Dulap pe familii | trei rafturi suprapuse, fiecare despărțit în două compartimente de 0,50 m, în coloana `G2–G4`; podelele la 0,85 / 1,16 / 1,41 m, fața vestică deschisă, iar piesa se lasă înclinat, la 50° în compartimentul sudic și 30° în cel nordic, în compartimentul familiei | numărul de piese pe compartiment | — |
 | Ladă rebut | o ladă pe podea, sub capătul de vest al benzii 2, cu trei pereți scurți și latura de est deschisă; piesa neconformă rămâne pe bandă, trece de linia de oprire a brațului 2 și cade de la capătul benzii | numărul de rebuturi | — |
 | Camere | trei puncte de vedere: câte o cameră pe flanșa fiecărui braț și camera liberă. Verdictul de calitate îl dă cadrul de pe flanșa brațului 2, care vede piesa ținută în falci — rolul `sorting` din `cnc.qa.snapshot.v1.json`; rolul `inspection` a rămas definit în schemă, dar geamănul nu-l mai produce | cadru RGB offscreen + scor de calitate | — |
 
@@ -112,7 +112,7 @@ brațului 1 (blocul brut în falci și piesa în universal), unul de pe flanșa 
 Celula are 6,0 × 4,0 m, cu originea (0, 0) în colțul sud-vest, **+X spre est** și **+Y spre
 nord**. Gridul are celule de 0,5 m: **coloanele A–L** spre est, **rândurile 1–8** spre nord, deci
 fiecare element are o referință scurtă — banda 1 stă în `A7–F7`, brațul 1 în `F6`, mașina ocupă
-`G6–I7`, banda 2 în `B4–J5`, brațul 2 în `F4`, dulapul pe familii în `E2–G2`, lada de rebut în
+`G6–I7`, banda 2 în `B4–J5`, brațul 2 în `F4`, dulapul pe familii în `G2–G4`, lada de rebut în
 `A4–B5`, iar camerele de pe flanșe în `G5` (brațul 1) și `E4` (brațul 2).
 Conversia la lumea MuJoCo este identitatea: planul `(x, y)` devine lumea
 `(x, y)`, cu +Z în sus, deci scena preia cifrele ca atare.
@@ -130,13 +130,13 @@ ca planul și scena să nu se poată contrazice.
 | Bandă 2 (evacuare, un singur sens) | (2,70, 2,00) | 3,8 × 0,4 | B4–J5 |
 | Braț 2 (Panda #2) | (2,70, 1,55) | bază 0,25 Ø | F4 |
 | Cameră pe brațul 2 (flanșă) | (2,45, 1,72) | punct | E4 |
-| Dulap pe familii (3 rafturi × 2 compartimente) | (2,70, 0,81) | 1,0 × 0,30 | E2–G2 |
-| Raftul 1, compartimentul A (wheel_100) — podea 0,85 m | (2,45, 0,94) | 0,50 × 0,30 | E2–F2 |
-| Raftul 1, compartimentul B (flange_72) — podea 0,85 m | (2,95, 0,94) | 0,50 × 0,30 | F2–G2 |
-| Raftul 2, compartimentul A (bushing_68) — podea 1,16 m | (2,45, 0,94) | 0,50 × 0,30 | E2–F2 |
-| Raftul 2, compartimentul B (wheel_60) — podea 1,16 m | (2,95, 0,94) | 0,50 × 0,30 | F2–G2 |
-| Raftul 3, compartimentul A (pinion_56) — podea 1,41 m | (2,45, 0,94) | 0,50 × 0,30 | E2–F2 |
-| Raftul 3, compartimentul B (gol) — podea 1,41 m | (2,95, 0,94) | 0,50 × 0,30 | F2–G2 |
+| Dulap pe familii (3 rafturi × 2 compartimente) | (3,33, 1,29) | 0,30 × 1,0 | G2–G4 |
+| Raftul 1, compartimentul A (wheel_100) — podea 0,85 m | (3,20, 1,04) | 0,30 × 0,50 | G2–G3 |
+| Raftul 1, compartimentul B (flange_72) — podea 0,85 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
+| Raftul 2, compartimentul A (bushing_68) — podea 1,16 m | (3,20, 1,04) | 0,30 × 0,50 | G2–G3 |
+| Raftul 2, compartimentul B (wheel_60) — podea 1,16 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
+| Raftul 3, compartimentul A (pinion_56) — podea 1,41 m | (3,20, 1,04) | 0,30 × 0,50 | G2–G3 |
+| Raftul 3, compartimentul B (gol) — podea 1,41 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
 | Ladă rebut | (0,45, 2,00) | 0,6 × 0,4 | A4–B5 |
 
 Fiecare țintă de prindere cade în raza de 0,855 m a brațului care o deservește, măsurată în plan:
@@ -147,11 +147,11 @@ Fiecare țintă de prindere cade în raza de 0,855 m a brațului care o deserve�
 | Braț 1 | încărcare/descărcare CNC | 0,72 | da |
 | Braț 1 | așezare pe banda 2 | 0,72 | da |
 | Braț 2 | preluare de pe banda 2 | 0,45 | da |
-| Braț 2 | raftul 1, compartimentul A (wheel_100) | 0,66 | da |
-| Braț 2 | raftul 1, compartimentul B (flange_72) | 0,66 | da |
-| Braț 2 | raftul 2, compartimentul A (bushing_68) | 0,66 | da |
-| Braț 2 | raftul 2, compartimentul B (wheel_60) | 0,66 | da |
-| Braț 2 | raftul 3, compartimentul A (pinion_56) | 0,66 | da |
+| Braț 2 | raftul 1, compartimentul A (wheel_100) | 0,71 | da |
+| Braț 2 | raftul 1, compartimentul B (flange_72) | 0,50 | da |
+| Braț 2 | raftul 2, compartimentul A (bushing_68) | 0,71 | da |
+| Braț 2 | raftul 2, compartimentul B (wheel_60) | 0,50 | da |
+| Braț 2 | raftul 3, compartimentul A (pinion_56) | 0,71 | da |
 
 Fluxul materialului, desenat punctat pe plan: banda 1 intră din `A7` spre est și lasă **blocul
 brut** — un disc de metal, nu piesa finită — la capătul ei, în `F7`; brațul 1 îl ridică și îl
@@ -161,40 +161,48 @@ de defect, iar eticheta iese din același `GearParams` care a produs geometria, 
 desincroniza. După ce mașina termină, brațul 1 o descarcă tot el și o așază pe banda 2, în `G5`,
 la o rotație aleatoare. Banda 2 merge într-un singur sens, spre vest. Brațul 2, aflat pe latura
 sudică a benzii, în `F4`, o ridică din `F5` și o lasă în compartimentul familiei ei, în dulapul
-din `E2–G2`, cu podelele rafturilor la 0,85 / 1,16 / 1,41 m, iar podeaua de jos la nivelul
+din `G2–G4`, cu podelele rafturilor la 0,85 / 1,16 / 1,41 m, iar podeaua de jos la nivelul
 suprafeței benzii.
 
 Dulapul pe familii are **trei rafturi suprapuse, fiecare despărțit în două compartimente** de un
-panou vertical la mijloc, deci șase compartimente de 0,50 m lățime. Gabaritul lui este 1,00 × 0,30 m,
-cu centrul în (2,70, 0,81) și colțul sud-vest în (2,20, 0,66), deci acoperă celulele `E2–G2`. Fața
-nordică, spre brațul 2, este deschisă; lateralele, spatele, fundul și capacul formează carcasa.
-Podelele rafturilor stau la 0,85 / 1,16 / 1,41 m, iar fața de sus a dulapului la 1,69 m. Fața a
-rămas la 0,96 m, punctele de așezare la 0,94 m, iar cei 0,12 m din spate, peste varianta de 0,18 m,
-stau în afara anvelopei brațului.
+panou vertical la mijloc, deci șase compartimente de 0,50 m lățime. Gabaritul lui este 0,30 × 1,00 m,
+cu centrul în (3,33, 1,29) și colțul sud-vest în (3,18, 0,79), deci acoperă celulele `G2–G4`.
+Dulapul stă la est de brațul 2, cu lungimea pe direcția nord-sud, iar **fața vestică, spre braț,
+este deschisă**; lateralele de nord și sud, spatele de est, fundul și capacul formează carcasa.
+Podelele rafturilor stau la 0,85 / 1,16 / 1,41 m, iar fața de sus a dulapului la 1,69 m. Fața de
+intrare este la x = 3,18 m (0,48 m est de baza brațului 2), punctele de așezare la x = 3,20 m,
+iar cei 0,30 m de adâncime se întind spre est, în afara anvelopei brațului. Astfel brațul se
+rotește aproximativ 90° între preluarea de pe bandă și raft (măsurat 85–89° la raftul 1), în loc
+de aproximativ 130° în așezarea anterioară.
 
-Fața de intrare la 0,96 m și unghiul de apropiere de 45° față de verticală sunt o pereche măsurată.
-La 30°, veriga 5 a brațului 2 trece razant peste marginea raftului 2 când scula coboară spre raftul 1,
-iar contactul oprește brațul la 95 mm de punct; la 45°, scula intră dinspre nord, pe sub margine,
-și toate cele cinci familii ajung în compartimente cu eroarea maximă de 7 mm. Punctul de trecere
-stă în aer liber, la 0,26 m în fața feței deschise, iar punctul de așezare la 2 cm în spatele ei,
-ca piesa să nu stea pe muchie.
+Apropierea este înclinată, cu două unghiuri măsurate: **50° în compartimentul sudic** și **30° în
+cel nordic**. Compartimentul sudic are raftul 3 aproape de limita de atingere: la 45° punctul iese
+cu 13 mm din rază, iar la 30° cu 91 mm; la 50° toate cele cinci familii ajung,
+cu eroarea maximă de **7,0 mm** și cel mult 0,9° de răsucire. Compartimentul nordic stă aproape
+drept în fața bazei, iar la 45° încheietura se răsucește până la limită (85,7° eroare); la 30°
+intră drept, fără contacte. Punctul de trecere stă la x = 2,92 m în dreptul compartimentului
+sudic și la x = 3,05 m în dreptul celui nordic, la 5 cm peste punctul de lucru, iar raftul de sus
+se atinge direct, fără trecere, fiindcă drumul urcă pe deasupra dulapului. Retragerea de deasupra
+rafturilor păstrează 4 cm până la limita de atingere; fără marjă, punctul chiar pe sferă nu se
+atinge din mers (112 mm eroare).
 
-De ce un dulap adânc nu merge cu fața spre braț. Rafturile suprapuse cer ca scula să intre pe fața
-nordică, înclinat; dacă fața se mută spre braț, raftul de deasupra ajunge peste antebrațul brațului
-2, care coboară sub încheietură. Cu fața la 0,96 m, antebrațul rămâne în afara carcasei, iar
-compartimentul de 0,50 m ține discul cel mai mare, Ø104, cu peste 0,2 m de joc.
+De ce un dulap adânc nu merge cu fața spre braț. Rafturile suprapuse cer ca scula să intre înclinat
+pe fața deschisă; dacă fața se mută spre braț, raftul de deasupra ajunge peste antebrațul brațului
+2, care coboară sub încheietură. Cu fața vestică la 0,48 m de bază, antebrațul rămâne în afara
+carcasei, iar compartimentul de 0,50 m ține discul cel mai mare, Ø104, cu peste 0,2 m de joc.
 
 Fiecare compartiment ține o familie de piese, în ordinea din plan (`docs/diagrams/cell_layout.py`)
 și din generator (`cnc_cell/parts/gear.py`): raftul 1 — `wheel_100`, `flange_72`; raftul 2 —
 `bushing_68`, `wheel_60`; raftul 3 — `pinion_56`, iar al doilea compartiment rămâne gol, ca în
-dulapul real. Compartimentele se umplu de la vest la est, iar fiecare poartă chiar ținta familiei
+dulapul real. Compartimentele se umplu de la sud la nord, iar fiecare poartă chiar ținta familiei
 ei. Un test verifică potrivirea celor două ordini, ca dulapul să nu adune familiile în altă ordine
 decât le învață clasificatorul. Codurile citite de pe raft sunt amânate deliberat: vezi
 `docs/10-dataset-piese.md`.
 
 Dulapul înlocuiește cutiile adânci de dinainte, care aveau pereți până la 0,85 m și opreau
-antebrațul brațului 2 (`arm2_link3↔bin_ng`). Decizia este în ADR 0017; măsurătorile care au dus la
-ea sunt în ADR 0014.
+antebrațul brațului 2 (`arm2_link3↔bin_ng`). Decizia despre rafturi este în ADR 0017; orientarea
+rotită cu 90°, cu fața vestică și două unghiuri de apropiere, este în ADR 0018, iar măsurătorile
+care au dus la ea sunt în ADR 0014.
 
 Rebutul are o cale fără braț, ca în plan: piesa neconformă rămâne pe bandă, trece de linia de
 oprire a brațului 2 și cade de la capătul de vest al benzii 2 în lada din `A4–B5`. Marginea lăzii
@@ -218,10 +226,10 @@ ea. Baza brațelor pe piedestal la 0,95 m. Culoarele
 libere: 0,60 m între capătul benzii 1 și fața vestică a mașinii, 0,45 m între marginea nordică a
 benzii 2 și fața sudică a mașinii (brațul 1 lucrează pe deasupra benzii, nu prin culoar), 0,25 m
 între marginea sudică a benzii 2 și axul brațului 2, adică 0,13 m până la piedestalul lui, iar
-dulapul se oprește la 0,84 m sud de șina benzii 2, ca antebrațul să aibă loc. Brațul 1 are
+dulapul se oprește la 0,01 m sud de șina benzii 2, ca antebrațul să aibă loc. Brațul 1 are
 0,72 m până la axul mașinii și 0,72 m până la locul de așezare pe banda 2, iar brațul 2 are 0,45 m
-până la punctul de preluare și 0,66 m în plan până la orice compartiment al dulapului, adică
-0,67–0,80 m în spațiu, în funcție de raft. Ambele brațe
+până la punctul de preluare și 0,71 m în plan până la compartimentul sudic, respectiv 0,50 m până
+la cel nordic, adică 0,72–0,85 m în spațiu, în funcție de raft. Ambele brațe
 lucrează pe deasupra benzilor, nu prin culoarele
 dintre ele; distanța mică dintre axul brațului 2 și banda 2 se verifică la montaj, în scenă, nu
 din plan.
@@ -234,13 +242,14 @@ traiectorie care trece razant pe deasupra.
 Piedestalul brațelor este cota care nu se poate decide din plan, iar scena o măsoară. Cutiile
 adânci de dinainte dădeau sentința „0,55 m nu se poate": pereții lor urcau până la 0,85 m, iar
 antebrațul trecea prin ei (`arm2_link3↔bin_ng`), cu 41 mm eroare rămasă la cutia de piese bune.
-Dulapul nu mai pune pereți în calea antebrațului: e deschis spre braț, fața stă la 0,96 m, iar
-cei 0,30 m de adâncime se întind în spate, în afara carcasei. Nu scoate însă piedica de la preluare:
+Dulapul nu mai pune pereți în calea antebrațului: e deschis spre braț, fața vestică stă la 0,48 m
+est de baza brațului 2, iar cei 0,30 m de adâncime se întind spre est, în afara carcasei. Nu
+scoate însă piedica de la preluare:
 ca să ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar la
 0,55 m platforma este deasupra lui — măsurat, `arm2_link3↔belt_out` la punctul de deasupra, cu
 106 mm eroare rămasă, iar compartimentele dulapului nu mai pot fi atinse (`arm2_link3↔rack`). La
 0,95 m `view.py --demo` încheie ciclul pentru toate cele cinci familii, cu eroarea maximă a sculei
-de 17,7 mm la așezarea pe banda 2 și 6,8 mm în compartimente, fără nicio verigă atinsă. Cota
+de 17,7 mm la așezarea pe banda 2 și 7,0 mm în compartimente, fără nicio verigă atinsă. Cota
 documentată a piedestalului este 0,95 m (secțiunea 10), iar `view.py --base-z` o poate coborî
 pentru măsurători.
 
@@ -727,8 +736,9 @@ atinge contractele publicate.
    detecția nesupervizată.
 4. **Paralelizare pe GPU (MJX sau MuJoCo Warp)** — se decide când timpul de generare devine
    limita reală a antrenării.
-5. **Cota piedestalului brațelor** — închisă la 0,95 m. Dulapul, deschis spre braț, cu fața la
-   0,96 m și adânc de 0,30 m în spate, a scos piedica pe care o puneau pereții cutiilor, dar a rămas banda 2: ca să ridice piesa
+5. **Cota piedestalului brațelor** — închisă la 0,95 m. Dulapul, deschis spre braț, cu fața
+   vestică la 0,48 m est de baza brațului 2 și adânc de 0,30 m spre est, a scos piedica pe care o
+   puneau pereții cutiilor, dar a rămas banda 2: ca să ridice piesa
    de pe ea, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar la 0,55 m platforma este
    deasupra lui (`arm2_link3↔belt_out`, 106 mm eroare), iar compartimentele dulapului devin de
    neatins. La 0,95 m ciclul se încheie pentru toate cele cinci familii, fără nicio verigă atinsă.

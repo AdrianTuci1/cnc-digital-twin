@@ -136,18 +136,18 @@
     </body>
 
     <!-- Dulapul pe familii: trei rafturi suprapuse, fiecare despărțit în două compartimente de un
-         panou vertical la mijloc. Fața nordică rămâne deschisă, fiindcă pe acolo intră scula;
-         dulapul are 0,30 m adâncime, iar cei 0,12 m din spate stau în afara anvelopei brațului.
-         Rafturile și despărțitorul sunt verzi, iar carcasa gri. Numărul rafturilor, cotele și
-         așezarea ies din plan (`docs/diagrams/cell_layout.py`). -->
+         panou vertical la mijloc. Fața vestică rămâne deschisă, fiindcă pe acolo intră scula;
+         lungimea dulapului stă pe nord-sud, ca brațul să se rotească 90° de la banda 2 până la
+         raft. Rafturile și despărțitorul sunt verzi, iar carcasa gri. Numărul rafturilor, cotele
+         și așezarea ies din plan (`docs/diagrams/cell_layout.py`). -->
     <body name="rack" pos="{rack_cx} {rack_cy} 0">
-      <!-- Carcasa: lateralele și spatele pe toată înălțimea, fundul și capacul între ele. -->
-      <geom name="rack_side_west" type="box" size="{rack_side_hx} {rack_side_hy} {rack_side_hz}"
-            pos="{rack_side_west_dx} 0 {rack_side_z}" material="frame_mat"/>
-      <geom name="rack_side_east" type="box" size="{rack_side_hx} {rack_side_hy} {rack_side_hz}"
-            pos="{rack_side_east_dx} 0 {rack_side_z}" material="frame_mat"/>
+      <!-- Carcasa: lateralele de nord și sud, spatele de est, fundul și capacul. -->
+      <geom name="rack_side_south" type="box" size="{rack_side_hx} {rack_side_hy} {rack_side_hz}"
+            pos="0 {rack_side_south_dy} {rack_side_z}" material="frame_mat"/>
+      <geom name="rack_side_north" type="box" size="{rack_side_hx} {rack_side_hy} {rack_side_hz}"
+            pos="0 {rack_side_north_dy} {rack_side_z}" material="frame_mat"/>
       <geom name="rack_back" type="box" size="{rack_back_hx} {rack_back_hy} {rack_back_hz}"
-            pos="0 {rack_back_dy} {rack_back_z}" material="frame_mat"/>
+            pos="{rack_back_dx} 0 {rack_back_z}" material="frame_mat"/>
       <geom name="rack_bottom" type="box" size="{rack_board_hx} {rack_board_hy} {rack_board_hz}"
             pos="0 0 {rack_bottom_z}" material="frame_mat"/>
       <geom name="rack_top" type="box" size="{rack_board_hx} {rack_board_hy} {rack_board_hz}"
@@ -156,18 +156,18 @@
       <!-- Cele trei rafturi: fața de sus a fiecărui blat este chiar cota podelei compartimentului. -->
       <geom name="rack_shelf_1" type="box"
             size="{rack_shelf_hx} {rack_shelf_hy} {rack_shelf_hz}"
-            pos="0 {rack_shelf_dy} {rack_shelf_1_z}" material="rack_mat"/>
+            pos="{rack_shelf_dx} 0 {rack_shelf_1_z}" material="rack_mat"/>
       <geom name="rack_shelf_2" type="box"
             size="{rack_shelf_hx} {rack_shelf_hy} {rack_shelf_hz}"
-            pos="0 {rack_shelf_dy} {rack_shelf_2_z}" material="rack_mat"/>
+            pos="{rack_shelf_dx} 0 {rack_shelf_2_z}" material="rack_mat"/>
       <geom name="rack_shelf_3" type="box"
             size="{rack_shelf_hx} {rack_shelf_hy} {rack_shelf_hz}"
-            pos="0 {rack_shelf_dy} {rack_shelf_3_z}" material="rack_mat"/>
+            pos="{rack_shelf_dx} 0 {rack_shelf_3_z}" material="rack_mat"/>
 
       <!-- Despărțitorul dintre compartimente, de la raftul de jos până sub capac. -->
       <geom name="rack_divider" type="box"
             size="{rack_divider_hx} {rack_divider_hy} {rack_divider_hz}"
-            pos="0 {rack_divider_dy} {rack_divider_z}" material="rack_mat"/>
+            pos="{rack_divider_dx} 0 {rack_divider_z}" material="rack_mat"/>
     </body>
 
     <!-- Lada de rebut, sub capătul de vest al benzii 2: podea și trei pereți, cu latura de est

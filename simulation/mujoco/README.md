@@ -215,12 +215,16 @@ Trei lecții de drum, toate măsurate:
    pe banda 2 iese din mașină exact prin colțul ei sud-vestic; brațul nu are planificator de
    traiectorie, deci intră în carcasă. Măsurat: fără punctul de trecere scula rămânea cu 880 mm de
    țintă și mâna pe mașină, cu el eroarea maximă a ciclului este 17,7 mm.
-3. **Punctul de trecere din fața dulapului** (`moves.RACK_VIA_Y`, `moves.RACK_VIA_LIFT_M`).
+3. **Punctul de trecere din fața dulapului** (`moves.RACK_VIA_X`, `moves.RACK_VIA_LIFT_M`).
    Dreapta de la preluarea de pe banda 2 până la un compartiment taie colțul dulapului la cota de
-   lucru. Trecerea stă la 1,22 m, adică 0,26 m în fața feței deschise, la 5 cm peste punctul de
-   lucru, iar apropierea propriu-zisă se face înclinat, la 45° (`moves.RACK_APPROACH_DEG`). La 30°
-   veriga 5 atingea marginea raftului 2 și scula rămânea la 95 mm de țintă; la 45° toate cele cinci
-   familii ajung în compartimente, cu eroarea maximă de 6,8 mm.
+   lucru. Trecerea stă la x = 2,92 m în dreptul compartimentului sudic și la 3,05 m în dreptul
+   celui nordic, la 5 cm peste punctul de lucru, iar apropierea propriu-zisă se face înclinat, la
+   50° în sud și 30° în nord (`moves.RACK_APPROACH_DEG`, `moves.RACK_APPROACH_NORTH_DEG`). La 45°
+   în compartimentul nordic încheietura se răsucește până la limită (85,7° eroare); la 30° intră
+   drept. Raftul de sus se atinge direct, fără trecere, fiindcă un punct în fața lui lasă brațul
+   într-o ramură din care nu mai coboară (95 mm eroare), iar retragerea păstrează 4 cm până la
+   limita de atingere. Toate cele cinci familii ajung în compartimente, cu eroarea maximă de
+   7,0 mm.
 
 Piedestalul brațelor este cota care nu se poate decide din plan. La 0,55 m ciclul **cade**: ca să
 ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar acolo
@@ -455,13 +459,16 @@ fiecare despărțit în două compartimente de un panou vertical, plus o **ladă
 de vest al benzii 2. Motivul nu este estetic: cutiile aveau pereți până la nivelul benzii, iar
 antebrațul brațului 2 trecea prin ei.
 
-Dulapul are 1,00 × 0,30 m, cu podelele la 0,85 / 1,16 / 1,41 m și fața de sus la 1,69 m. Fața
-nordică e deschisă, iar lateralele, spatele, fundul și capacul formează carcasa. Cei 0,12 m din
-spate stau în afara anvelopei brațului: fața a rămas la 0,96 m, iar punctele de așezare la 0,94 m.
-Fața de intrare și apropierea înclinată la 45° sunt perechea măsurată: la 30° veriga 5 a brațului
-atinge marginea raftului 2 și scula rămâne la 95 mm de punct; la 45° toate cele cinci familii ajung
-în compartimente, cu eroarea maximă de 6,8 mm. Un dulap cu fața mutată spre braț ar aduce raftul de
-deasupra peste antebraț.
+Dulapul are 0,30 × 1,00 m, cu podelele la 0,85 / 1,16 / 1,41 m și fața de sus la 1,69 m. Stă la
+est de brațul 2, cu lungimea pe direcția nord-sud: fața vestică, spre braț, e deschisă la
+x = 3,18 m, iar lateralele de nord și sud, spatele de est, fundul și capacul formează carcasa.
+Cei 0,30 m de adâncime se întind spre est, în afara anvelopei brațului; punctele de așezare sunt
+la x = 3,20 m. Astfel brațul se rotește aproximativ 90° între preluarea de pe bandă și raft
+(măsurat 85–89° la raftul 1), față de aproximativ 130° în așezarea anterioară. Apropierea
+înclinată are două unghiuri măsurate: 50° în compartimentul sudic, unde
+raftul 3 stă aproape de limita de atingere, și 30° în cel nordic, unde 45° răsucește încheietura
+până la limită. Toate cele cinci familii ajung în compartimente, cu eroarea maximă de 7,0 mm. Un
+dulap cu fața mutată spre braț ar aduce raftul de deasupra peste antebraț.
 
 Ordinea compartimentelor este ordinea familiilor din generator — raftul 1: `wheel_100`,
 `flange_72`; raftul 2: `bushing_68`, `wheel_60`; raftul 3: `pinion_56`, apoi un compartiment gol —,

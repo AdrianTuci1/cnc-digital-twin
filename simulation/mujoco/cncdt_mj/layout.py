@@ -68,8 +68,8 @@ RACK_COLUMNS = int(RACK["columns"])
 #: Lățimea nominală a unui compartiment, din plan: 0,5 m, o celulă de grid.
 RACK_ENTRY_M = float(cell_layout.RACK_ENTRY_M)
 
-#: Adâncimea totală a dulapului, din plan: 0,30 m, cu fața dinspre braț la 0,96 m. Cei 0,12 m
-#: din spate stau în afara anvelopei brațului; dacă fața se mută spre braț, verigile ating
+#: Adâncimea totală a dulapului, din plan: 0,30 m, cu fața deschisă la x = 3,18 m. Cei 0,30 m
+#: se întind spre est, în afara anvelopei brațului; dacă fața se mută spre braț, verigile ating
 #: marginea raftului de deasupra.
 RACK_DEPTH_M = float(cell_layout.RACK_DEPTH_M)
 
@@ -252,6 +252,11 @@ def rack_slot_index(name: str) -> int:
 def rack_shelf_of(name: str) -> int:
     """Raftul unei ținte din dulap, numerotat de jos în sus, de la 1."""
     return int(rack_entry(rack_slot_index(name) + 1)["shelf"])
+
+
+def rack_column_of(name: str) -> int:
+    """Compartimentul unei ținte pe lungimea dulapului: 1 la sud, 2 la nord."""
+    return int(rack_entry(rack_slot_index(name) + 1)["column"])
 
 
 def rack_floor_z() -> float:
@@ -449,19 +454,19 @@ def rack_geometry() -> dict[str, float]:
     """Dulapul pe familii: carcasa, cele trei rafturi și despărțitorul din mijloc.
 
     Așezarea și cotele rafturilor ies din `docs/diagrams/cell_layout.py`, iar podeaua de jos din
-    înălțimile documentate. Fața nordică rămâne deschisă; lateralele, spatele, fundul și capacul
-    închid dulapul, iar rafturile se opresc înaintea feței deschise. Dulapul are 0,30 m adâncime,
-    cu fața la 0,96 m: cei 0,12 m din spate stau în afara anvelopei brațului, iar dacă fața se
-    mută spre braț, verigile ating marginea raftului de deasupra.
+    înălțimile documentate. Fața vestică rămâne deschisă; lateralele de nord și sud, spatele de
+    est, fundul și capacul închid dulapul, iar rafturile se opresc la fața vestică. Dulapul are
+    0,30 m adâncime pe est și 1,00 m lungime pe nord-sud, ca brațul să se rotească 90° de la
+    banda 2 până la raft.
     """
     cx, cy = center(RACK)
     hx = float(RACK["w"]) / 2
     hy = float(RACK["h"]) / 2
     side = RACK_SIDE_HALF_THICKNESS
     board = RACK_SHELF_HALF_Z
-    # Rafturile pornesc de la fața din spate a carcasei și merg până la fața nordică deschisă.
-    shelf_hy = hy - RACK_SHELF_BACK_MARGIN
-    shelf_dy = RACK_SHELF_BACK_MARGIN
+    # Rafturile pornesc de la fața vestică deschisă și merg până la fața din spate a carcasei.
+    shelf_hx = hx - RACK_SHELF_BACK_MARGIN
+    shelf_dx = -RACK_SHELF_BACK_MARGIN
     divider_z0 = RACK_FLOORS[0]
     divider_z1 = RACK_TOP_Z - 2 * board
     values: dict[str, float] = {
@@ -469,37 +474,35 @@ def rack_geometry() -> dict[str, float]:
         "rack_cy": cy,
         "rack_hx": hx,
         "rack_hy": hy,
-        "rack_entry_half": RACK_ENTRY_M / 2,
-        "rack_entry_depth_half": hy,
-        # Lateralele și spatele urcă de la pardoseală până la fața de sus.
-        "rack_side_hx": side,
-        "rack_side_hy": hy,
+        # Lateralele de nord și sud și spatele de est urcă până la fața de sus.
+        "rack_side_hx": hx,
+        "rack_side_hy": side,
         "rack_side_hz": RACK_TOP_Z / 2,
         "rack_side_z": RACK_TOP_Z / 2,
-        "rack_side_west_dx": -(hx - side),
-        "rack_side_east_dx": hx - side,
-        "rack_back_hx": hx - side,
-        "rack_back_hy": side,
+        "rack_side_south_dy": -(hy - side),
+        "rack_side_north_dy": hy - side,
+        "rack_back_hx": side,
+        "rack_back_hy": hy,
         "rack_back_hz": RACK_TOP_Z / 2,
         "rack_back_z": RACK_TOP_Z / 2,
-        "rack_back_dy": -hy + side,
+        "rack_back_dx": hx - side,
         # Fundul și capacul, între laterale.
-        "rack_board_hx": hx - side,
+        "rack_board_hx": hx,
         "rack_board_hy": hy,
         "rack_board_hz": board,
         "rack_bottom_z": board,
         "rack_top_z": RACK_TOP_Z - board,
         # Rafturile, cu fața de sus chiar la cota podelei.
-        "rack_shelf_hx": hx - side,
-        "rack_shelf_hy": shelf_hy,
+        "rack_shelf_hx": shelf_hx,
+        "rack_shelf_hy": hy,
         "rack_shelf_hz": board,
-        "rack_shelf_dy": shelf_dy,
+        "rack_shelf_dx": shelf_dx,
         # Despărțitorul dintre cele două compartimente, pe toată înălțimea.
-        "rack_divider_hx": RACK_DIVIDER_HALF_THICKNESS,
-        "rack_divider_hy": shelf_hy,
+        "rack_divider_hx": shelf_hx,
+        "rack_divider_hy": RACK_DIVIDER_HALF_THICKNESS,
         "rack_divider_hz": (divider_z1 - divider_z0) / 2,
         "rack_divider_z": (divider_z1 + divider_z0) / 2,
-        "rack_divider_dy": shelf_dy,
+        "rack_divider_dx": shelf_dx,
     }
     for number, floor in enumerate(RACK_FLOORS, start=1):
         values[f"rack_shelf_{number}_z"] = floor - board
