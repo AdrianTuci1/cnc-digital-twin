@@ -13,13 +13,13 @@ scenei,
 de strângere în cadru, iar
 amândouă piesele parcurg banda la viteza de suprafață și se opresc la 13 mm peste linia de oprire a
 benzii. `view.py --demo` rulează ciclul complet — bandă, brațe, universal, schimb de material,
-bandă, raft — pentru toate cele cinci familii (**verde**), cu prindere fizică la fiecare dintre
+bandă, raft — pentru toate cele șase familii (**verde**), cu prindere fizică la fiecare dintre
 cele șase preluări pe ciclu: falcile se închid pe piesă, o leagă de mînă, o ridică și o lasă pe
 suprafața următoare. Eroarea maximă a sculei este 23 mm la compartimentul cel mai jos al raftului,
 fără nicio verigă atinsă. Colectarea datelor
 există: `make mj-record` scrie sesiuni întregi — telemetrie pe contract, metadatele cadrelor de
 inspecție, PNG-urile punctelor de vedere de proces și de prindere, plus etichetele pieselor —
-pentru toate cele cinci familii (**verde**, zece cadre pe ciclu, dintre care șase de prindere).
+pentru toate cele șase familii (**verde**, zece cadre pe ciclu, dintre care șase de prindere).
 Fereastra `CUTTING` există ca timp de așchiere, fără axe animate, iar mărimile axului vin din
 scenariul sesiunii. Scena are texturi procedurale — beton pe podea, cauciuc pe benzi, metal periat
 pe cadre și pe piese —, generate din cod și scrise lîngă rulări, ca să nu intre binare în repo.
@@ -88,10 +88,10 @@ acceptă constrângeri noi după aceea — și pornesc inactive; `session.json` 
 ciclu, jurnalul prinderilor, iar `view.py --check` refuză o scenă în care vreo clemă pornește
 activă.
 
-**Limita prinderii adevărate.** Deschiderea maximă a mâinii Panda este 80 mm, iar două familii au
-discuri mai mari: `wheel_100` are 104 mm, iar `flange_72` are 72 mm. Pentru discuri, falcile coboară
-peste fața de sus și apasă pe ea; legătura rigidă este cea care ține piesa, exact cum celula din
-Isaac Sim o leagă de griper. Pentru piesele mici (`bushing_68`, `wheel_60`, `pinion_56`) falcile
+**Limita prinderii adevărate.** Deschiderea maximă a mâinii Panda este 80 mm. `wheel_100` are
+discul de 100 mm, deci falcile coboară peste fața de sus și apasă pe ea; legătura rigidă este cea
+care ține piesa, exact cum celula din Isaac Sim o leagă de griper. `plate_84` are 84 × 56 mm și se
+prinde pe latura scurtă, iar piesele mici (`flange_72`, `bushing_68`, `wheel_60`, `pinion_56`)
 închid pe diametru. Ambele căi sînt raportate la fel: contact, deschiderea măsurată și reușita.
 
 **Variația de poziție.** Locurile de așezare de pe banda 2 și din compartimentul raftului primesc o
@@ -216,7 +216,7 @@ de aproximativ 130° în așezarea anterioară.
 
 Apropierea este înclinată, cu două unghiuri măsurate: **50° în compartimentul sudic** și **30° în
 cel nordic**. Compartimentul sudic are raftul 3 aproape de limita de atingere: la 45° punctul iese
-cu 13 mm din rază, iar la 30° cu 91 mm; la 50° toate cele cinci familii ajung,
+cu 13 mm din rază, iar la 30° cu 91 mm; la 50° compartimentele sudice ajung,
 cu eroarea maximă de **7,0 mm** și cel mult 0,9° de răsucire. Compartimentul nordic stă aproape
 drept în fața bazei, iar la 45° încheietura se răsucește până la limită (85,7° eroare); la 30°
 intră drept, fără contacte. Punctul de trecere stă la x = 2,92 m în dreptul compartimentului
@@ -232,8 +232,8 @@ carcasei, iar compartimentul de 0,50 m ține discul cel mai mare, Ø104, cu pest
 
 Fiecare compartiment ține o familie de piese, în ordinea din plan (`docs/diagrams/cell_layout.py`)
 și din generator (`cnc_cell/parts/gear.py`): raftul 1 — `wheel_100`, `flange_72`; raftul 2 —
-`bushing_68`, `wheel_60`; raftul 3 — `pinion_56`, iar al doilea compartiment rămâne gol, ca în
-dulapul real. Compartimentele se umplu de la sud la nord, iar fiecare poartă chiar ținta familiei
+`bushing_68`, `wheel_60`; raftul 3 — `pinion_56` și `plate_84`. Compartimentele se umplu de la
+sud la nord, iar fiecare poartă chiar ținta familiei
 ei. Un test verifică potrivirea celor două ordini, ca dulapul să nu adune familiile în altă ordine
 decât le învață clasificatorul. Codurile citite de pe raft sunt amânate deliberat: vezi
 `docs/10-dataset-piese.md`.
@@ -287,7 +287,7 @@ scoate însă piedica de la preluare:
 ca să ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar la
 0,55 m platforma este deasupra lui — măsurat, `arm2_link3↔belt_out` la punctul de deasupra, cu
 106 mm eroare rămasă, iar compartimentele dulapului nu mai pot fi atinse (`arm2_link3↔rack`). La
-0,95 m `view.py --demo` încheie ciclul pentru toate cele cinci familii, cu eroarea maximă a sculei
+0,95 m `view.py --demo` încheie ciclul pentru toate cele șase familii, cu eroarea maximă a sculei
 de 23 mm la compartimentul cel mai jos al raftului (21-23 mm) și 6,8 mm în restul, fără nicio
 verigă atinsă. Cota
 documentată a piedestalului este 0,95 m (secțiunea 10), iar `view.py --base-z` o poate coborî
@@ -761,7 +761,7 @@ de oprire din plan și viewer cu benzile pornite) și **ciclul complet cu prinde
 (`grasp.py`, `grasp_cycle.py`): `moves.py` ține punctele de lucru ale fiecărui braț, `arms.py` le
 atinge cu cinematică inversă, urmărind linii drepte în spațiul sculei, iar la fiecare punct falcile
 se închid pe piesă și legătura `weld` o ține de mînă. `view.py --check` este verde, `view.py --demo`
-rulează ciclul pentru toate cele cinci familii, iar testele geamănului acoperă partea pură
+rulează ciclul pentru toate cele șase familii, iar testele geamănului acoperă partea pură
 (`tests/unit/test_mujoco_scene.py`) și contractele colectării
 (`tests/unit/test_mj_telemetry.py`).
 
@@ -779,8 +779,8 @@ lângă ele; `cncdt_mj/export.py` verifică sesiunile înainte, iar `publish.py`
 (secțiunea 4, „Colectarea și urcarea în bucket").
 
 Criteriul fazei 2 este **atins în simulare**: un ciclu complet ține ~70 s simulați, deci
-`--cycles 10` acoperă cele zece minute, iar zece rulări de probă (cinci familii × două semințe) s-au
-încheiat cu 6/6 prinderi pe ciclu și fără piese pierdute. Ce rămîne deschis: mașina nu are axe
+`--cycles 10` acoperă cele zece minute, iar douăsprezece rulări de probă (șase familii × două
+semințe) s-au încheiat cu 6/6 prinderi pe ciclu și fără piese pierdute. Ce rămîne deschis: mașina nu are axe
 (fereastra `CUTTING` este timp, nu mișcare), degradarea camerei nu se aplică încă, iar legătura de
 prindere nu slăbește cu uzura. Toleranțele verificării sînt 25 mm pentru poziția sculei și 60 mm
 pentru locul piesei în raft: compartimentul cel mai jos și cel mai apropiat de bază cere brațul
@@ -828,6 +828,6 @@ atinge contractele publicate.
    puneau pereții cutiilor, dar a rămas banda 2: ca să ridice piesa
    de pe ea, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar la 0,55 m platforma este
    deasupra lui (`arm2_link3↔belt_out`, 106 mm eroare), iar compartimentele dulapului devin de
-   neatins. La 0,95 m ciclul se încheie pentru toate cele cinci familii, fără nicio verigă atinsă.
+   neatins. La 0,95 m ciclul se încheie pentru toate cele șase familii, fără nicio verigă atinsă.
    Verdictul de calitate rămâne al camerei de pe flanșa brațului 2, care fotografiază piesa ținută
    în falci, la ~2,6 px/mm.

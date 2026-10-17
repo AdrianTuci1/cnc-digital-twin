@@ -256,7 +256,7 @@ MJ_PY      := $(ROOT)/$(MJ_DIR)/.venv/bin/python
 MJ_MJPYTHON := $(ROOT)/$(MJ_DIR)/.venv/bin/mjpython
 # Familiile de piese pe care le parcurge `make mj-demo`. Ciclul atinge locul familiei în raft, deci
 # fiecare familie este o probă separată; `make mj-demo MJ_FAMILIES=wheel_100` scurtează proba.
-MJ_FAMILIES ?= wheel_100 flange_72 bushing_68 wheel_60 pinion_56
+MJ_FAMILIES ?= wheel_100 flange_72 bushing_68 wheel_60 pinion_56 plate_84
 # Câte cicluri adună `make mj-record` pentru fiecare familie. Un ciclu ajunge ca să vezi
 # fișierele; o sesiune de antrenare vrea zeci, deci se dă de pe linia de comandă.
 MJ_RECORD_CYCLES ?= 1

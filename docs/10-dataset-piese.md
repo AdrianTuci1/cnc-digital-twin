@@ -1,15 +1,16 @@
 # Datasetul de piese: familii, generator, etichete
 
-Piesele celulei sunt **roți dințate plane**, grupate în familii. Acest document explică de
-unde vin variantele, cum se nasc etichetele și unde se trage linia între antrenare și
-inferență.
+Piesele celulei sunt **roți dințate plane și o placă de montaj**, grupate în familii. Acest
+document explică de unde vin variantele, cum se nasc etichetele și unde se trage linia între
+antrenare și inferență.
 
 ## Ce produce generatorul
 
 `simulation/extensions/cncdt.cnc_cell/cncdt/cnc_cell/parts/gear.py` construiește piesa
-direct, din inele 2D, fără operații booleene: conturul dințat, alezajul (cu sau fără pană de
-cheie) și fiecare gaură sunt câte un inel propriu, fețele se triangulează cu `mapbox-earcut`
-(acceptă inele interioare), iar pereții se ridică între cele două fețe.
+direct, din inele 2D, fără operații booleene: conturul exterior (dințat ori dreptunghiular cu
+colțuri rotunjite), alezajul (cu sau fără pană de cheie) și fiecare gaură sunt câte un inel
+propriu, fețele se triangulează cu `mapbox-earcut` (acceptă inele interioare), iar pereții se
+ridică între cele două fețe.
 
 Fiecare **defect este o schimbare de parametri**, nu o operație pe geometrie. De aici vine
 proprietatea care contează: geometria randată și eticheta provin din același obiect, deci nu
@@ -31,25 +32,31 @@ Ieșirea ajunge în `ml/artifacts/parts/` (ignorat de git). Modulul are nevoie d
 
 ## Familiile de piese
 
-Tabelul `FAMILIES` din generator este singura sursă de adevăr pentru familii. Toate sunt
-roți dințate plane — același proces, aceeași sculă — dar diferă în plan, fiindcă de sus, din
-camera de inspecție, se vede silueta, iar grosimea aproape deloc.
+Tabelul `FAMILIES` din generator este singura sursă de adevăr pentru familii. Cinci sunt roți
+dințate plane, iar a șasea este o placă dreptunghiulară cu colțuri rotunjite — același proces,
+aceeași sculă — dar diferă în plan, fiindcă de sus, din camera de inspecție, se vede silueta,
+iar grosimea aproape deloc.
 
-| Familie | Diametru | Dinți | Alezaj | Pană | Găuri de buloane | Grosime | Prindere |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `wheel_100` | Ø100 | 18 | Ø40 | 12 × 5 | 5 × Ø9 pe R35 | 15 | peste fălci (piesa de referință) |
-| `flange_72` | Ø72 | 24 | Ø28 | — | 3 × Ø6 pe R24 | 10 | între fălci |
-| `bushing_68` | Ø68 | 20 | Ø30 | — | 3 × Ø7 pe R22 | 14 | între fălci |
-| `wheel_60` | Ø60 | 18 | Ø20 | 6 × 3,5 | 5 × Ø5 pe R18,5 | 15 | între fălci |
-| `pinion_56` | Ø56 | 12 | Ø14 | 5 × 3 | 4 × Ø6 pe R15,5 | 12 | între fălci |
+| Familie | Formă | Gabarit | Dinți | Alezaj | Pană | Găuri de buloane | Grosime | Prindere |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `wheel_100` | roată | Ø100 | 18 | Ø40 | 12 × 5 | 5 × Ø9 pe R35 | 15 | peste fălci (piesa de referință) |
+| `flange_72` | roată | Ø72 | 24 | Ø28 | — | 3 × Ø6 pe R24 | 10 | între fălci |
+| `bushing_68` | roată | Ø68 | 20 | Ø30 | — | 3 × Ø7 pe R22 | 14 | între fălci |
+| `wheel_60` | roată | Ø60 | 18 | Ø20 | 6 × 3,5 | 5 × Ø5 pe R18,5 | 15 | între fălci |
+| `pinion_56` | roată | Ø56 | 12 | Ø14 | 5 × 3 | 4 × Ø6 pe R15,5 | 12 | între fălci |
+| `plate_84` | placă | 84 × 56, colțuri R8 | — | Ø18 | — | 4 × Ø6 pe R20 | 12 | pe latura de 56 mm |
+
+Placa are diametrul cercului care o încadrează de 101 mm, dar se prinde pe latura scurtă, de
+56 mm, deci încape între fălcile de 80 mm. Silueta dreptunghiulară este și motivul pentru care
+apare în celulă: la o rulare, se vede imediat că piesa nu este o roată.
 
 Regulile pe care tabelul le respectă, verificate în `tests/unit/test_part_generator.py`:
 
-- **diametrele diferă cu cel puțin 4 mm**, iar numerele de dinți sunt distincte. Sub asta
-  siluetele se confundă la rezoluția camerei de inspecție;
+- **formele se deosebesc vizual**: diametrele roților diferă cu cel puțin 4 mm, iar placa are
+  siluetă dreptunghiulară. Sub asta siluetele se confundă la rezoluția camerei de inspecție;
 - **familiile trec validarea și rămân la distanță de fiecare defect**: alezajul mărit cu
   2 mm nu are voie să ajungă în cercul de găuri, gaura deplasată cu 2,5 mm nu are voie să
-  iasă din coroană, iar lățimile dinților trebuie să rămână valide și la 17 ori 19 dinți.
+  iasă din margine, iar lățimile dinților trebuie să rămână valide și la 17 ori 19 dinți.
   Fără marje, o variantă iese din propria siluetă ori, mai rău, arată exact ca piesa nominală;
 - **familiile mici încap între fălcile de 80 mm ale prinzătorului**, deci acolo prinderea
   poate fi reală. Piesa de referință, Ø100, e prea mare și rămâne prinsă prin constrângere
@@ -86,8 +93,9 @@ imagine.
 
 Magnitudinile sunt fixe, aceleași pe toate familiile: sunt dimensiuni de defect, nu fracțiuni
 din piesă. `KEYWAY_MISSING` are sens doar pe familiile cu pană — `PartFamily.defect_classes()`
-o scoate din liste pentru `flange_72` și `bushing_68`, iar generatorul refuză combinația, ca
-să nu apară o etichetă de rebut pe geometrie corectă.
+o scoate din liste pentru `flange_72` și `bushing_68` —, iar defectele `TOOTH_*` lipsesc la
+`plate_84`, care nu are dinți. Generatorul refuză combinațiile, ca să nu apară o etichetă de
+rebut pe geometrie corectă.
 
 ## Trei reguli de design care nu se văd din cod
 

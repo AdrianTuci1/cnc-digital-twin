@@ -167,7 +167,7 @@ atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care a
 | Fișier | Ce conține |
 | --- | --- |
 | `cncdt_mj/layout.py` | Așezarea în plan și înălțimile. Coordonatele `(x, y)` **nu** se transcriu: se importă din `docs/diagrams/cell_layout.py`, ca planul și scena să nu se poată contrazice. Înălțimile `Z` se scriu aici, cu fragmentul din documentație de care aparțin. **Fără MuJoCo.** |
-| `cncdt_mj/part.py` | Cele două stări ale materialului: blocul brut (disc cu adaos de prelucrare) și roata dințată din generator. Geometria iese în milimetri, în planul `XY`, cu grosimea pe `Z`; se scalează în metri. Aici stau și pozițiile de așezare: `stopped_xy` pentru piesa așezată la linia de oprire a benzii, `on_belt_xy` pentru una cerută explicit. **Fără MuJoCo.** |
+| `cncdt_mj/part.py` | Cele două stări ale materialului: blocul brut (disc cu adaos de prelucrare) și piesa din generator (roată ori placă). Geometria iese în milimetri, în planul `XY`, cu grosimea pe `Z`; se scalează în metri. Aici stau și pozițiile de așezare: `stopped_xy` pentru piesa așezată la linia de oprire a benzii, `on_belt_xy` pentru una cerută explicit. **Fără MuJoCo.** |
 | `cncdt_mj/belt.py` | Benzile: direcția fiecărei benzi, viteza de suprafață și forța de antrenare cu limita de frecare Coulomb. **Fără MuJoCo.** |
 | `cncdt_mj/checks.py` | Regulile verificării care lucrează pe nume de corpuri și pe cifre, nu pe starea motorului (de pildă care contacte ale unui braț sunt normale), plus pragurile verificării, împărțite cu `view.py`. **Fără MuJoCo.** |
 | `cncdt_mj/moves.py` | Mișcările: ce puncte deservește fiecare braț, în ce ordine, din ce parte vine scula, cu ce rotire și prin ce puncte de trecere. Cotele punctelor de lucru ies din înălțimile documentate. **Fără MuJoCo.** |
@@ -223,7 +223,7 @@ același unghi).
 Țintele de prindere, măsurate **în spațiu** de la baza brațului, față de raza de 0,855 m din plan:
 brațul 1 ajunge la 0,704 m (preluare bandă 1), 0,730 m (mașină) și 0,723 m (așezare bandă 2);
 brațul 2 la 0,461 m (preluare bandă 2) și la compartimentele dulapului: 0,721 m și 0,510 m pe
-raftul 1, 0,744 m și 0,542 m pe raftul 2, 0,850 m pe raftul 3.
+raftul 1, 0,744 m și 0,542 m pe raftul 2, 0,850 m și 0,679 m pe raftul 3.
 Planul măsoară doar în plan, iar `docs/11-geaman-mujoco.md` spune
 explicit că o țintă poate părea la îndemână în desen și să fie prea sus — verificarea de aici este
 cea în spațiu.
@@ -279,7 +279,7 @@ Trei lecții de drum, toate măsurate:
    în compartimentul nordic încheietura se răsucește până la limită (85,7° eroare); la 30° intră
    drept. Raftul de sus se atinge direct, fără trecere, fiindcă un punct în fața lui lasă brațul
    într-o ramură din care nu mai coboară (95 mm eroare), iar retragerea păstrează 4 cm până la
-   limita de atingere. Toate cele cinci familii ajung în compartimente, cu eroarea maximă de
+   limita de atingere. Toate cele șase familii ajung în compartimente, cu eroarea maximă de
    23 mm — la compartimentul cel mai jos și cel mai apropiat de bază, unde brațul stă îndoit la
    limită.
 
@@ -287,13 +287,13 @@ Piedestalul brațelor este cota care nu se poate decide din plan. La 0,55 m cicl
 ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar acolo
 platforma este deasupra lui (`arm2_link3↔belt_out`, 106 mm eroare la punctul de deasupra), iar
 compartimentele dulapului devin de neatins (`arm2_link3↔rack`, peste 1 m eroare). La 0,95 m, cota
-documentată acum, `make mj-demo` încheie ciclul pentru toate cele cinci familii: 23 mm eroare
-maximă pe cele 85 de opriri — 21–23 mm la compartimentul cel mai jos, 6,8 mm în restul —, 6/6
+documentată acum, `make mj-demo` încheie ciclul pentru toate cele șase familii: 23 mm eroare
+maximă pe cele 118 opriri — 21–23 mm la compartimentul cel mai jos, 6,8 mm în restul —, 6/6
 prinderi pe ciclu, nicio verigă atinsă, ~70 s simulați pe familie.
 Alegerea este scrisă în `docs/11-geaman-mujoco.md` §2 și §10. `view.py --base-z` coboară cota
 pentru măsurători.
 
-Dulapul, pe rând: la 0,95 m, toate cele cinci compartimente cu familie se ating, cu eroare maximă
+Dulapul, pe rând: la 0,95 m, toate cele șase compartimente se ating, cu eroare maximă
 de 23 mm, la cel mai jos; la 0,55 m, compartimentele devin de neatins. Deci
 dulapul a scos piedica pe care o puneau cutiile adânci; ce a rămas la 0,55 m este banda 2 în sine,
 nu sortarea.
@@ -512,7 +512,7 @@ cadru:
 
 1. **`blank_01`** — blocul brut, pe banda 1, în ținta de preluare a brațului 1. Este un disc cu
    adaos de prelucrare (rază 52 mm, grosime 18 mm), nu piesa finită.
-2. **`part_01`** — roata dințată ieșită din CNC, pe masa de descărcare a mașinii, lîngă universal,
+2. **`part_01`** — piesa ieșită din CNC, pe masa de descărcare a mașinii, lîngă universal,
    pînă la schimbul de material.
 
 Transformarea dintre ele se petrece în mașină și **nu** se modelează aici: generatorul descrie
@@ -538,7 +538,7 @@ la x = 3,20 m. Astfel brațul se rotește aproximativ 90° între preluarea de p
 (măsurat 85–89° la raftul 1), față de aproximativ 130° în așezarea anterioară. Apropierea
 înclinată are două unghiuri măsurate: 50° în compartimentul sudic, unde
 raftul 3 stă aproape de limita de atingere, și 30° în cel nordic, unde 45° răsucește încheietura
-până la limită. Toate cele cinci familii ajung în compartimente, cu eroarea maximă de 7,0 mm. Un
+până la limită. Toate cele șase familii ajung în compartimente, cu eroarea maximă de 7,0 mm. Un
 dulap cu fața mutată spre braț ar aduce raftul de deasupra peste antebraț.
 
 Ordinea compartimentelor este ordinea familiilor din generator — raftul 1: `wheel_100`,
@@ -553,7 +553,7 @@ Lada de rebut are marginea la 0,62 m, sub nivelul benzii, și **fără perete la
 capătul de vest al benzii: piesa neconformă nu are punct de lucru, rămâne pe bandă până la capătul
 ei și cade în ladă. Un perete chiar acolo ar prinde-o și ar ține-o afară.
 
-### Cele cinci familii, în imagini
+### Cele șase familii, în imagini
 
 Cîte un cadru reprezentativ pentru fiecare familie, randat cu `cncdt_mj/part_render.py` din
 generatorul procedural (seed 7, clasă `PASS`, 640×640):
@@ -578,6 +578,11 @@ generatorul procedural (seed 7, clasă `PASS`, 640×640):
 
 `pinion_56` — Ø56, 12 dinți rari, alezaj Ø14 cu pană, 4 găuri.
 
+![](renders/parts/plate_84.png)
+
+`plate_84` — 84 × 56 mm, colțuri R8, alezaj Ø18, 4 găuri Ø6. Singura piesă fără siluetă
+circulară, ca rularea să arate imediat altceva decât o roată.
+
 ## Stare cunoscută
 
 La sămânța 7, `view.py --check` este **verde**: scena se compilează fără avertismente, țintele cad
@@ -586,14 +591,14 @@ pragul de pixeli. Transportul pe benzi merge: amândouă piesele
 ajung la linia de oprire a benzii și se opresc 13 mm peste ea, fără să cadă din geometrie.
 
 `view.py --demo` este **verde** (`make mj-demo`), la cota documentată a piedestalului: 23 mm
-eroare maximă pe cele 85 de opriri — 17 pe fiecare dintre cele cinci familii —, 6/6 prinderi pe
+eroare maximă pe cele 118 opriri — 19–20 pe fiecare dintre cele șase familii —, 6/6 prinderi pe
 ciclu, nicio verigă a brațelor atinsă, ~70 s simulate, iar piesa ajunge în compartimentul familiei
 și blocul pe masa de descărcare. Cifrele ciclului și calea lui sunt în secțiunea „Brațele" de mai
 sus.
 
-`make mj-record` este **verde** pe toate cele cinci familii, cu un ciclu fiecare: zece cadre pe
-ciclu, dintre care șase de prindere, 792–816 eșantioane în contract pe sesiune, 79–81 s simulați
-în 4,3–4,8 s de ceas real (de circa 18 ori mai repede decât ritmul real). `session.json`
+`make mj-record` este **verde** pe toate cele șase familii, cu un ciclu fiecare: zece cadre pe
+ciclu, dintre care șase de prindere, 790–823 eșantioane în contract pe sesiune, 79–82 s simulați
+în 3,6–4,9 s de ceas real (de 17–22 de ori mai repede decât ritmul real). `session.json`
 păstrează jurnalul celor șase prinderi ale fiecărui ciclu, cu contact, deschidere și reușită.
 Cadrele de pe flanșa brațului 2 și cel general se citesc cu ochiul.
 
@@ -645,5 +650,5 @@ trecerile), `arms.py` (cinematica inversă, urmărirea liniei, lungimea sculei m
 (ridicarea după fiecare punct, trecerea pe la vest de mașină) și testele pure noi pentru treceri și
 pentru ordinea pașilor. Tot acolo: camerele de pe flanșe (`scene.wrist_camera_quat`, orientarea
 calculată la compunere) și pipeline-ul de colectare (`povs.py`, `sensors.py`, `camera.py`,
-`telemetry.py`, `run.py`) cu ținta `make mj-record`, verificat pe toate cele cinci familii, plus
+`telemetry.py`, `run.py`) cu ținta `make mj-record`, verificat pe toate cele șase familii, plus
 testele pure din `tests/unit/test_mj_telemetry.py`.

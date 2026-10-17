@@ -63,8 +63,8 @@ BELT_OUT = dict(name="outfeed_conveyor", kind="belt", x=0.8, y=1.8, w=3.8, h=0.4
 CNC = dict(name="cnc_3axis", kind="cnc", x=3.4, y=2.65, w=1.0, h=0.8)
 
 # Dulapul pe familii stă la est de brațul 2, cu lungimea pe direcția nord-sud, și are trei rafturi
-# suprapuse, fiecare despărțit în două compartimente: șase locuri, dintre care cinci țin câte o
-# familie, iar al șaselea rămâne gol. Este forma dulapului real, nu o masă cu intrări separate.
+# suprapuse, fiecare despărțit în două compartimente: șase locuri, câte unul pentru fiecare
+# familie. Este forma dulapului real, nu o masă cu intrări separate.
 # Lungimea pe nord-sud pune compartimentele la 90° față de banda 2, deci brațul se rotește ~90° de
 # la preluare până la așezare, în loc de ~130° cât ar fi cu dulapul paralel cu banda.
 #
@@ -108,15 +108,15 @@ RACK_PICK_X = RACK_X + 0.02
 
 #: Intrările dulapului, în ordinea de umplere: raftul de jos de la sud la nord, apoi cele de
 #: deasupra. Coordonatele `x` și `y` sunt colțul sud-vest al compartimentului, ca la celelalte
-#: amprente din plan; cota podelei se scrie aici ca să se poată citi din desen. Ultimul
-#: compartiment rămâne fără familie.
+#: amprente din plan; cota podelei se scrie aici ca să se poată citi din desen. Toate cele
+#: șase compartimente au acum o familie.
 RACK_ENTRIES = (
     dict(index=1, shelf=1, column=1, family="wheel_100", x=RACK_X, y=RACK_Y, floor=0.85),
     dict(index=2, shelf=1, column=2, family="flange_72", x=RACK_X, y=RACK_Y + 0.5, floor=0.85),
     dict(index=3, shelf=2, column=1, family="bushing_68", x=RACK_X, y=RACK_Y, floor=1.16),
     dict(index=4, shelf=2, column=2, family="wheel_60", x=RACK_X, y=RACK_Y + 0.5, floor=1.16),
     dict(index=5, shelf=3, column=1, family="pinion_56", x=RACK_X, y=RACK_Y, floor=1.41),
-    dict(index=6, shelf=3, column=2, family=None, x=RACK_X, y=RACK_Y + 0.5, floor=1.41),
+    dict(index=6, shelf=3, column=2, family="plate_84", x=RACK_X, y=RACK_Y + 0.5, floor=1.41),
 )
 
 #: Gabaritul întregului dulap, pentru tabelul de coordonate: reuniunea compartimentelor,
@@ -136,7 +136,9 @@ RACK = dict(
 # Numele familiilor, în ordinea de umplere a compartimentelor: raftul de jos de la sud la nord,
 # apoi cele de deasupra. Sunt aceleași nume ca în `cnc_cell/parts/gear.py`; un test verifică
 # potrivirea, ca planul și generatorul să nu se despartă.
-RACK_FAMILIES = ("wheel_100", "flange_72", "bushing_68", "wheel_60", "pinion_56")
+RACK_FAMILIES = (
+    "wheel_100", "flange_72", "bushing_68", "wheel_60", "pinion_56", "plate_84",
+)
 
 
 def rack_entry(index: int) -> dict:
@@ -208,7 +210,7 @@ TARGETS = [
     dict(name="belt2_pick", key="arm2", x=2.7, y=2.0, label="preluare de pe banda 2"),
     # Fiecare familie are compartimentul ei: piesa se lasă culcată pe podeaua raftului, aproape de
     # fața vestică, iar compartimentele se umplu în ordinea din listă — raftul de jos de la sud la
-    # nord, apoi cele de deasupra. Al șaselea compartiment rămâne gol.
+    # nord, apoi cele de deasupra. Toate șase au o familie.
     *(
         dict(name=f"rack_{family}", key="arm2", slot=index,
              x=rack_entry_center(index + 1)[0], y=rack_entry_center(index + 1)[1],

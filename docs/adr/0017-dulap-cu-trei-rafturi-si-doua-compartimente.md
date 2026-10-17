@@ -44,8 +44,9 @@ Trei constrângeri au fost măsurate în scenă, nu deduse din desen:
    dulapului) și 5 cm peste punctul de lucru. Coborârea de sus este exclusă: ar trece prin raftul
    de deasupra.
 4. **Familiile se așază raft cu raft, de la vest la est**: raftul 1 — `wheel_100`, `flange_72`;
-   raftul 2 — `bushing_68`, `wheel_60`; raftul 3 — `pinion_56`, iar al doilea compartiment rămâne
-   gol, ca în dulapul real. Planul (`docs/diagrams/cell_layout.py`) rămâne singura sursă pentru
+   raftul 2 — `bushing_68`, `wheel_60`; raftul 3 — `pinion_56`, iar al doilea compartiment
+   rămâne gol la data deciziei (ADR 0020 îl umple cu `plate_84`). Planul
+   (`docs/diagrams/cell_layout.py`) rămâne singura sursă pentru
    așezare și cote; scena desenează carcasa, rafturile și despărțitorul din
    `layout.rack_geometry()`.
 5. **Din ADR 0014 rămân valabile** verdictul de calitate de la camera de pe flanșa brațului 2,
@@ -53,7 +54,8 @@ Trei constrângeri au fost măsurate în scenă, nu deduse din desen:
 
 ## Consecințe
 
-- `make mj-demo` este verde pentru toate cele cinci familii: eroarea maximă în compartimente este
+- `make mj-demo` este verde pentru cele cinci familii de atunci (ADR 0020 adaugă a șasea):
+  eroarea maximă în compartimente este
   **6,8 mm**, fără nicio verigă atinsă; eroarea maximă a ciclului era 17,7 mm la așezarea pe
   banda 2. O familie dura 57–59 s simulați. ADR 0019 ridică eroarea maximă la 23 mm, în
   compartimentul cel mai jos, și lungimea ciclului la ~70 s.
@@ -83,5 +85,5 @@ Trei constrângeri au fost măsurate în scenă, nu deduse din desen:
 | Dulap cu fața mutată spre braț la 0,24–0,30 m | Antebrațul intră în carcasă; mâna nu mai are loc sub raftul de deasupra. |
 | Rafturi aliniate, cu brațul retras | Scoate brațul 2 din raza benzii 2 ori a lăzii de rebut; baza lui este acolo din măsurători de atingere. |
 | Apropiere verticală, de sus | Mâna ar trece prin raftul de deasupra; anvelopa coboară sub punct. |
-| Al șaselea compartiment cu o familie | Generatorul are cinci familii; un compartiment etichetat suplimentar ar cere o clasă care nu există. |
+| Al șaselea compartiment cu o familie | Generatorul avea cinci familii; un compartiment etichetat suplimentar ar fi cerut o clasă care nu exista. ADR 0020 adaugă `plate_84` și umple compartimentul. |
 | Păstrarea raftului cubic din ADR 0014 | Nu redă dulapul real și ține toate piesele la aceeași cotă, deci nu apare variația de înălțime în date. |

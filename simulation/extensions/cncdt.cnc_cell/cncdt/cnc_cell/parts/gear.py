@@ -1,10 +1,12 @@
-"""Generatorul procedural al roților dințate.
+"""Generatorul procedural al pieselor plane din celulă.
 
 Piesa de referință este o roată dințată plană: contur dințat, alezaj central cu pană de
-cheie și un cerc de găuri de buloane. Meshul este construit direct, din inele 2D, fără
-operații booleene la runtime:
+cheie și un cerc de găuri de buloane. Generatorul face și **plăci dreptunghiulare cu colțuri
+rotunjite**, ca silueta din celulă să nu fie mereu circulară. Meshul este construit direct,
+din inele 2D, fără operații booleene la runtime:
 
-* conturul dințat, alezajul (cu sau fără pană) și fiecare gaură sunt câte un inel 2D;
+* conturul exterior (dințat ori dreptunghiular), alezajul (cu sau fără pană) și fiecare gaură
+  sunt câte un inel 2D;
 * fețele de sus și de jos se triangulează cu `mapbox_earcut`, care acceptă inele interioare;
 * pereții laterali se ridică între cele două fețe, folosind aceiași indici.
 
@@ -65,6 +67,11 @@ DEFECT_CLASSES: tuple[str, ...] = (
     DEFECT_BOLT_PATTERN_ROTATED,
 )
 
+# Formele de contur. Rotația are dinți; placa are colțuri rotunjite și muchii drepte.
+SHAPE_GEAR = "gear"
+SHAPE_PLATE = "plate"
+SHAPES: tuple[str, ...] = (SHAPE_GEAR, SHAPE_PLATE)
+
 # Ponderea lui PASS în eșantionarea aleatoare. Restul se împarte egal între defecte.
 PASS_WEIGHT = 0.35
 
@@ -105,8 +112,37 @@ class GearParams:
     chipped_teeth: tuple[int, ...] = ()
     missing_holes: tuple[int, ...] = ()
     hole_radial_offsets: tuple[tuple[int, float], ...] = ()
+    shape: str = SHAPE_GEAR
+    half_width: float = 0.0
+    half_height: float = 0.0
+    corner_radius: float = 0.0
 
     def __post_init__(self) -> None:
+        if self.shape not in SHAPES:
+            raise ValueError(f"formă necunoscută: {self.shape!r}; cunoscute: {SHAPES}")
+        if self.thickness <= 0:
+            raise ValueError("grosimea trebuie să fie pozitivă")
+        if self.bolt_count < 1:
+            raise ValueError("piesa are nevoie de cel puțin o gaură de buloane")
+        # Adâncimea penei contează doar la piesele care au pană: o piesă fără pană are
+        # alezajul rotund, iar un `keyway_depth` rămas în parametri nu lărgește golul.
+        keyway_depth = self.keyway_depth if self.keyway else 0.0
+        if self.shape == SHAPE_PLATE:
+            if self.half_width <= 0 or self.half_height <= 0:
+                raise ValueError("placa are laturi pozitive")
+            margin = min(self.half_width, self.half_height)
+            if not 0 < self.corner_radius < margin:
+                raise ValueError("colțul plăcii trebuie să încapă între laturi")
+            if self.outer_radius + 1e-9 < math.hypot(self.half_width, self.half_height):
+                raise ValueError("outer_radius trebuie să acopere placa")
+            if self.bore_radius > 0 and self.bore_radius + keyway_depth >= margin:
+                raise ValueError("alezajul iese din placă")
+            inner = self.bolt_circle_radius - self.hole_radius
+            if self.bore_radius > 0 and inner <= self.bore_radius + keyway_depth:
+                raise ValueError("găurile de buloane intră în alezaj")
+            if self.bolt_circle_radius + self.hole_radius >= margin:
+                raise ValueError("găurile de buloane ies din placă")
+            return
         if self.teeth < 3:
             raise ValueError("piesa are nevoie de cel puțin 3 dinți")
         if not self.root_radius < self.outer_radius:
@@ -121,22 +157,15 @@ class GearParams:
             )
         if len(self.missing_teeth) + len(self.chipped_teeth) >= self.teeth:
             raise ValueError("nu pot lipsi toți dinții")
-        # Adâncimea penei contează doar la piesele care au pană: o piesă fără pană are
-        # alezajul rotund, iar un `keyway_depth` rămas în parametri nu lărgește golul.
-        keyway_depth = self.keyway_depth if self.keyway else 0.0
         if self.bore_radius > 0:
             if self.bore_radius + keyway_depth >= self.root_radius:
                 raise ValueError("alezajul iese din coroana dintată")
-        if self.bolt_count < 1:
-            raise ValueError("piesa are nevoie de cel puțin o gaură de buloane")
         inner = self.bolt_circle_radius - self.hole_radius
         outer = self.bolt_circle_radius + self.hole_radius
         if self.bore_radius > 0 and inner <= self.bore_radius + keyway_depth:
             raise ValueError("găurile de buloane intră în alezaj")
         if outer >= self.root_radius:
             raise ValueError("găurile de buloane ies din coroana dintată")
-        if self.thickness <= 0:
-            raise ValueError("grosimea trebuie să fie pozitivă")
 
     def as_dict(self) -> dict[str, Any]:
         """Reprezentare serializabilă, pentru manifestul de etichete."""
@@ -159,6 +188,10 @@ class GearParams:
             "chipped_teeth": list(self.chipped_teeth),
             "missing_holes": list(self.missing_holes),
             "hole_radial_offsets": [list(item) for item in self.hole_radial_offsets],
+            "shape": self.shape,
+            "half_width": self.half_width,
+            "half_height": self.half_height,
+            "corner_radius": self.corner_radius,
         }
 
     @classmethod
@@ -179,14 +212,15 @@ NOMINAL = _nominal_params()
 
 # ------------------------------------------------------------------ familiile de piese
 
-# Familiile care intră în celulă. Sunt toate roți dințate plane — același proces, aceeași
-# sculă — dar diferă în plan: diametru, număr de dinți, alezaj, pană de cheie și cerc de
-# găuri. Diferențele sunt intenționat în plan, fiindcă de sus, din camera de inspecție, se
-# vede silueta, iar grosimea aproape deloc (docs/10-dataset-piese.md).
+# Familiile care intră în celulă. Cinci sunt roți dințate plane, iar a șasea este o placă
+# dreptunghiulară cu colțuri rotunjite: același proces și aceeași sculă, dar siluetă vizibil
+# diferită în celulă. Diferențele sunt intenționat în plan, fiindcă de sus, din camera de
+# inspecție, se vede silueta, iar grosimea aproape deloc (docs/10-dataset-piese.md).
 #
-# Diametrele stau sub Ø110 și peste Ø50: sub ~Ø8 nu se mai distinge nimic la rezoluția de
+# Gabaritele stau sub Ø110 și peste Ø50: sub ~Ø8 nu se mai distinge nimic la rezoluția de
 # inspecție, iar peste Ø110 piesa nu mai intră în universal. Familiile mici (≤ Ø72) încap
-# între fălcile de 83 mm ale prinzătorului, deci acolo prinderea poate fi reală.
+# între fălcile de 80 mm ale prinzătorului, deci acolo prinderea poate fi reală; placa se
+# prinde pe latura de 56 mm.
 #
 # Fiecare familie trebuie să rămână la distanță de acțiunea fiecărui defect: alezajul mărit
 # cu 2 mm nu are voie să ajungă în cercul de găuri, gaura deplasată cu 2,5 mm nu are voie să
@@ -202,11 +236,16 @@ class PartFamily:
     nominal: GearParams
 
     @property
+    def shape(self) -> str:
+        return self.nominal.shape
+
+    @property
     def teeth(self) -> int:
         return self.nominal.teeth
 
     @property
     def diameter_mm(self) -> float:
+        """Diametrul cercului care încadrează piesa, nu doar al corpului."""
         return 2.0 * self.nominal.outer_radius
 
     @property
@@ -217,21 +256,30 @@ class PartFamily:
     def has_keyway(self) -> bool:
         return self.nominal.keyway
 
+    @property
+    def supports_teeth(self) -> bool:
+        return self.shape == SHAPE_GEAR
+
     def defect_classes(self) -> tuple[str, ...]:
         """Clasele care au sens pe familia asta.
 
         Pana dispărută nu are sens pe o piesă fără pană: ar da exact piesa nominală a
-        familiei, adică o etichetă de rebut pe o geometrie corectă.
+        familiei, adică o etichetă de rebut pe o geometrie corectă. Dinții lipsă nu au
+        sens pe o placă, din același motiv.
         """
-        if self.has_keyway:
-            return DEFECT_CLASSES
-        return tuple(item for item in DEFECT_CLASSES if item != DEFECT_KEYWAY_MISSING)
+        classes = DEFECT_CLASSES
+        if not self.supports_teeth:
+            classes = tuple(item for item in classes if not item.startswith("TOOTH_"))
+        if not self.has_keyway:
+            classes = tuple(item for item in classes if item != DEFECT_KEYWAY_MISSING)
+        return classes
 
     def as_dict(self) -> dict[str, Any]:
         """Reprezentare serializabilă: intră în manifest, lângă eticheta fiecărei piese."""
         return {
             "name": self.name,
             "description": self.description,
+            "shape": self.shape,
             "teeth": self.teeth,
             "diameter_mm": self.diameter_mm,
             "thickness_mm": self.thickness_mm,
@@ -308,6 +356,26 @@ FAMILIES: tuple[PartFamily, ...] = (
             bolt_count=4,
             bolt_circle_radius=15.5,
             hole_radius=3.0,
+        ),
+    ),
+    PartFamily(
+        name="plate_84",
+        description="placa de montaj: 84 × 56 mm, colțuri R8, alezaj Ø18, 4 găuri Ø6",
+        nominal=GearParams(
+            outer_radius=math.hypot(42.0, 28.0),
+            root_radius=26.0,
+            bore_radius=9.0,
+            keyway=False,
+            keyway_depth=0.0,
+            teeth=0,
+            thickness=12.0,
+            bolt_count=4,
+            bolt_circle_radius=20.0,
+            hole_radius=3.0,
+            shape=SHAPE_PLATE,
+            half_width=42.0,
+            half_height=28.0,
+            corner_radius=8.0,
         ),
     ),
 )
@@ -428,6 +496,42 @@ def _toothed_outline(params: GearParams) -> np.ndarray:
     return np.vstack([piece for piece in pieces if len(piece)])
 
 
+def _plate_outline(params: GearParams) -> np.ndarray:
+    """Conturul unei plăci dreptunghiulare cu colțuri rotunjite, în sens trigonometric.
+
+    Colțurile se parcurg în ordine CCW, iar laturile ies drepte între capetele arcelor:
+    punctul de start stă pe latura de est, chiar sub colțul de sus, iar ultimul arc se
+    închide pe același punct prin latura de est.
+    """
+    width = params.half_width
+    height = params.half_height
+    radius = params.corner_radius
+    corners = (
+        (width - radius, height - radius, 0.0),
+        (-width + radius, height - radius, 90.0),
+        (-width + radius, -height + radius, 180.0),
+        (width - radius, -height + radius, 270.0),
+    )
+    pieces: list[np.ndarray] = []
+    for cx, cy, start_deg in corners:
+        span = math.radians(90.0)
+        count = max(2, int(math.ceil(span * radius / CHORD_MM)))
+        angles = np.linspace(math.radians(start_deg), math.radians(start_deg) + span,
+                             count + 1)
+        if pieces:
+            angles = angles[1:]
+        pieces.append(np.column_stack([cx + radius * np.cos(angles),
+                                       cy + radius * np.sin(angles)]))
+    return np.vstack(pieces)
+
+
+def _outer_outline(params: GearParams) -> np.ndarray:
+    """Conturul exterior al formei cerute."""
+    if params.shape == SHAPE_PLATE:
+        return _plate_outline(params)
+    return _toothed_outline(params)
+
+
 def _bore_outline(params: GearParams) -> np.ndarray:
     """Conturul alezajului, cu pana de cheie opțională, în sens trigonometric."""
     radius = params.bore_radius
@@ -457,7 +561,7 @@ def _hole_outline(params: GearParams, index: int) -> np.ndarray:
 
 def build_loops(params: GearParams) -> tuple[np.ndarray, list[int]]:
     """Inelele 2D ale piesei. Întoarce punctele și capetele de inel pentru earcut."""
-    outer = _toothed_outline(params)
+    outer = _outer_outline(params)
     rings: list[np.ndarray] = [outer]
 
     bore = _bore_outline(params)
@@ -525,6 +629,8 @@ def apply_defect(params: GearParams, defect: str, rng: random.Random) -> GearPar
     """Întoarce parametrii cu defectul aplicat. Nu modifică intrarea."""
     if defect == DEFECT_PASS:
         return params
+    if defect.startswith("TOOTH_") and params.shape != SHAPE_GEAR:
+        raise ValueError(f"defectul {defect} nu are sens pe forma {params.shape}")
     if defect == DEFECT_TOOTH_MISSING:
         index = _pick_tooth(params, rng)
         return replace(params, missing_teeth=tuple(sorted({*params.missing_teeth, index})))
@@ -554,6 +660,20 @@ def apply_defect(params: GearParams, defect: str, rng: random.Random) -> GearPar
 
 def _jittered(base: GearParams, rng: random.Random) -> GearParams:
     """Abatere în toleranță. Rămâne mică, ca piesele bune să fie greu de distins."""
+    if base.shape == SHAPE_PLATE:
+        half_width = base.half_width + rng.uniform(-0.2, 0.2)
+        half_height = base.half_height + rng.uniform(-0.2, 0.2)
+        return replace(
+            base,
+            half_width=half_width,
+            half_height=half_height,
+            corner_radius=base.corner_radius + rng.uniform(-0.1, 0.1),
+            outer_radius=math.hypot(half_width, half_height),
+            bore_radius=base.bore_radius + rng.uniform(-0.1, 0.1),
+            thickness=base.thickness + rng.uniform(-0.2, 0.2),
+            bolt_circle_radius=base.bolt_circle_radius + rng.uniform(-0.2, 0.2),
+            hole_radius=base.hole_radius + rng.uniform(-0.05, 0.05),
+        )
     return replace(
         base,
         outer_radius=base.outer_radius + rng.uniform(-0.3, 0.3),
