@@ -79,7 +79,7 @@ SURFACE_Z: Mapping[str, float] = {
     "belt1_pick": layout.BELT_SURFACE_Z,
     "belt2_drop": layout.BELT_SURFACE_Z,
     "belt2_pick": layout.BELT_SURFACE_Z,
-    "cnc_chuck": layout.MACHINE_TABLE_Z + 2 * layout.MACHINE_CHUCK_HALF_Z,
+    "cnc_chuck": layout.MACHINE_CHUCK_JAW_TOP_Z,
     **{name: layout.target_z(name) for name in layout.RACK_TARGETS.values()},
 }
 
@@ -145,7 +145,8 @@ def _rack_via(name: str, family: str | None) -> tuple[tuple[float, float, float]
 #: banda 2, dreapta iese din mașină exact prin colțul ei sud-vestic, iar brațul — care nu are
 #: planificator de traiectorie — intră în carcasă. Măsurat în scenă la înălțimea ridicată a
 #: piedestalului: fără punctul de trecere, scula rămânea cu 880 mm de țintă, cu mâna pe mașină;
-#: cu el, eroarea maximă a ciclului este 17,7 mm. Punctul stă la vest de mașină, la 1,10 m, adică
+#: cu el, eroarea maximă a ciclului este 21,2 mm, la compartimentul cel mai jos al raftului.
+#: Punctul stă la vest de mașină, la 1,10 m, adică
 #: deasupra capacului meselor benzilor și în afara amprentei mașinii.
 VIA: Mapping[str, tuple[tuple[float, float, float], ...]] = {
     "belt2_drop": ((3.10, 2.95, 1.10),),

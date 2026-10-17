@@ -22,10 +22,11 @@ Mașina nu se animă: nu are axe în scenă, iar prelucrarea intră în dataset 
 starea `CUTTING` și mărimile care ies din uzură. Cu `--rate` viața mașinii se comprimă, iar cu
 `--inject` se pleacă de la o componentă deja uzată, ca sesiunile scurte să prindă tot lanțul.
 
-Ciclul este cel din `view.py --demo`: benzile aduc materialul la liniile de preluare, brațul 1 ia
-blocul, îl duce în universal și lasă roata pe banda 2, iar brațul 2 o sortează în locul familiei.
-Prinderea nu este încă modelată (falcile doar ating piesa), deci piesa rămâne pe bandă: cadrele
-arată piesa în falci, iar `docs/11-geaman-mujoco.md` §8 ține evidența a ce lipsește.
+Ciclul este cel din `cncdt_mj/grasp_cycle.py`: benzile aduc materialul la liniile de preluare, brațul
+1 ia blocul, îl duce în universal, iar după fereastra de așchiere piesa mașinată trece pe banda 2 și
+de acolo în raftul brațului 2. Fiecare preluare este fizică: falcile se închid pe piesă, o leagă de
+mînă, o ridică și o lasă pe suprafața următoare. `session.json` păstrează jurnalul fiecărei
+prinderi, ca un ciclu cu o prindere ratată să se poată separa de unul bun.
 
 Se rulează din venviul geamănului (`simulation/mujoco/.venv`), singurul loc unde există `mujoco`
 (ADR 0012): `make mj-record` ori direct `python run.py --cycles 2`.
@@ -47,7 +48,7 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import (arms, belt, camera, cell, moves, part, povs, scene,  # noqa: E402
+from cncdt_mj import (arms, belt, camera, cell, grasp_cycle, povs, part, scene,  # noqa: E402
                       sensors, telemetry, wear)
 
 #: Unde se scriu sesiunile. Directorul e generat și ignorat de git: un ciclu de cinci familii
@@ -57,13 +58,6 @@ RUNS_DIR = MUJOCO_DIR / "runs"
 #: Cât durează prelucrarea unei piese, în secunde simulate. Nu animă nimic: este fereastra în care
 #: motorul de uzură lasă scula să se uzeze, iar eșantioanele poartă starea `CUTTING`.
 MACHINING_S = 12.0
-
-#: Punctul de lucru în care materialul intră în mașină. Fereastra de așchiere se pune imediat după
-#: el: brațul 1 a lăsat piesa în universal, iar până la așezarea pe banda 2 mașina taie.
-MACHINE_TARGET = "cnc_chuck"
-
-#: Ce se uzează cât merg benzile: numai ele. Brațele se adaugă când se mișcă, mașina când taie.
-BELT_WORK = wear.Work(belts=wear.BELT_COMPONENTS)
 
 
 @dataclass
@@ -299,56 +293,20 @@ class Recorder:
         return str(self.label["defect"]) != "PASS"
 
 
-def machining(model: mujoco.MjModel, data: mujoco.MjData, recorder: Recorder,
-              seconds: float) -> None:
-    """Fereastra de așchiere: mașina nu se animă, doar ceasul și uzura merg înainte.
-
-    Piesa nu se schimbă sub ochii noștri — scena are două corpuri, blocul brut pe banda 1 și piesa
-    mașinată pe banda 2 — deci prelucrarea nu are ce mișca. Ce are, în schimb, este timpul de lucru
-    al sculei, al axului și al răcirii, iar de acolo ies mărimile din contract și eticheta
-    `CUTTING`: pe fereastra asta se învață că scula uzată încarcă axul și scade calitatea.
-    """
-    recorder.begin_phase(wear.PHASE_CUTTING, wear.Work(cutting=True))
-    steps = max(1, int(round(seconds / float(model.opt.timestep))))
-    for _ in range(steps):
-        cell.apply_belt_forces(model, data, recorder.belt_scales, recorder.parts)
-        mujoco.mj_step(model, data)
-        recorder(model, data)
-
-
 def run_cycle(model: mujoco.MjModel, data: mujoco.MjData, recorder: Recorder,
-              family: str, settle: int, machining_s: float = MACHINING_S) -> float:
-    """Un ciclu întreg: transport la liniile de preluare, apoi brațele, punct cu punct.
+              family: str, settle: int, machining_s: float = MACHINING_S,
+              seed: int = 0) -> grasp_cycle.CycleResult:
+    """Un ciclu întreg, cu prindere fizică; întoarce raportul și timpul lui.
 
-    Întoarce cât timp simulat a durat. Eșantioanele se iau pe tot parcursul, inclusiv când merg
-    benzile goale, ca telemetria să acopere ciclul întreg, nu doar mișcarea brațelor. Fiecare
-    interval are timpul lui de lucru: benzile cară cât merg, brațul când se mișcă, mașina cât taie.
-
-    Viteza benzilor vine din uzura lor, pe fiecare bandă: una uzată cară mai încet, iar una care
-    alunecă stă pe loc, deci piesa nu mai ajunge la linia de preluare și bugetul de pași se
-    consumă. Scena nu are altă cale prin care uzura să ajungă la piese decât prin forța benzii.
+    Eșantioanele se iau pe tot parcursul, inclusiv când merg benzile goale, ca telemetria să
+    acopere ciclul întreg, nu doar mișcarea brațelor. Fiecare interval are timpul lui de lucru:
+    benzile cară cât merg, brațul când se mișcă, mașina cât taie. Viteza benzilor vine din uzura
+    lor, pe fiecare bandă: una uzată cară mai încet, iar una care alunecă stă pe loc, deci piesa
+    nu mai ajunge la linia de preluare.
     """
-    started = float(data.time)
-    parts = recorder.parts
-    recorder.begin_phase(wear.PHASE_TRANSPORT, BELT_WORK)
-    cell.bring_parts_to_pickup(model, data, parts, hook=recorder,
-                               speed_scale=recorder.belt_scales)
-    for arm in arms.ARMS:
-        tool = arms.tool_length(model, data, arm)
-        for item in moves.route(arm, tool, family):
-            recorder.begin_phase(None, wear.Work(belts=wear.BELT_COMPONENTS, arms=(arm,)))
-            recorder.enter(item.name)
-            for stage, point in moves.stages(item):
-                arms.reach_point(model, data, arm, point, item.approach, item.spin_deg,
-                                 settle=settle, hook=recorder)
-                recorder.after_substage(item.name, stage)
-                if stage == "jos":
-                    recorder.after_stage()
-            recorder.leave()
-            if item.name == MACHINE_TARGET and not recorder.session.only_frames:
-                machining(model, data, recorder, machining_s)
-    recorder.begin_phase(None, wear.Work())
-    return float(data.time) - started
+    return grasp_cycle.run_cycle(
+        model, data, family, seed=seed, settle=settle, machining_s=machining_s,
+        recorder=recorder, hook=recorder)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -441,18 +399,22 @@ def run_session(args: argparse.Namespace) -> int:
         shots = camera.Frames(model) if args.frames else None
         recorder = Recorder(model, data, cell.part_bodies(model), session, shots, label)
         recorder.begin_cycle(index)
-        duration = run_cycle(model, data, recorder, family, args.demo_settle, args.machining_s)
+        result = run_cycle(model, data, recorder, family, args.demo_settle, args.machining_s,
+                           seed=seed)
         if shots is not None:
             shots.close()
-        session.elapsed_s += duration
+        session.elapsed_s += result.duration_s
         session.labels.append(telemetry.cycle_record(
             index=index, seed=seed, label=label, sim_time_s=session.elapsed_s,
             samples=sum(1 for row in session.samples
                         if row["cycle_id"] == telemetry.cycle_id(index)),
-            frames=recorder.cycle_frames))
+            frames=recorder.cycle_frames, grasps=result.grasps, failures=result.failures))
+        failures.extend(result.failures)
         print(f"  {telemetry.cycle_id(index)}: {label['family']}/{label['defect']} "
               f"({label['verdict']}), sămânța {seed}, {len(recorder.cycle_frames)} cadre, "
-              f"{duration:.2f} s simulat")
+              f"{result.duration_s:.2f} s simulat, "
+              f"{sum(1 for row in result.grasps if row['success'])}/{len(result.grasps)} "
+              f"prinderi")
 
     totals = {
         "cycles": args.cycles,
@@ -463,6 +425,10 @@ def run_session(args: argparse.Namespace) -> int:
         "readings": len(session.readings),
         "wear_rows": len(session.wear_rows),
         "events": len(session.events),
+        "grasps": sum(len(row["grasps"]) for row in session.labels),
+        "grasp_success": sum(
+            1 for row in session.labels for grasp in row["grasps"] if grasp["success"]),
+        "cycles_failed": sum(1 for row in session.labels if row["failures"]),
         "sim_time_s": round(session.elapsed_s, 6),
         "wall_time_s": round(time.monotonic() - started, 3),
     }
@@ -523,6 +489,8 @@ def run_session(args: argparse.Namespace) -> int:
     print(f"  cadre            {totals['frames']} PNG, în {totals['cycles']} cicluri "
           f"({totals['wall_time_s']:.1f} s de ceas real), "
           f"din care {totals['grasp_frames']} de prindere")
+    print(f"  prinderi         {totals['grasp_success']}/{totals['grasps']} reușite, "
+          f"{totals['cycles_failed']} cicluri cu verificări căzute")
     if args.only_frames:
         print(f"  doar cadre       {totals['frames']} imagini, fără telemetrie, "
               f"{totals['sim_time_s']:.2f} s simulat")

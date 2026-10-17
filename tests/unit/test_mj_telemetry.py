@@ -281,6 +281,28 @@ def test_randul_din_frames_poarta_eticheta_piesei() -> None:
     assert row["path"].startswith(f"{telemetry.FRAMES_DIR}/")
 
 
+def test_ciclul_poarta_jurnalul_prinderilor() -> None:
+    """`session.json` spune, pe fiecare ciclu, ce prinderi au reușit și ce verificări au căzut."""
+    label = part.describe(part.load_variant(part.DEFAULT_SEED, None, layout.RACK_FAMILIES[0]))
+    grasps = [
+        {"arm": "arm1", "body": "blank_01", "action": "pick", "point": "belt1_pick",
+         "contact": True, "success": True, "finger_gap_m": 0.0, "steps": 420},
+        {"arm": "arm2", "body": "part_01", "action": "place", "point": "rack_wheel_100",
+         "contact": True, "success": True, "finger_gap_m": 0.0, "steps": 340},
+    ]
+    record = telemetry.cycle_record(
+        index=1, seed=7, label=label, sim_time_s=12.5, samples=125, frames=[],
+        grasps=grasps, failures=[])
+    assert record["grasps"] == grasps
+    assert record["grasp_success"] is True
+    assert record["failures"] == []
+    failed = telemetry.cycle_record(
+        index=2, seed=8, label=label, sim_time_s=25.0, samples=125, frames=[],
+        grasps=[{**grasps[0], "success": False}], failures=["prinderea a ratat"])
+    assert failed["grasp_success"] is False
+    assert failed["failures"] == ["prinderea a ratat"]
+
+
 def test_sesiunea_declara_fisierele_si_versiunile_publicate() -> None:
     """`session.json` spune cum se numesc fișierele și ce versiune de contract au."""
     record = telemetry.session_record(session="wheel_100-7", scenario={"python": "3.13"},

@@ -363,8 +363,15 @@ def frame_row(*, ts_ms: int, cycle: str, part: str, pov: str, stage: str, camera
 
 
 def cycle_record(*, index: int, seed: int, label: Mapping[str, Any], sim_time_s: float,
-                 samples: int, frames: Sequence[str]) -> dict[str, Any]:
-    """Etichetele unui ciclu: identificatorii din contract și eticheta de antrenare a piesei."""
+                 samples: int, frames: Sequence[str],
+                 grasps: Sequence[Mapping[str, Any]] = (),
+                 failures: Sequence[str] = ()) -> dict[str, Any]:
+    """Etichetele unui ciclu: identificatorii din contract și eticheta de antrenare a piesei.
+
+    `grasps` este jurnalul fiecărei prinderi (braț, corp, moment, contact, deschidere), iar
+    `failures` listează verificările căzute. Amîndouă intră în `session.json`, fiindcă un ciclu
+    care nu și-a dus piesa în raft nu are ce căuta într-un corpus verde.
+    """
     return {
         "cycle_id": cycle_id(index),
         "part_id": part_id(index),
@@ -376,6 +383,9 @@ def cycle_record(*, index: int, seed: int, label: Mapping[str, Any], sim_time_s:
         "sim_time_s": round(float(sim_time_s), 6),
         "samples": int(samples),
         "frames": list(frames),
+        "grasps": [dict(grasp) for grasp in grasps],
+        "grasp_success": bool(grasps) and all(bool(row["success"]) for row in grasps),
+        "failures": list(failures),
     }
 
 

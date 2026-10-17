@@ -23,9 +23,11 @@ import numpy as np
 from . import MUJOCO_DIR
 from . import arms
 from . import belt
+from . import grasp
 from . import layout
 from . import part
 from . import povs
+from . import textures
 
 #: Modelul de braț, din registrul Menagerie; licența este Apache-2.0.
 PANDA_MODEL = "franka_emika_panda"
@@ -86,10 +88,16 @@ def scene_template() -> str:
     intră de aici, din aceeași sursă pe care o folosesc și tabelele din `docs/`.
     """
     geometry = layout.scene_geometry()
-    values = {key: _fmt(value) for key, value in geometry.items()}
+    values: dict[str, Any] = {key: _fmt(value) for key, value in geometry.items()}
     # Simetria din XML se scrie cu semn (`{neg_...}`), fiindcă `{-x}` nu e o formulă validă
     # pentru `str.format`. Perechile negative se adaugă o dată, pentru toate cifrele.
     values.update({f"neg_{key}": _fmt(-value) for key, value in geometry.items()})
+    # Texturile se scriu înaintea șablonului, fiindcă XML-ul le încarcă la parsare. Căile sînt
+    # absolute: șablonul se compilează din memorie, iar `modelfiledir` al scenei este al modelului
+    # Panda. Texturile adăugate programatic (`spec.add_texture`) corup heap-ul la compilări
+    # repetate în MuJoCo 3.15.0, deci fișierul se dă din XML.
+    files = textures.ensure_textures(MUJOCO_DIR / "runs" / "textures")
+    values.update({f"{name}_texture": str(path) for name, path in files.items()})
     return CELL_XML.read_text(encoding="utf-8").format(**values)
 
 
@@ -100,9 +108,9 @@ def placements(variant: part.PartVariant, blank: part.BlankStock, seed: int = pa
     """Unde și cum stau cele două stări de material, cu parametri peste valorile din plan.
 
     Blocul brut primește poziție și rotație aleatoare, ca marfa reală de pe bandă; piesa mașinată
-    stă la jumătatea drumului dintre așezare și preluare și primește doar yaw, fiindcă poziția ei
-    acolo este cea care face cadrul util. Toate se pot fixa explicit, ca scena să fie
-    reproductibilă; poziția explicită a piesei mașinate se verifică față de amprenta benzii 2.
+    stă pe masa de descărcare a mașinii și primește doar yaw, fiindcă poziția ei acolo este cea care
+    face cadrul util. Toate se pot fixa explicit, ca scena să fie reproductibilă; poziția explicită
+    a piesei mașinate se verifică față de amprenta mesei mașinii.
     """
     nominal = {item.state: item for item in layout.part_placements()}
     blank_place = nominal[layout.STATE_BLANK]
@@ -118,11 +126,8 @@ def placements(variant: part.PartVariant, blank: part.BlankStock, seed: int = pa
     if part_xy is None:
         part_xy = (machined_place.x, machined_place.y)
     else:
-        key = belt.belt_at(machined_place.x, machined_place.y)
-        if key is None:
-            raise ValueError("piesa mașinată nu are bandă nominală în plan")
-        part_xy = part.on_belt_xy(part_xy[0], part_xy[1], machined_place.bounds,
-                                  part.belt_part_radius_m(key, variant.family))
+        part_xy = part.on_surface_xy(part_xy[0], part_xy[1], machined_place.bounds,
+                                     part.gear_radius_m(variant.family), surface="mesei")
 
     return {
         blank_place.body: {
@@ -172,16 +177,33 @@ def nominal_qpos(model: mujoco.MjModel, places: dict[str, dict[str, Any]]) -> np
     return qpos
 
 
+def _planar_uv(vertices: np.ndarray) -> np.ndarray:
+    """Coordonate de textură în planul piesei: fața de sus și cea de jos primesc aceeași hartă.
+
+    Meshul generatorului nu are UV-uri, iar MuJoCo are nevoie de ele ca textura de metal periat
+    să se vadă pe roată. Harta este simplă — dreptunghiul care încadrează piesa —, destul pentru
+    un material uniform, fără cusături vizibile.
+    """
+    x = vertices[:, 0]
+    y = vertices[:, 1]
+    span_x = max(float(x.max() - x.min()), 1e-9)
+    span_y = max(float(y.max() - y.min()), 1e-9)
+    return np.column_stack(((x - x.min()) / span_x, (y - y.min()) / span_y))
+
+
 def _add_parts(spec: mujoco.MjSpec, variant: part.PartVariant, blank: part.BlankStock,
                places: dict[str, dict[str, Any]]) -> None:
-    """Cele două stări de material, ca două corpuri libere așezate pe benzi.
+    """Cele două stări de material, ca două corpuri libere așezate în celulă.
 
     Blocul brut și roata mașinată sunt amândouă în scenă: în flux, blocul intră în mașină și iese
-    ca rotă, dar transformarea nu se modelează aici, iar yaw-ul fiecăruia este parametru.
+    ca rotă, iar schimbul dintre ele se face la prelucrare. Yaw-ul fiecăruia este parametru, iar
+    meshul piesei primește UV-uri ca textura de metal periat să se vadă.
     """
     vertices, faces = part.scaled_geometry(variant)
+    uv = _planar_uv(vertices)
     spec.add_mesh(name="machined_part_mesh", uservert=vertices.ravel().tolist(),
-                  userface=faces.ravel().tolist())
+                  usertexcoord=uv.ravel().tolist(), userface=faces.ravel().tolist(),
+                  userfacetexcoord=faces.ravel().tolist())
     for body, place in places.items():
         spec_body = spec.worldbody.add_body(name=body, pos=list(place["pos"]),
                                             quat=list(part.yaw_quat(place["yaw_deg"])))
@@ -190,15 +212,15 @@ def _add_parts(spec: mujoco.MjSpec, variant: part.PartVariant, blank: part.Blank
             if place["shape"] == part.BLANK_SHAPES[0]:
                 spec_body.add_geom(name=f"{body}_geom", type=mujoco.mjtGeom.mjGEOM_CYLINDER,
                                    size=[place["radius_m"], place["half_height_m"], 0.0],
-                                   material="blank_mat")
+                                   material="blank_brushed")
             else:
                 spec_body.add_geom(name=f"{body}_geom", type=mujoco.mjtGeom.mjGEOM_BOX,
                                    size=[place["radius_m"], place["radius_m"],
                                          place["half_height_m"]],
-                                   material="blank_mat")
+                                   material="blank_brushed")
         else:
             spec_body.add_geom(name=f"{body}_geom", type=mujoco.mjtGeom.mjGEOM_MESH,
-                               meshname="machined_part_mesh", material="part_mat")
+                               meshname="machined_part_mesh", material="part_brushed")
 
 
 def _body_id(model: mujoco.MjModel, name: str) -> int:
@@ -267,9 +289,17 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
     spec.copy_during_attach = True
     for prefix, mount in ARM_MOUNTS:
         child = mujoco.MjSpec.from_file(str(panda_dir / "panda.xml"))
-        spec.attach(child, prefix=f"{prefix}_", frame=spec.body(mount).to_frame())
+        # Corpul și cadrul se țin în variabile: `attach` primește un `MjsFrame`, iar wrapper-ul
+        # Python al corpului nu trebuie să dispară în timpul apelului (altfel, rar, MuJoCo
+        # raportează „incompatible id in geom array" ori `bad_alloc`).
+        mount_body = spec.body(mount)
+        frame = mount_body.to_frame()
+        spec.attach(child, prefix=f"{prefix}_", frame=frame)
 
     _add_parts(spec, variant, blank, places)
+    # Legăturile de prindere și clemele pieselor: inactive pînă la ciclu, dar prezente în model,
+    # fiindcă MuJoCo nu poate adăuga constrângeri după compilare.
+    grasp.add_constraints(spec, arms.ARMS, tuple(places))
 
     # Keyframe-ul „nominal" al celulei. Ca să scriem vectorul în ordinea modelului, compilăm o
     # dată, citim adresele articulațiilor după nume, adăugăm keyframe-ul și compilăm din nou:

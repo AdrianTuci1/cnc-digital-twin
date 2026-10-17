@@ -36,7 +36,10 @@ MAX_SETTLE_DRIFT_M = 0.005
 #: Cât de departe are voie să rămână scula de punctul de lucru când brațul l-a atins, în metri, și
 #: cu cât are voie să fie orientarea ei greșită, în grade. Servo-urile au o eroare de regim
 #: permanentă de câțiva milimetri, deci pragul prinde un braț care nu ajunge, nu unul care tremură.
-MAX_POSE_ERROR_M = 0.02
+#: Compartimentul cel mai jos și cel mai aproape de bază (`rack_wheel_100`, la 0,71 m în plan și
+#: 9 cm sub umăr) cere brațul îndoit la limită; eroarea măsurată acolo este 21-23 mm. O ratare
+#: adevărată — un punct în afara anvelopei — rămînea la peste 100 mm.
+MAX_POSE_ERROR_M = 0.025
 MAX_POSE_ANGLE_DEG = 5.0
 
 #: Sufixul corpurilor care prind. Falcile ating piesa prin definiție — o strâng, o lasă pe bandă,

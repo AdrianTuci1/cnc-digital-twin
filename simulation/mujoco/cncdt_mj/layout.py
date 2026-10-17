@@ -164,6 +164,14 @@ MACHINE_POST_INSET = 0.06
 MACHINE_ROOF_HALF_Z = 0.025
 MACHINE_CHUCK_RADIUS = 0.055
 MACHINE_CHUCK_HALF_Z = 0.04
+#: Fălcile universalului: un mic cilindru pe fața lui, care ține piesa ridicată cu 10 mm.
+#: Fără el, vîrful falcelor brațului coboară sub centrul piesei și se sprijină pe fața
+#: universalului înainte să închidă pe piesă — măsurat în scenă: închiderea se oprea la 4 mm.
+#: Discul de Ø70 mm stă pe fălci, iar brațul are loc să închidă pe piesa de deasupra.
+MACHINE_CHUCK_JAW_RADIUS = 0.035
+MACHINE_CHUCK_JAW_HALF_Z = 0.005
+MACHINE_CHUCK_TOP_Z = MACHINE_TABLE_Z + 2 * MACHINE_CHUCK_HALF_Z
+MACHINE_CHUCK_JAW_TOP_Z = MACHINE_CHUCK_TOP_Z + 2 * MACHINE_CHUCK_JAW_HALF_Z
 
 #: Dulapul pe familii: carcasa are laterale și spate, un fund și un capac, iar înăuntru stau trei
 #: rafturi despărțite în două de un panou vertical. Fața nordică rămâne deschisă, fiindcă pe acolo
@@ -297,7 +305,7 @@ def target_z(name: str) -> float:
     if name in ("belt1_pick", "belt2_drop", "belt2_pick"):
         return BELT_SURFACE_Z
     if name == "cnc_chuck":
-        return MACHINE_TABLE_Z + MACHINE_CHUCK_HALF_Z
+        return MACHINE_CHUCK_JAW_TOP_Z
     if name in RACK_TARGETS.values():
         return target_floor_z(name)
     raise KeyError(f"țintă fără cotă cunoscută: {name}")
@@ -345,26 +353,46 @@ class PartPlacement(NamedTuple):
 STATE_BLANK = "blank"
 STATE_MACHINED = "machined"
 
+#: Cît depășește masa mașinii cabinetul, pe fiecare latură: destul cît piesa să stea pe ea fără
+#: să atingă muchia. Valorile sînt aceleași cu cele din `scene_geometry` (`cnc_table_hx` etc.).
+MACHINE_TABLE_EXTRA_M = 0.02
+
+#: Locul de descărcare din mașină, pe masa CNC, în spatele universalului. Piesa mașinată stă aici
+#: pînă cînd brațul 1 o schimbă cu blocul brut din universal; este un loc de așteptare, nu o țintă
+#: de prindere, deci nu are intrare în `TARGETS`.
+#: Locul de descărcare de pe masa mașinii: în colțul sud-vestic, departe de universal și de
+#: coloanele carcasei. Colțul din plan este la (3,40, 2,65); piesa stă la 0,22 m spre est și
+#: 0,25 m spre nord, ca un disc de Ø104 mm să încapă întreg pe masă, iar brațul să nu atingă
+#: coloana sud-vestică atunci când îl lasă.
+MACHINE_STAGING_X = float(MACHINE["x"]) + 0.22
+MACHINE_STAGING_Y = float(MACHINE["y"]) + 0.25
+
+
+def machine_table_bounds() -> tuple[float, float, float, float]:
+    """Amprenta mesei mașinii, în plan: destul de mare pentru o piesă întreagă."""
+    cx, cy = center(MACHINE)
+    hx = float(MACHINE["w"]) / 2 + MACHINE_TABLE_EXTRA_M
+    hy = float(MACHINE["h"]) / 2 + MACHINE_TABLE_EXTRA_M
+    return (cx - hx, cx + hx, cy - hy, cy + hy)
+
 
 def part_placements() -> tuple[PartPlacement, ...]:
-    """Cele două stări ale materialului, în locurile lor nominale din plan.
+    """Cele două stări ale materialului, în locurile lor nominale din scenă.
 
     Blocul brut stă pe banda 1, la linia ei de oprire (`belt_stop_x`): acolo ajunge piesa
-    transportată, iar ce rămâne aleator este cota laterală și rotația. Piesa mașinată stă pe
-    banda 2, la jumătatea drumului dintre locul unde o lasă brațul 1 și linia de unde o ridică
-    brațul 2, deci în raza amândurora.
+    transportată, iar ce rămîne aleator este cota laterală și rotația. Piesa mașinată stă pe masa
+    mașinii, în spatele universalului: în ciclu, brațul 1 o schimbă cu blocul brut după
+    prelucrare, iar de acolo o duce pe banda 2. Așezarea de pe masă este cea care face schimbul
+    vizibil fără să teleporteze piesa prin carcasă.
     """
     pick = target("belt1_pick")
-    drop = target("belt2_drop")
-    stop = target("belt2_pick")
-    halfway = (float(drop["x"]) + float(stop["x"])) / 2
     return (
         PartPlacement("blank_01", STATE_BLANK, belt_stop_x("belt_in"), float(pick["y"]),
                       BELT_SURFACE_Z, belt_bounds(BELT_IN),
-                      'adusă de bandă până la ținta „' + str(pick["label"]) + '" din plan'),
-        PartPlacement("part_01", STATE_MACHINED, halfway, center(BELT_OUT)[1],
-                      BELT_SURFACE_Z, belt_bounds(BELT_OUT),
-                      "banda 2, la jumătatea drumului dintre așezare și preluare"),
+                      'adusă de bandă pînă la ținta „' + str(pick["label"]) + '" din plan'),
+        PartPlacement("part_01", STATE_MACHINED, MACHINE_STAGING_X, MACHINE_STAGING_Y,
+                      MACHINE_TABLE_Z, machine_table_bounds(),
+                      "în mașină, pe masa de descărcare, pînă la schimbul cu blocul brut"),
     )
 
 
@@ -438,6 +466,9 @@ def machine_geometry() -> dict[str, float]:
         "cnc_chuck_z": MACHINE_TABLE_Z + MACHINE_CHUCK_HALF_Z,
         "cnc_chuck_r": MACHINE_CHUCK_RADIUS,
         "cnc_chuck_hz": MACHINE_CHUCK_HALF_Z,
+        "cnc_jaw_z": MACHINE_CHUCK_TOP_Z + MACHINE_CHUCK_JAW_HALF_Z,
+        "cnc_jaw_r": MACHINE_CHUCK_JAW_RADIUS,
+        "cnc_jaw_hz": MACHINE_CHUCK_JAW_HALF_Z,
         "cnc_post_hxy": MACHINE_POST_HALF_XY,
         "cnc_post_dx": hx + MACHINE_TABLE_OVERHANG - MACHINE_POST_INSET,
         "cnc_post_dy": hy + MACHINE_TABLE_OVERHANG - MACHINE_POST_INSET,

@@ -209,21 +209,27 @@ def random_xy(seed: int, nominal_xy: tuple[float, float],
     return (min(max(x, x0 + limit), x1 - limit), min(max(y, y0 + limit), y1 - limit))
 
 
-def on_belt_xy(x: float, y: float, bounds: tuple[float, float, float, float],
-               radius_m: float) -> tuple[float, float]:
-    """O poziție cerută explicit pe bandă, verificată: piesa trebuie să încapă întreagă pe ea.
+def on_surface_xy(x: float, y: float, bounds: tuple[float, float, float, float],
+                  radius_m: float, surface: str = "suprafață") -> tuple[float, float]:
+    """O poziție cerută explicit pe o suprafață, verificată: piesa trebuie să încapă întreagă.
 
-    Se folosește când poziția de start vine de la cineva (de pildă o piesă lăsată mai în amonte,
-    ca transportul să aibă ce arăta): o piesă așezată cu o parte în afara benzii cade la primul
-    pas, iar căderea ar părea un defect de fizică.
+    Se folosește cînd poziția de start vine de la cineva (de pildă o piesă lăsată mai în amonte,
+    ca transportul să aibă ce arăta): o piesă așezată cu o parte în afara suprafeței cade la
+    primul pas, iar căderea ar părea un defect de fizică.
     """
     x0, x1, y0, y1 = bounds
     limit = radius_m + BLANK_EDGE_MARGIN_M
     if not (x0 + limit <= x <= x1 - limit and y0 + limit <= y <= y1 - limit):
         raise ValueError(
             f"poziția ({x:.3f}, {y:.3f}) m lasă piesa de rază {radius_m:.3f} m peste capătul "
-            f"benzii {bounds}")
+            f"{surface} {bounds}")
     return (float(x), float(y))
+
+
+def on_belt_xy(x: float, y: float, bounds: tuple[float, float, float, float],
+               radius_m: float) -> tuple[float, float]:
+    """O poziție cerută explicit pe bandă; vezi :func:`on_surface_xy`."""
+    return on_surface_xy(x, y, bounds, radius_m, surface="benzii")
 
 
 def stopped_xy(seed: int, stop_x: float, nominal_y: float,

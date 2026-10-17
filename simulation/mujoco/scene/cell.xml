@@ -28,22 +28,33 @@
   <asset>
     <texture type="skybox" builtin="gradient" rgb1="0.35 0.5 0.7" rgb2="0.06 0.06 0.09"
              width="512" height="3072"/>
-    <texture type="2d" name="floor_tex" builtin="checker" mark="edge" rgb1="0.55 0.56 0.58"
-             rgb2="0.46 0.47 0.49" markrgb="0.75 0.75 0.75" width="300" height="300"/>
-    <material name="floor_mat" texture="floor_tex" texuniform="true" texrepeat="12 8"/>
-    <material name="belt_mat" rgba="0.17 0.18 0.20 1"/>
-    <material name="frame_mat" rgba="0.55 0.58 0.62 1"/>
-    <material name="machine_mat" rgba="0.62 0.70 0.80 1"/>
-    <material name="table_mat" rgba="0.42 0.47 0.53 1"/>
-    <material name="chuck_mat" rgba="0.30 0.33 0.37 1"/>
+    <!-- Texturile procedurale ale celulei: beton pe pardoseală, cauciuc pe benzi, metal periat pe
+         structuri și piese. Căile sînt absolute și vin din `cncdt_mj/scene.py`, care le scrie în
+         `runs/textures/` înainte de a formata șablonul. -->
+    <texture type="2d" name="concrete_tex" file="{concrete_texture}"/>
+    <texture type="2d" name="belt_rubber_tex" file="{belt_rubber_texture}"/>
+    <texture type="2d" name="brushed_tex" file="{brushed_metal_texture}"/>
+    <material name="floor_mat" texture="concrete_tex" texuniform="false" texrepeat="3 3"/>
+    <material name="belt_mat" texture="belt_rubber_tex" texuniform="false" texrepeat="3 1"
+              rgba="0.72 0.74 0.78 1"/>
+    <material name="frame_mat" texture="brushed_tex" texuniform="false" texrepeat="2 2"
+              rgba="0.55 0.58 0.62 1" specular="0.25" shininess="0.45"/>
+    <material name="machine_mat" texture="brushed_tex" texuniform="false" texrepeat="4 3"
+              rgba="0.62 0.70 0.80 1" specular="0.30" shininess="0.50"/>
+    <material name="table_mat" texture="brushed_tex" texuniform="false" texrepeat="3 2"
+              rgba="0.42 0.47 0.53 1" specular="0.35" shininess="0.55"/>
+    <material name="chuck_mat" texture="brushed_tex" texuniform="false" texrepeat="2 2"
+              rgba="0.30 0.33 0.37 1" specular="0.40" shininess="0.65"/>
     <material name="cover_mat" rgba="0.72 0.80 0.88 0.35"/>
     <material name="rack_mat" rgba="0.42 0.66 0.38 1"/>
     <material name="scrap_mat" rgba="0.70 0.28 0.28 1"/>
     <material name="marker_mat" rgba="0.85 0.78 0.35 1"/>
     <!-- Blocul brut și piesa mașinată ies în metal deschis: contrast pe banda închisă, ca piesa să
          se vadă în cadrul camerei de pe flanșă. -->
-    <material name="blank_mat" rgba="0.62 0.64 0.66 1"/>
-    <material name="part_mat" rgba="0.78 0.79 0.80 1"/>
+    <material name="blank_brushed" texture="brushed_tex" texuniform="false" texrepeat="1 1"
+              rgba="0.80 0.82 0.84 1" specular="0.30" shininess="0.50"/>
+    <material name="part_brushed" texture="brushed_tex" texuniform="false" texrepeat="1 1"
+              rgba="0.86 0.88 0.90 1" specular="0.35" shininess="0.55"/>
   </asset>
 
   <worldbody>
@@ -121,6 +132,8 @@
             pos="0 0 {cnc_table_z}" material="table_mat"/>
       <geom name="cnc_chuck" type="cylinder" size="{cnc_chuck_r} {cnc_chuck_hz}"
             pos="{cnc_chuck_dx} {cnc_chuck_dy} {cnc_chuck_z}" material="chuck_mat"/>
+      <geom name="cnc_jaw" type="cylinder" size="{cnc_jaw_r} {cnc_jaw_hz}"
+            pos="{cnc_chuck_dx} {cnc_chuck_dy} {cnc_jaw_z}" material="chuck_mat"/>
       <geom name="cnc_post_sw" type="box" size="{cnc_post_hxy} {cnc_post_hxy} {cnc_post_hz}"
             pos="{neg_cnc_post_dx} {neg_cnc_post_dy} {cnc_post_z}" material="frame_mat"/>
       <geom name="cnc_post_se" type="box" size="{cnc_post_hxy} {cnc_post_hxy} {cnc_post_hz}"

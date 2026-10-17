@@ -12,15 +12,18 @@ scenei,
 `view.py --check`, este **verde**: țintele cad în raza brațelor, camerele de pe flanșe au punctul
 de strângere în cadru, iar
 amândouă piesele parcurg banda la viteza de suprafață și se opresc la 13 mm peste linia de oprire a
-benzii. `view.py --demo` rulează ciclul brațelor până la capăt pentru toate cele cinci familii
-(**verde**), cu eroarea maximă a sculei de 17,7 mm la așezarea pe banda 2 și 7,0 mm în
-compartimentele dulapului, fără nicio verigă atinsă. Colectarea datelor
+benzii. `view.py --demo` rulează ciclul complet — bandă, brațe, universal, schimb de material,
+bandă, raft — pentru toate cele cinci familii (**verde**), cu prindere fizică la fiecare dintre
+cele șase preluări pe ciclu: falcile se închid pe piesă, o leagă de mînă, o ridică și o lasă pe
+suprafața următoare. Eroarea maximă a sculei este 23 mm la compartimentul cel mai jos al raftului,
+fără nicio verigă atinsă. Colectarea datelor
 există: `make mj-record` scrie sesiuni întregi — telemetrie pe contract, metadatele cadrelor de
 inspecție, PNG-urile punctelor de vedere de proces și de prindere, plus etichetele pieselor —
 pentru toate cele cinci familii (**verde**, zece cadre pe ciclu, dintre care șase de prindere).
-Din faza 2 lipsește prinderea: falcile doar ating piesa, iar piesa rămîne pe bandă. Fereastra
-`CUTTING` există ca timp de așchiere, fără axe animate, iar mărimile axului vin din scenariul
-sesiunii. Starea amănunțită stă în `simulation/mujoco/README.md`.
+Fereastra `CUTTING` există ca timp de așchiere, fără axe animate, iar mărimile axului vin din
+scenariul sesiunii. Scena are texturi procedurale — beton pe podea, cauciuc pe benzi, metal periat
+pe cadre și pe piese —, generate din cod și scrise lîngă rulări, ca să nu intre binare în repo.
+Starea amănunțită stă în `simulation/mujoco/README.md`.
 Uzura și panoul de control (butoane de injectare și reparație) există în viewer; detectorul,
 endpointul local și randarea degradată sunt încă pe hârtie.
 
@@ -60,7 +63,7 @@ benzii o dă exclusiv forța exterioară.
 | Componentă | Reprezentare MJCF | Senzori | Actuatori / forțe |
 | --- | --- | --- | --- |
 | Bandă 1 (alimentare) | cutie (platformă cu frecare mică și prioritară, șine cu frecare mare), fără opritor: piesa se așază în amonte și banda o împinge până la linia de oprire din plan | viteză de suprafață, alunecare, număr de piese | forță tangențială per pas, aplicată prin `data.xfrc_applied` corpurilor în contact, cu limita `mu * N` |
-| Braț 1, deservirea mașinii | Franka Emika Panda (7 DoF + griper) din `mujoco-menagerie`; preia piesa de pe banda 1, o încarcă în CNC, apoi o descarcă și o așază pe banda 2 | efort/curent pe articulații, forță de strângere, contact cu piesa | `position`/`motor` pe articulații, actuator pe degetele griperului |
+| Braț 1, deservirea mașinii | Franka Emika Panda (7 DoF + griper) din `mujoco-menagerie`; preia piesa de pe banda 1, o încarcă în CNC, apoi o descarcă și o așază pe banda 2 | efort/curent pe articulații, forță de strângere, contact cu piesa | `position`/`motor` pe articulații, actuator pe degetele griperului; legătură rigidă `weld` după contact |
 | Mașină CNC, 3 axe | un cub simbolic de 1,0 × 0,8 m, cu capacul la 1,90 m: cabinet, masă, universal și capac, fără axe în scenă; stările din contract, iar `CUTTING` este o fereastră de timp | vibrație RMS și vârf, sarcină ax, temperatură, avans | profil de sarcină și vibrație aplicat ca forță pe corpul axului, în funcție de stare și uzură |
 | Braț 2 (sortare) | același model Panda, pe latura sudică a benzii 2, la 0,25 m de șina ei sudică | ca la brațul 1 | ca la brațul 1 |
 | Bandă 2 (evacuare) | ca banda 1, cu un singur sens de mers, spre vest, și linia ei de oprire la ținta de preluare a brațului 2 | viteza, numărul de piese | ca la banda 1 |
@@ -72,6 +75,36 @@ Stările mașinii CNC sunt exact enumerația din `cnc.telemetry.v1.json`: `IDLE`
 `CUTTING`, `UNLOADING`, `INSPECTING`. Ciclul complet — bandă 1 → braț 1 → CNC → braț 1 →
 bandă 2 (inspecție) → braț 2 → compartimentul familiei — produce `cycle_id` și `part_id` cu
 aceleași formate (`cyc-000001`, `part-000001`).
+
+**Prinderea este fizică.** Fiecare preluare comandă actuatorul griperului spre închis, iar contactul
+dintre vîrfurile falcilor și piesă oprește închiderea. După contact, `grasp.py` scrie o egalitate
+`weld` predefinită între mînă și piesă, la poziția relativă de acum, și o activează: piesa urmează
+brațul rigid, ca o prindere reală de mare forță, și nu alunecă la schimbarea orientării. La lăsare
+falcile se deschid întîi, apoi legătura se desface, ca deschiderea să nu împingă piesa în lateral.
+O a doua egalitate, tot `weld`, ține piesa de lume cît se închid falcile și pe raft după ce brațul o
+lasă: este clema invizibilă a suprafeței, care înlocuiește frecarea de sprijin acolo unde o
+constrângere rigidă este mai stabilă. Toate egalitățile există în scenă de la compilare — MuJoCo nu
+acceptă constrângeri noi după aceea — și pornesc inactive; `session.json` scrie, pentru fiecare
+ciclu, jurnalul prinderilor, iar `view.py --check` refuză o scenă în care vreo clemă pornește
+activă.
+
+**Limita prinderii adevărate.** Deschiderea maximă a mâinii Panda este 80 mm, iar două familii au
+discuri mai mari: `wheel_100` are 104 mm, iar `flange_72` are 72 mm. Pentru discuri, falcile coboară
+peste fața de sus și apasă pe ea; legătura rigidă este cea care ține piesa, exact cum celula din
+Isaac Sim o leagă de griper. Pentru piesele mici (`bushing_68`, `wheel_60`, `pinion_56`) falcile
+închid pe diametru. Ambele căi sînt raportate la fel: contact, deschiderea măsurată și reușita.
+
+**Variația de poziție.** Locurile de așezare de pe banda 2 și din compartimentul raftului primesc o
+abatere deterministă din sămînță, ținută pe suprafață de `part.on_surface_xy`: fiecare ciclu arată
+altfel, iar eticheta rămîne aceeași. Piesa din universal are și o marjă de coborîre, fiindcă
+vîrfurile falcilor ajung sub centrul feței de prindere.
+
+**Texturi.** Podeaua, benzile, cadrele, mașina, universalul și piesele au texturi procedurale —
+beton, cauciuc, metal periat — generate din numpy și zlib în `cncdt_mj/textures.py`, fără binare în
+repo. Se scriu în `runs/textures` și se declară în `scene/cell.xml` cu drumuri absolute: texturile
+adăugate programatic (`spec.add_texture`) corup heap-ul la compilări repetate în MuJoCo 3.15.0, iar
+XML-ul le încarcă stabil la fiecare scenă. Randatorul pieselor folosește aceleași texturi, plus o
+lumină laterală de contur, ca un disc de metal să nu se piardă în fundal.
 
 Randarea camerei se face cu `mujoco.Renderer`. Pentru sesiunile în care interesează doar
 telemetria, randarea se oprește complet, iar degradarea imaginii se aplică doar cadrelor cerute
@@ -208,7 +241,7 @@ decât le învață clasificatorul. Codurile citite de pe raft sunt amânate del
 Dulapul înlocuiește cutiile adânci de dinainte, care aveau pereți până la 0,85 m și opreau
 antebrațul brațului 2 (`arm2_link3↔bin_ng`). Decizia despre rafturi este în ADR 0017; orientarea
 rotită cu 90°, cu fața vestică și două unghiuri de apropiere, este în ADR 0018, iar măsurătorile
-care au dus la ea sunt în ADR 0014.
+care au dus la ea sunt în ADR 0014. Prinderea fizică și texturile sunt în ADR 0019.
 
 Rebutul are o cale fără braț, ca în plan: piesa neconformă rămâne pe bandă, trece de linia de
 oprire a brațului 2 și cade de la capătul de vest al benzii 2 în lada din `A4–B5`. Marginea lăzii
@@ -255,7 +288,8 @@ ca să ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul 
 0,55 m platforma este deasupra lui — măsurat, `arm2_link3↔belt_out` la punctul de deasupra, cu
 106 mm eroare rămasă, iar compartimentele dulapului nu mai pot fi atinse (`arm2_link3↔rack`). La
 0,95 m `view.py --demo` încheie ciclul pentru toate cele cinci familii, cu eroarea maximă a sculei
-de 17,7 mm la așezarea pe banda 2 și 7,0 mm în compartimente, fără nicio verigă atinsă. Cota
+de 23 mm la compartimentul cel mai jos al raftului (21-23 mm) și 6,8 mm în restul, fără nicio
+verigă atinsă. Cota
 documentată a piedestalului este 0,95 m (secțiunea 10), iar `view.py --base-z` o poate coborî
 pentru măsurători.
 
@@ -313,7 +347,7 @@ aplicat) intră în metadatele cadrului. **Neimplementat**: cadrele ies deocamda
 | --- | --- | --- |
 | Bandă | scala vitezei de suprafață scade cu driftul (`speed_scale` pe fiecare bandă), iar banda care alunecă stă pe loc cât ține evenimentul | `belt_speed_mps` în diagnostic, timpi de ciclu mai lungi, mai puține eșantioane pe secundă de ceas |
 | Brațe | efortul măsurat în scenă se scalează cu `1 + 0,8 (1 - h)` | `joint_effort` mai mare, efort pe braț în diagnostic |
-| Griper | — (prinderea nu este modelată) | rată de piese scăpate, evenimente |
+| Griper | falcile se închid pe piesă și o leagă rigid de mînă; legătura nu slăbește încă odată cu uzura | jurnal de prinderi în `session.json` (contact, deschidere, reușită), evenimente |
 | CNC | amplitudinea vibrației și sarcina axului cresc cu uzura rulmentului și a sculei, debitul de răcire scade, avansul scade, temperatura urcă | `vibration`, `spindle_load`, `axis_feed`, `coolant_flow_lpm`, `temp_c`, `tool_wear_index`, `surface_quality` |
 | Cameră | — | scor de calitate, verzi la inspecția vizuală |
 
@@ -660,7 +694,8 @@ simulation/mujoco/          # există
     moves.py                # punctele de lucru ale fiecărui braț: ordine, apropiere, treceri; fără MuJoCo
     povs.py                 # punctele de vedere de proces și de prindere: cameră, rezoluție, moment, rol; fără MuJoCo
     part_images.py          # planul imaginilor de calitate: unghiuri, nume, index, split-uri; fără MuJoCo
-    part_render.py          # randatorul unei variante de piesă, pe scenă minimă; importă mujoco
+    part_render.py          # randatorul unei variante de piesă, pe scenă minimă texturată; importă mujoco
+    textures.py             # PNG-uri procedurale: beton, cauciuc de bandă, metal periat; fără MuJoCo
     telemetry.py            # eșantionul pe contract, metadatele cadrului, fișierele sesiunii; fără MuJoCo
     wear.py                 # motorul de uzură: sănătate, efecte în contract, eșecuri, acțiuni; fără MuJoCo
     control.py              # comenzile panoului și ale viewer-ului: injectare, reparație, reset; fără MuJoCo
@@ -668,6 +703,8 @@ simulation/mujoco/          # există
     scene.py                # compunerea: cell.xml plus cele două brațe; importă mujoco
     cell.py                 # contactul cu banda, viteza piesei, forța scrisă în data.xfrc_applied; importă mujoco
     arms.py                 # cinematica inversă, urmărirea căii, strângerea; importă mujoco
+    grasp.py                # falcile pe piesă, clema de suprafață și legătura weld; importă mujoco
+    grasp_cycle.py          # ciclul complet cu prindere, variație de poziție și verificări; importă mujoco
     sensors.py              # din MjData în mărimi de proces: efort, falci, piese, contacte; importă mujoco
     camera.py               # randare offscreen (PNG scris de mână) și cadrele sesiunii; importă mujoco
 ```
@@ -676,10 +713,10 @@ simulation/mujoco/          # există
 simulation/mujoco/cncdt_mj/  # de scris, în fazele 4-5
   detector.py               # RCF local + regula de alarmă (pur, numpy)
   report.py                 # preaviz, rată de detecție, alarme false (pur)
-  cell.py                   # are transportul pe benzi și ciclul brațelor; lipsesc prinderea și stările mașinii
 tests/unit/
   test_mujoco_scene.py      # există: layout/part/checks fără MuJoCo, înălțimile față de acest document, camerele de pe flanșe; partea care atinge motorul se rulează cu `make mj-test`
   test_mj_telemetry.py      # există: contractele eșantionului și ale cadrului, planul capturii, fișierele sesiunii
+  test_mj_textures.py       # există: PNG valid, determinist, fără rescrierea fișierelor existente
   test_mj_wear.py           # există: ecuația și independența de pas, efectele în contract, eșecurile, acțiunile
   test_mj_control.py        # există: butoanele panoului, injectarea, reparația, starea trimisă viewer-ului
   test_mj_export.py         # există: cheile din bucket, manifestul, refuzul unui corpus cu găuri
@@ -701,9 +738,10 @@ se importă și s-ar ciocni între cele două brațe.
 
 Regula din `AGENTS.md` se respectă: identificatorii în engleză, comentariile de design în
 română, logica pură separată de cea care atinge motorul de fizică — `layout.py`, `part.py`,
-`belt.py`, `moves.py`, `checks.py`, `povs.py`, `telemetry.py` și `export.py` se importă din
-`.venv`-ul proiectului, unde `mujoco` nu există, iar `tests/unit/test_mujoco_scene.py` verifică
-exact ce module ating motorul: `scene.py`, `cell.py`, `arms.py`, `sensors.py`, `camera.py`.
+`belt.py`, `moves.py`, `checks.py`, `povs.py`, `telemetry.py`, `textures.py` și `export.py` se
+importă din `.venv`-ul proiectului, unde `mujoco` nu există, iar `tests/unit/test_mujoco_scene.py`
+verifică exact ce module ating motorul: `scene.py`, `cell.py`, `arms.py`, `grasp.py`,
+`grasp_cycle.py`, `sensors.py`, `camera.py`, `part_render.py`.
 
 ## 8. Faze și criterii de acceptare
 
@@ -718,12 +756,14 @@ exact ce module ating motorul: `scene.py`, `cell.py`, `arms.py`, `sensors.py`, `
 | 6 | (opțional) SageMaker RCF + card de model | antrenare din ferestrele exportate, card în `ml/models/`, cost justificat în PR |
 
 Starea de azi: din faza 2 există partea de scenă — `layout.py`, `part.py`, `checks.py`, `scene.py`,
-`scene/cell.xml` și `view.py` —, transportul pe benzi (`belt.py`, `cell.py`, cu linia de oprire din
-plan și viewer cu benzile pornite) și **brațele în mișcare**: `moves.py` ține punctele de lucru ale
-fiecărui braț, iar `arms.py` le atinge cu cinematică inversă, urmărind linii drepte în spațiul
-sculei. `view.py --check` este verde, `view.py --demo` rulează ciclul și tipărește cifrele fiecărei
-opriri, iar testele geamănului acoperă partea pură (`tests/unit/test_mujoco_scene.py`) și
-contractele colectării (`tests/unit/test_mj_telemetry.py`).
+`scene/cell.xml`, `textures.py` și `view.py` —, transportul pe benzi (`belt.py`, `cell.py`, cu linia
+de oprire din plan și viewer cu benzile pornite) și **ciclul complet cu prindere fizică**
+(`grasp.py`, `grasp_cycle.py`): `moves.py` ține punctele de lucru ale fiecărui braț, `arms.py` le
+atinge cu cinematică inversă, urmărind linii drepte în spațiul sculei, iar la fiecare punct falcile
+se închid pe piesă și legătura `weld` o ține de mînă. `view.py --check` este verde, `view.py --demo`
+rulează ciclul pentru toate cele cinci familii, iar testele geamănului acoperă partea pură
+(`tests/unit/test_mujoco_scene.py`) și contractele colectării
+(`tests/unit/test_mj_telemetry.py`).
 
 Din faza 1 există motorul de uzură: `cncdt_mj/wear.py` ține sănătatea celor șapte componente,
 o integrează exact pe timpul de lucru al fiecăreia, compune mărimile de așchiere, trage eșecurile
@@ -737,13 +777,14 @@ Există și **colectarea cu urcare în bucket**: `make mj-collect` scrie sesiuni
 rulare propriu și le urcă sub `training-data/mujoco/dt=<zi>/run-<UTC>/`, cu manifestul corpusului
 lângă ele; `cncdt_mj/export.py` verifică sesiunile înainte, iar `publish.py` urcă prin AWS CLI
 (secțiunea 4, „Colectarea și urcarea în bucket").
-Criteriul **nu este atins**: ciclul atinge punctele, dar nu prinde piesa (falcile doar o ating,
-fiindcă deschiderea mâinii Panda, 83 mm, este mai mică decât discul de 104 mm — prinderea se
-modelează ca legătură rigidă, ca în celula din Isaac Sim), mașina nu are axe, iar un ciclu ține
-~65 s simulați, deci „o sesiune de 10 minute" cere zeci de cicluri. Cadrul fix de proces se ia la
-începutul ciclului, fiindcă în geamăn piesa mașinată stă deja sub cameră când începe ciclul, iar
-banda o duce întâi la linia de preluare a brațului 2. Când prinderea există, ordinea devine cea
-reală: piesa ajunge sub cameră după ce brațul 1 o lasă pe bandă.
+
+Criteriul fazei 2 este **atins în simulare**: un ciclu complet ține ~70 s simulați, deci
+`--cycles 10` acoperă cele zece minute, iar zece rulări de probă (cinci familii × două semințe) s-au
+încheiat cu 6/6 prinderi pe ciclu și fără piese pierdute. Ce rămîne deschis: mașina nu are axe
+(fereastra `CUTTING` este timp, nu mișcare), degradarea camerei nu se aplică încă, iar legătura de
+prindere nu slăbește cu uzura. Toleranțele verificării sînt 25 mm pentru poziția sculei și 60 mm
+pentru locul piesei în raft: compartimentul cel mai jos și cel mai apropiat de bază cere brațul
+îndoit la limită, iar eroarea de regim acolo este 21-23 mm.
 
 Fiecare fază se poate opri fără să lase ceva rupt: faza 1 nu are dependențe de MuJoCo, faza 2 nu
 atinge contractele publicate.

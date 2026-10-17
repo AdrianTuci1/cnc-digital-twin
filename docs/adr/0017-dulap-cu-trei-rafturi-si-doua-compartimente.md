@@ -54,8 +54,9 @@ Trei constrângeri au fost măsurate în scenă, nu deduse din desen:
 ## Consecințe
 
 - `make mj-demo` este verde pentru toate cele cinci familii: eroarea maximă în compartimente este
-  **6,8 mm**, fără nicio verigă atinsă; eroarea maximă a ciclului rămâne 17,7 mm la așezarea pe
-  banda 2. O familie durează 57–59 s simulați.
+  **6,8 mm**, fără nicio verigă atinsă; eroarea maximă a ciclului era 17,7 mm la așezarea pe
+  banda 2. O familie dura 57–59 s simulați. ADR 0019 ridică eroarea maximă la 23 mm, în
+  compartimentul cel mai jos, și lungimea ciclului la ~70 s.
 - Scena scade de la 36 de corpuri și 236 de geome la **31 de corpuri și 206 geome**: cele cinci
   corpuri de intrare, cele 12 picioare, panourile și buzele dispar, iar carcasa, cele trei rafturi
   și despărțitorul intră în corpul `rack`.
@@ -63,8 +64,9 @@ Trei constrângeri au fost măsurate în scenă, nu deduse din desen:
   cotele rafturilor stau în legendă și în tabelul de coordonate, nu în desen.
 - Falcile pot atinge blatul când lasă piesa. Atingerea falcilor este raportată, nu tratată ca
   eșec, fiindcă falcile sunt scula; o verigă care atinge dulapul rămâne eșec.
-- Prinderea nu este modelată, deci piesa nu se așază fizic pe raft după eliberare. Ținta este
-  centrul piesei, ca la toate celelalte puncte de lucru.
+- Prinderea nu este modelată la data acestei decizii, deci piesa nu se așază fizic pe raft după
+  eliberare. Ținta este centrul piesei, ca la toate celelalte puncte de lucru. ADR 0019 face
+  prinderea fizică, iar piesa se ține pe raft de o clemă de suprafață după eliberare.
 - Fața de intrare la 0,96 m este limita măsurată: dacă fața se mută spre braț, veriga 5 atinge
   marginea raftului de deasupra, iar o apropiere de 30° aduce contactul chiar la această cotă.
   Adâncimea totală de 0,30 m se întinde în spate, în afara anvelopei; a fost mărită fără să

@@ -1,8 +1,9 @@
 """Randarea offscreen a unei piese, pentru datasetul de calitate.
 
-Modulul atinge motorul: compune o scenă minimă (plan, piesă, două lumini), așază camera liberă
-deasupra piesei și scrie un PNG. Partea pură — unghiuri, distanțe, nume de fișiere, index — stă în
-`cncdt_mj/part_images.py`, ca să se poată testa fără `mujoco` (ADR 0012).
+Modulul atinge motorul: compune o scenă minimă (plan texturat, piesă cu metal periat, trei
+lumini), așază camera liberă deasupra piesei și scrie un PNG. Partea pură — unghiuri, distanțe,
+nume de fișiere, index — stă în `cncdt_mj/part_images.py`, ca să se poată testa fără `mujoco`
+(ADR 0012).
 
 Piesa se scrie într-un OBJ temporar, fiindcă MuJoCo încarcă meshurile din fișier. Geometria vine
 din generatorul procedural, deci nu se copiază nimic în repo: se reconstruiește din manifestul de
@@ -22,26 +23,35 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 import mujoco
 import numpy as np
 
-from . import camera, part_images
+from . import camera, part_images, textures
 
 #: Cât de sus stă planul de sub piesă, ca să nu se intersecteze cu fața de jos.
 FLOOR_GAP_M = 0.0005
 
+#: Texturile generate o singură dată, în același loc ca ale celulei: XML-ul le încarcă la parsare,
+#: deci drumul trebuie să fie stabil între apeluri.
+TEXTURES_DIR = Path(__file__).resolve().parent.parent / "runs" / "textures"
+
 
 def write_obj(path: Path, vertices_mm: np.ndarray, faces: np.ndarray) -> Path:
-    """Scrie meshul variantei într-un OBJ, în metri, cu fețe de la 1.
+    """Scrie meshul variantei într-un OBJ, în metri, cu fețe de la 1 și coordonate de textură.
 
     Generatorul dă vîrfurile în milimetri și fețele cu indici de la 0; MuJoCo citește OBJ cu
-    indici de la 1. Conversia se face o singură dată, aici.
+    indici de la 1. Coordonatele de textură sînt o proiecție plană pe cutia vîrfurilor: destul ca
+    striurile periate să curgă continuu peste fața piesei, fără să întindă textura pe dinți.
     """
     vertices = np.asarray(vertices_mm, dtype=np.float64) / 1000.0
     faces = np.asarray(faces, dtype=np.int64)
+    low = vertices[:, :2].min(axis=0)
+    span = np.maximum(vertices[:, :2].max(axis=0) - low, 1e-9)
+    uv = (vertices[:, :2] - low) / span
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
-        for x, y, z in vertices:
+        for (x, y, z), (u, v) in zip(vertices, uv, strict=True):
             handle.write(f"v {x:.9f} {y:.9f} {z:.9f}\n")
+            handle.write(f"vt {u:.6f} {v:.6f}\n")
         for a, b, c in faces + 1:
-            handle.write(f"f {a} {b} {c}\n")
+            handle.write(f"f {a}/{a} {b}/{b} {c}/{c}\n")
     return path
 
 
@@ -56,25 +66,38 @@ def light_direction(azimuth_deg: float, elevation_deg: float) -> tuple[float, fl
 
 
 def scene_xml(mesh_path: Path, part_z_m: float, floor_z_m: float, view: part_images.View,
-              width: int, height: int) -> str:
-    """Scena minimă de randare: plan, piesă, două lumini și camera liberă.
+              width: int, height: int,
+              texture_paths: Mapping[str, Path] | None = None) -> str:
+    """Scena minimă de randare: plan, piesă, trei lumini și camera liberă.
 
-    Fundalul este planul însuși, văzut de sus: un gri neutru, fără textură și fără skybox, ca
-    clasificatorul să nu învețe decorul. Lumina principală se rotește cu fiecare cadru, iar cea de
-    umplere vine drept de sus, ca golurile să nu rămînă negre.
+    Planul primește o textură de beton, iar piesa una de metal periat: fără ele, clasificatorul
+    vedea o suprafață perfect plană, care nu are reflexe la niciun unghi. Lumina principală se
+    rotește cu fiecare cadru, cea de umplere vine drept de sus, iar o a treia, laterală, ridică
+    marginea piesei — altfel un disc de metal se pierde în fundal.
     """
     dx, dy, dz = light_direction(view.light_azimuth_deg, view.light_elevation_deg)
     distance = max(0.2, 2.0 * abs(part_z_m) + 0.2)
     lx, ly, lz = -dx * distance, -dy * distance, part_z_m - dz * distance
+    paths = dict(texture_paths or {})
+    brushed = paths.get("brushed_metal")
+    concrete = paths.get("concrete")
+    part_texture = (f'<texture type="2d" name="part_tex" file="{brushed.as_posix()}"/>'
+                    if brushed is not None else "")
+    floor_texture = (f'<texture type="2d" name="floor_tex" file="{concrete.as_posix()}"/>'
+                     if concrete is not None else "")
+    part_map = 'texture="part_tex" texuniform="false" texrepeat="1 1"' if brushed else ""
+    floor_map = 'texture="floor_tex" texuniform="false" texrepeat="12 12"' if concrete else ""
     return f"""<mujoco model="cncdt-part">
   <option gravity="0 0 0"/>
   <visual>
     <global offwidth="{int(width)}" offheight="{int(height)}" fovy="{part_images.FOVY_DEG}"/>
-    <headlight ambient="0.32 0.32 0.32" diffuse="0.45 0.45 0.45" specular="0.12 0.12 0.12"/>
+    <headlight ambient="0.26 0.26 0.26" diffuse="0.30 0.30 0.30" specular="0.08 0.08 0.08"/>
   </visual>
   <asset>
-    <material name="part" rgba="0.82 0.84 0.87 1" specular="0.25" shininess="0.45"/>
-    <material name="floor" rgba="0.16 0.17 0.19 1" specular="0.0" shininess="0.0"/>
+    {part_texture}
+    {floor_texture}
+    <material name="part" {part_map} rgba="0.70 0.72 0.76 1" specular="0.28" shininess="0.50"/>
+    <material name="floor" {floor_map} rgba="0.20 0.21 0.23 1" specular="0.0" shininess="0.0"/>
     <mesh name="part" file="{mesh_path.as_posix()}"/>
   </asset>
   <worldbody>
@@ -84,8 +107,10 @@ def scene_xml(mesh_path: Path, part_z_m: float, floor_z_m: float, view: part_ima
       <geom name="part" type="mesh" mesh="part" material="part"/>
     </body>
     <light name="key" pos="{lx:.6f} {ly:.6f} {lz:.6f}" dir="{dx:.6f} {dy:.6f} {dz:.6f}"
-           directional="true" diffuse="0.85 0.85 0.85" specular="0.2 0.2 0.2"/>
-    <light name="fill" pos="0 0 1" dir="0 0 -1" directional="true" diffuse="0.22 0.22 0.22"/>
+           directional="true" diffuse="0.62 0.62 0.62" specular="0.18 0.18 0.18"/>
+    <light name="fill" pos="0 0 1" dir="0 0 -1" directional="true" diffuse="0.20 0.20 0.20"/>
+    <light name="rim" pos="0 -0.6 0.4" dir="0 0.6 -0.4" directional="true"
+           diffuse="0.26 0.26 0.28" specular="0.30 0.30 0.30"/>
   </worldbody>
 </mujoco>
 """
@@ -113,7 +138,9 @@ def render_variant(variant: Any, path: str | Path, view: part_images.View,
 
     with tempfile.TemporaryDirectory(prefix="cncdt-part-") as scratch:
         mesh_path = write_obj(Path(scratch) / "part.obj", vertices, faces)
-        xml = scene_xml(mesh_path, center_z, low_z - FLOOR_GAP_M, view, width, height)
+        texture_paths = textures.ensure_textures(TEXTURES_DIR)
+        xml = scene_xml(mesh_path, center_z, low_z - FLOOR_GAP_M, view, width, height,
+                        texture_paths)
         model = mujoco.MjModel.from_xml_string(xml)
         data = mujoco.MjData(model)
         mujoco.mj_forward(model, data)

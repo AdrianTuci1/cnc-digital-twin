@@ -8,10 +8,11 @@ Patru moduri, toate pe aceeași scenă compusă de `cncdt_mj.scene`:
   scenă și contactele. Iese cu cod 1 dacă vreo verificare cade.
 * `--render` — scrie un PNG offscreen, implicit `renders/cell.png`; cu `--camera arm2_wrist_camera`
   scrie cadrul camerei de pe flanșă, la rezoluția ei (`renders/arm2_wrist_camera.png`).
-* `--demo` — ciclul brațelor, punct cu punct: piesele sunt aduse la liniile de preluare, fiecare
-  braț își urmează ruta din `cncdt_mj/moves.py`, iar la fiecare oprire se tipăresc eroarea, unghiul
-  și contactele. Se termină cu „Ciclul: verde" ori cu „Ciclul: CĂZUT (n)". Cu `--shots` scrie un
-  PNG la fiecare oprire.
+* `--demo` — ciclul celulei, cu prindere fizică: benzile aduc materialul la liniile de preluare,
+  fiecare braț își urmează ruta din `cncdt_mj/moves.py`, falcile se închid pe piesă, o ridică și o
+  lasă mai departe, iar la fiecare oprire se tipăresc eroarea, unghiul și contactele. Se termină cu
+  „Ciclul: verde" ori cu „Ciclul: CĂZUT (n)". Cu `--shots` scrie un PNG la fiecare oprire și la
+  fiecare prindere.
 * `--view` — deschide viewer-ul interactiv, cu benzile pornite: forța de antrenare se rescrie la
   fiecare pas (`cell.apply_belt_forces`), iar ceasul se ține în ritm real, ca transportul să se
   vadă. `--no-belts` îngheață transportul, `--speed` schimbă ritmul de rulare, iar `--demo` rulează
@@ -48,8 +49,8 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import (arms, belt, camera, cell, checks, control, layout, moves,  # noqa: E402
-                      part, povs, scene, wear)
+from cncdt_mj import (arms, belt, camera, cell, checks, control, grasp_cycle,  # noqa: E402
+                      layout, part, povs, scene, wear)
 
 #: Unde se scriu cadrele; directorul e comis, ca dovada vizuală să fie în repo.
 RENDERS_DIR = MUJOCO_DIR / "renders"
@@ -59,6 +60,10 @@ ARM_PREFIXES = tuple(f"{prefix}_" for prefix, _ in scene.ARM_MOUNTS)
 
 #: La cât timp simulat se tipărește o linie de transport în viewer.
 REPORT_PERIOD_S = 1.0
+
+#: Cât durează fereastra de așchiere în `--demo`: destul ca uzura să avanseze și să se vadă în
+#: viewer, fără să țină demonstrația douăsprezece secunde pe ciclu.
+DEMO_MACHINING_S = 0.5
 
 # Pragurile verificării (`MIN_WRIST_PART_PX`, `YAW_TOLERANCE_DEG`, `MAX_SETTLE_DRIFT_M`) stau în
 # `cncdt_mj/checks.py`: sunt reguli pure, iar testele din `.venv`-ul proiectului le împart cu
@@ -174,7 +179,7 @@ def check(args: argparse.Namespace) -> int:
                             f"({clearance * 1000:.0f} mm < "
                             f"{checks.MIN_LENS_CLEARANCE_M * 1000:.0f} mm)")
 
-    print("\nMaterial: două stări, amândouă pe benzi")
+    print("\nMaterial: două stări, în celulă")
     for body, place in metadata["placements"].items():
         label = f"{body} ({place['state']})"
         print(f"  {label:<22} la ({place['pos'][0]:.3f}, {place['pos'][1]:.3f}, "
@@ -186,10 +191,29 @@ def check(args: argparse.Namespace) -> int:
         if abs(yaw_error) > checks.YAW_TOLERANCE_DEG:
             failures.append(f"yaw-ul lui {body} nu se citește înapoi din scenă")
         if state["drift_m"][body] > checks.MAX_SETTLE_DRIFT_M:
-            failures.append(f"{body} nu s-a așezat pe bandă (s-a mișcat "
+            failures.append(f"{body} nu s-a așezat la locul lui (s-a mișcat "
                             f"{state['drift_m'][body] * 1000:.1f} mm)")
     print(f"  eticheta piesei mașinate: {metadata['part']}")
     print(f"  blocul brut              : {metadata['blank']}")
+
+    print("\nPrindere: cleme de tip weld, inactive cît timp piesa stă pe suprafață")
+    named = [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_EQUALITY, index)
+             for index in range(model.neq)]
+    ours = [index for index, name in enumerate(named)
+            if name and name.startswith(("grasp_", "fixture_"))]
+    grips = [name for name in named if name and name.startswith("grasp_")]
+    fixtures = [name for name in named if name and name.startswith("fixture_")]
+    # Egalitățile din modelele atașate (cuplarea falcilor Panda) sînt active din fabrică și nu
+    # fac parte din prinderea noastră: se numără doar cele de mai sus.
+    active = sum(1 for index in ours if bool(data.eq_active[index]))
+    print(f"  {len(grips)} cleme braț↔piesă, {len(fixtures)} cleme piesă↔lume, "
+          f"{active} active acum")
+    if len(grips) != len(ARM_PREFIXES) * len(metadata["placements"]):
+        failures.append(f"lipsesc cleme de prindere: {len(grips)} pentru "
+                        f"{len(ARM_PREFIXES)} brațe × {len(metadata['placements'])} piese")
+    if active:
+        failures.append(f"{active} cleme sînt active la poziția nominală: piesa ar fi legată "
+                        f"fără să fi fost prinsă")
 
     print("\nContacte: " + (", ".join(contacts) if contacts else "niciunul"))
     foreign = checks.arm_foreign_contacts(contacts, ARM_PREFIXES)
@@ -249,77 +273,66 @@ def demo(args: argparse.Namespace, hook: arms.StepHook | None = None,
 def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespace,
              family: str | None = None, hook: arms.StepHook | None = None,
              shots: Path | None = None) -> int:
-    """Ciclul de lucru al brațelor: fiecare braț își parcurge punctele, în ordinea din plan.
+    """Ciclul de lucru cu prindere fizică: banda 1 → brațul 1 → CNC → banda 2 → raft.
 
-    Este singura parte a verificării care se vede: brațele pornesc din poziția nominală spre
-    fiecare punct de lucru, pe drumul din `moves.stages` — trecerile, urcarea deasupra, coborârea
-    pe punct și ridicarea înapoi. La fiecare oprire se tipăresc eroarea rămasă, cea mai mare eroare
-    de pe drum, câți pași a durat și contactele, iar o verigă a brațului care atinge celula este
-    eșec. Atingerea falcilor este raportată fără să fie eșec: falcile sunt scula, iar acolo — pe
-    piesă, pe bandă, pe raft — chiar au ce căuta. ``family`` este familia pieselor din scenă: ea
-    alege compartimentul în care brațul 2 lasă piesa, deci toate cele cinci se pot proba.
+    Este singura parte a verificării care se vede. La fiecare punct de lucru se tipăresc eroarea
+    rămasă, cea mai mare eroare de pe drum, câți pași a durat și contactele; la fiecare prindere,
+    dacă falcile au atins piesa, cât au închis și dacă au legat-o de mînă. O verigă a brațului care
+    atinge celula este eșec, iar la sfîrșit se verifică locul fiecărei piese. ``family`` alege
+    piesa, blocul brut și compartimentul din raft, deci toate cele cinci familii se pot proba.
     """
+    family = family or part.family().name
     parts = cell.part_bodies(model)
-    arrived = cell.bring_parts_to_pickup(model, data, parts)
     tool = {arm: arms.tool_length(model, data, arm) for arm in arms.ARMS}
     frames = camera.Frames(model) if shots is not None else None
     failures: list[str] = []
 
-    print(f"Ciclul brațelor: fiecare punct de lucru, atins de sus; familia {family}")
-    for body, x in sorted(arrived.items()):
-        print(f"  piesa {body:<12} la x = {x:.3f} m, pe linia de preluare")
+    print(f"Ciclul celulei: banda 1 → brațul 1 → CNC → banda 2 → raft; familia {family}")
     for arm in arms.ARMS:
         print(f"  scula {arm}                : {tool[arm] * 1000:.1f} mm de la flanșă la punctul "
               f"de strângere")
     print()
 
-    for arm in arms.ARMS:
-        label = layout.arm(arm)["label"]
-        print(f"{label} ({arm}), rază {layout.ARM_REACH_M:.3f} m")
-        for item in moves.route(arm, tool[arm], family):
-            for stage, point in moves.stages(item):
-                report = arms.reach_point(model, data, arm, point, item.approach,
-                                          item.spin_deg, settle=args.demo_settle, hook=hook)
-                pairs = scene.contact_pairs(model, data)
-                fingers = checks.arm_foreign_contacts(pairs, ARM_PREFIXES)
-                links = checks.arm_link_contacts(pairs, ARM_PREFIXES)
-                print(f"  {item.name:<11} {item.label:<28} {stage} "
-                      f"({point[0]:.3f}, {point[1]:.3f}, {point[2]:.3f})  "
-                      f"eroare {report['position_m'] * 1000:6.1f} mm / "
-                      f"{report['angle_deg']:4.1f}°  drum "
-                      f"{report['path_residual_m'] * 1000:6.1f} mm  "
-                      f"pași {int(report['steps']):5d}")
-                if fingers:
-                    print(f"  {'':<11} falcile ating: {', '.join(fingers)}")
-                for pair in links:
-                    failures.append(f"o verigă a brațului atinge ceva la {item.name} {stage}: "
-                                    f"{pair}")
-                if report["position_m"] > checks.MAX_POSE_ERROR_M:
-                    failures.append(
-                        f"scula rămâne {report['position_m'] * 1000:.0f} mm de {item.name} "
-                        f"({stage}), peste pragul de {checks.MAX_POSE_ERROR_M * 1000:.0f} mm")
-                elif report["angle_deg"] > checks.MAX_POSE_ANGLE_DEG:
-                    failures.append(
-                        f"scula rămâne cu {report['angle_deg']:.1f}° răsuciți la {item.name} "
-                        f"({stage}), peste pragul de {checks.MAX_POSE_ANGLE_DEG:.0f}°")
-                if frames is not None and shots is not None:
-                    frames.write(data, shots / f"{arm}-{item.name}-{stage}.png")
-        print()
+    def reporter(row: dict[str, Any]) -> None:
+        """O linie pentru fiecare oprire a sculei și pentru fiecare prindere."""
+        if "grasp" in row:
+            item = row["grasp"]
+            outcome = "reușită" if item["success"] else "RATATĂ"
+            print(f"  {item['arm']:<5} {'':<11} {'':<28} falcile {item['action']:<5} "
+                  f"{outcome}: contact {'da' if item['contact'] else 'nu'}, "
+                  f"deschidere {item['finger_gap_m'] * 1000:.1f} mm, {item['steps']} pași")
+            if frames is not None and shots is not None:
+                frames.write(data, shots / f"{item['arm']}-{item['point']}-{item['action']}.png")
+            return
+        print(f"  {row['arm']:<5} {row['point']:<11} {row['label']:<28} {row['stage']:<10} "
+              f"({row['target'][0]:.3f}, {row['target'][1]:.3f}, {row['target'][2]:.3f})  "
+              f"eroare {row['position_m'] * 1000:6.1f} mm / "
+              f"{row['angle_deg']:4.1f}°  drum "
+              f"{row['path_residual_m'] * 1000:6.1f} mm  "
+              f"pași {int(row['steps']):5d}")
+        if row["finger_contacts"]:
+            print(f"  {'':<11} {'':<28} falcile ating: {', '.join(row['finger_contacts'])}")
+        if frames is not None and shots is not None:
+            frames.write(data, shots / f"{row['arm']}-{row['point']}-{row['stage']}.png")
 
+    result = grasp_cycle.run_cycle(
+        model, data, family, seed=args.seed, settle=args.demo_settle,
+        machining_s=DEMO_MACHINING_S, hook=hook, reporter=reporter)
     if frames is not None:
         frames.close()
-    print(f"Timp simulat: {data.time:.2f} s")
+    print(f"\nTimp simulat: {result.duration_s:.2f} s")
+    failures.extend(result.failures)
 
-    # Unde au ajuns piesele: deocamdată ciclul nu prinde nimic, deci falcile doar le ating, iar o
-    # piesă împinsă de sculă se vede aici. Când prinderea există (welding equality, ca în celula
-    # din Isaac Sim), rămânerea pe bandă devine criteriu de eșec.
     print("\nPiesele după ciclu:")
+    positions = cell.part_positions(model, data, parts)
     for body in parts:
-        x, y, z = cell.part_positions(model, data, parts)[body]
+        x, y, z = positions[body]
         home = belt.belt_at(x, y)
         place = f"pe {home}" if home else "în afara benzilor"
         print(f"  {body:<12} la ({x:.3f}, {y:.3f}, {z:.3f})  {place}")
 
+    good = sum(1 for row in result.grasps if row["success"])
+    print(f"\nPrinderi: {good}/{len(result.grasps)} reușite")
     if failures:
         print(f"\nCiclul: CĂZUT ({len(failures)})")
         for failure in failures:
@@ -557,12 +570,12 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--view", action="store_true",
                       help="deschide viewer-ul (pe macOS: mjpython view.py --view)")
     parser.add_argument("--demo", action="store_true",
-                       help="rulează ciclul brațelor: fiecare punct de lucru, atins de sus, cu "
-                            "erorile și contactele la fiecare oprire; cu `--view`, ciclul se "
-                            "vede în viewer")
+                       help="rulează ciclul celulei, cu prindere fizică: benzile, brațele, mașina "
+                            "și raftul, cu erorile și contactele la fiecare oprire; cu `--view`, "
+                            "ciclul se vede în viewer")
     parser.add_argument("--shots", nargs="?", const="", metavar="DIR",
-                       help="cu `--demo`, scrie un PNG la fiecare oprire (implicit "
-                            "renders/demo/)")
+                       help="cu `--demo`, scrie un PNG la fiecare oprire și la fiecare prindere "
+                            "(implicit renders/demo/)")
     parser.add_argument("--demo-settle", type=int, default=300,
                        help="câți pași se așteaptă la fiecare punct de lucru din ciclu")
     parser.add_argument("--camera", default=None,
@@ -590,10 +603,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--part-yaw-deg", type=float, default=None,
                        help="yaw-ul piesei mașinate pe banda 2 (implicit: aleator, din sămânță)")
     parser.add_argument("--part-x", type=float, default=None,
-                       help="poziția X a piesei mașinate pe banda 2, verificată față de amprenta "
-                            "benzii (implicit: la jumătatea drumului dintre așezare și preluare)")
+                       help="poziția X a piesei mașinate pe masa de descărcare a mașinii, "
+                            "verificată față de amprenta mesei (implicit: lîngă universal)")
     parser.add_argument("--part-y", type=float, default=None,
-                       help="poziția Y a piesei mașinate pe banda 2 (implicit: axa benzii)")
+                       help="poziția Y a piesei mașinate pe masa de descărcare (implicit: lîngă "
+                            "universal)")
     parser.add_argument("--base-z", type=float, default=None,
                        help="cota vârfului piedestalului brațelor, pentru măsurători: "
                             f"implicit cea din document, {layout.documented_height('arm_base'):.2f} "

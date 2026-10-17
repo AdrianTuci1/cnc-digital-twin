@@ -51,7 +51,7 @@ Regulile pe care tabelul le respectă, verificate în `tests/unit/test_part_gene
   2 mm nu are voie să ajungă în cercul de găuri, gaura deplasată cu 2,5 mm nu are voie să
   iasă din coroană, iar lățimile dinților trebuie să rămână valide și la 17 ori 19 dinți.
   Fără marje, o variantă iese din propria siluetă ori, mai rău, arată exact ca piesa nominală;
-- **familiile mici încap între fălcile de 83 mm ale prinzătorului**, deci acolo prinderea
+- **familiile mici încap între fălcile de 80 mm ale prinzătorului**, deci acolo prinderea
   poate fi reală. Piesa de referință, Ø100, e prea mare și rămâne prinsă prin constrângere
   (`grasping.py` în Isaac Sim, egalitatea `weld` în geamănul MuJoCo) sau mutată în poziția de
   strunjire fără prindere reală;
@@ -178,9 +178,11 @@ imaginea se inspectează apoi cu ochiul.
 
 `simulation/mujoco/render_parts.py` reconstruiește fiecare variantă din manifest (parametrii
 compleți, deci geometria este exactă), o așază pe un plan și o fotografiază din camera de sus.
-Unghiurile, lumina și distanța camerei se trag din poziția globală a piesei și din
-`--render-seed`, un flux separat de seed-ul de geometrie: altfel eticheta și condițiile de
-randare s-ar corela accidental.
+Planul are o textură de beton, iar piesa una de metal periat, ambele generate procedural de
+`cncdt_mj/textures.py`; o a treia lumină, laterală, ridică marginea discului, ca un obiect de
+metal să nu se piardă în fundal. Unghiurile, lumina și distanța camerei se trag din poziția
+globală a piesei și din `--render-seed`, un flux separat de seed-ul de geometrie: altfel eticheta
+și condițiile de randare s-ar corela accidental.
 
 ```bash
 # manifest + imagini, local (venv-ul geamănului are mujoco)
@@ -216,7 +218,7 @@ are etichetă și că fiecare PNG există, apoi unește indexurile felilor.
 
 1. **Antrenarea**: clasificator de imagini pe SageMaker, cu două capete (familie, conformitate),
    pe split-urile din manifest.
-2. **Prinderea**: model de grasp pe cadrele de prindere din `training-data/grasp/`; fizica
-   falcilor nu este încă modelată, deci cadrele arată apropierea, piesa între fălci și ridicarea,
-   iar piesa rămîne pe bandă.
+2. **Prinderea**: model de grasp pe cadrele de prindere din `training-data/grasp/`; prinderea este
+   modelată fizic în geamăn, deci cadrele arată apropierea, piesa între fălci și ridicarea, iar
+   fiecare cadru are în `session.json` rezultatul prinderii (contact, deschidere, reușită).
 3. **Verificarea**: baseline pe metadate, etichete amestecate, geometrie decuplată de etichetă.

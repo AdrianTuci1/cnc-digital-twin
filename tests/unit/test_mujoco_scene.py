@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from cncdt.cnc_cell.parts import gear
-from cncdt_mj import REPO_ROOT, belt, checks, layout, moves, part
+from cncdt_mj import REPO_ROOT, belt, checks, layout, moves, part, textures
 
 MUJOCO_DIR = REPO_ROOT / "simulation" / "mujoco"
 PACKAGE_DIR = MUJOCO_DIR / "cncdt_mj"
@@ -124,7 +124,7 @@ def test_blocul_brut_are_adaos_de_prelucrare() -> None:
 
 
 def test_celor_doua_stari_de_material_li_se_stie_locul() -> None:
-    """Blocul brut stă în ținta de preluare a benzii 1, piesa mașinată la mijlocul benzii 2."""
+    """Blocul brut stă în ținta de preluare a benzii 1, piesa mașinată pe masa de descărcare."""
     placements = {item.state: item for item in layout.part_placements()}
     blank = placements[layout.STATE_BLANK]
     machined = placements[layout.STATE_MACHINED]
@@ -133,13 +133,11 @@ def test_celor_doua_stari_de_material_li_se_stie_locul() -> None:
         "blocul brut stă la linia de oprire a benzii 1, adică în dreptul țintei de preluare")
     assert blank.y == pytest.approx(float(pick["y"]))
     assert blank.surface_z == layout.BELT_SURFACE_Z
-    # Piesa mașinată așteaptă la jumătatea drumului dintre locul unde o lasă brațul 1 și linia de
-    # unde o ridică brațul 2: de acolo o ajunge oricare dintre ele.
-    halfway = (float(layout.target("belt2_drop")["x"])
-               + float(layout.target("belt2_pick")["x"])) / 2
-    assert machined.x == pytest.approx(halfway)
-    assert machined.y == pytest.approx(layout.center(layout.BELT_OUT)[1])
-    assert machined.surface_z == layout.BELT_SURFACE_Z
+    # Piesa mașinată apare în universal și este scoasă pe masa de descărcare a mașinii, lîngă
+    # universal: acolo o lasă schimbul de material, iar de acolo o ridică brațul 1.
+    assert machined.x == pytest.approx(layout.MACHINE_STAGING_X)
+    assert machined.y == pytest.approx(layout.MACHINE_STAGING_Y)
+    assert machined.surface_z == layout.MACHINE_TABLE_Z
 
 
 def test_piesa_oprita_sta_fix_pe_sensul_benzii() -> None:
@@ -612,9 +610,10 @@ def _imported_top_levels(source: str) -> set[str]:
 
 
 #: Modulele care ating motorul: se validează rulând `view.py --check`, din venv-ul geamănului.
-#: `camera.py` randează cadrele sesiunii, iar `sensors.py` citește mărimile din `MjData`.
+#: `camera.py` randează cadrele sesiunii, `sensors.py` citește mărimile din `MjData`, `grasp.py`
+#: leagă piesa de mînă prin egalități de tip weld, iar `grasp_cycle.py` duce ciclul întreg.
 ENGINE_MODULES = ("scene.py", "cell.py", "arms.py", "camera.py", "sensors.py",
-                  "part_render.py")
+                  "part_render.py", "grasp.py", "grasp_cycle.py")
 
 
 def test_modulele_pure_nu_importa_motorul() -> None:
@@ -641,6 +640,9 @@ def test_sablonul_scenei_are_sursa_pentru_fiecare_cota() -> None:
     placeholders = set(re.findall(r"\{([a-z][a-z0-9_]*)\}", template))
     geometry = layout.scene_geometry()
     known = set(geometry) | {f"neg_{key}" for key in geometry}
+    # Texturile nu sînt cote: `scene_template` le scrie în `runs/textures` și le dă XML-ului ca
+    # drumuri absolute, fiindcă altfel compilările repetate corup heap-ul (MuJoCo 3.15.0).
+    known |= {f"{name}_texture" for name in textures.TEXTURE_NAMES}
     assert placeholders <= known, (
         f"cote fără sursă în layout.scene_geometry(): {sorted(placeholders - known)}")
 
