@@ -344,25 +344,27 @@ fiecare ciclu arată altfel, iar eticheta rămîne aceeași.
 ## Camerele de pe flanșe
 
 Nu mai există o cameră fixă deasupra benzii 2: verdictul de calitate îl dă camera de pe flanșa
-brațului 2. Fiecare braț are câte o cameră pe o consolă laterală a flanșei, la (90, 0, 130) mm în
-sistemul ultimei verigi, cu **52° pe verticală** și **640×480**, iar obiectivul privește punctul de
+brațului 2. Fiecare braț are câte o cameră pe o consolă laterală a flanșei, la (120, 0, 130) mm în
+sistemul ultimei verigi, cu **46° pe verticală** și **640×480**, iar obiectivul privește punctul de
 strângere; orientarea se calculează la compunerea scenei (`scene.wrist_camera_quat`), nu se scrie
 de mână.
 
-Camera de pe brațul 2 fotografiază piesa ținută în falci: stă la **12 cm** de punctul de strângere,
-iar roata de ~104 mm iese la **~400 px** din 640, adică **~4,0 px/mm**. La scara asta, cel mai
-fin defect din catalog — o gaură dezaxată cu 2,5 mm — ajunge la **~12 px**, iar dintele ciobit de
-4 mm la **~17 px**. Cîmpul de vedere a fost strîns de la 60° la 52° tocmai ca piesa să umple cadrul:
-la 60° roata ocupa 345 px, iar banda și raftul din fundal luau restul. Pragul
-`checks.MIN_WRIST_PART_PX` prinde o cameră montată greșit, care nu are piesa în cadru, ori o
-cameră prea depărtată, la care piesa ajunge un blob de câteva zeci de pixeli.
+Camera de pe brațul 2 fotografiază piesa ținută în falci: stă la **14,4 cm** de punctul de
+strângere, iar roata de ~104 mm iese la **~392 px** din 640, adică **~3,9 px/mm**. La scara asta,
+cel mai fin defect din catalog — o gaură dezaxată cu 2,5 mm — ajunge la **~10 px**, iar dintele
+ciobit de 4 mm la **~16 px**. Cîmpul de vedere a fost strîns de la 60° la 52°, apoi la 46° după ce
+montajul a fost mutat mai departe: la 60° roata ocupa 345 px, iar banda și raftul din fundal luau
+restul. Pragul `checks.MIN_WRIST_PART_PX` prinde o cameră montată greșit, care nu are piesa în
+cadru, ori o cameră prea depărtată, la care piesa ajunge un blob de câteva zeci de pixeli.
 
-**Obiectivul stă în aer liber.** Consola laterală nu e o alegere estetică: pe axa sculei, la 5 cm de
-`link7`, obiectivul cădea **în** carcasa încheieturii, iar toate razele cadrului loveau materialul
-brațului la mai puțin de 20 mm de lentilă. Cadrul ieșea atunci „prin" mână — materialul nu se vedea,
-fiindcă fețele din spate nu se randează, dar umbra lui cădea peste piesă. `--check` măsoară spațiul
-liber pe toate razele cadrului (`scene.lens_clearance`) și cere cel puțin
-`checks.MIN_LENS_CLEARANCE_M`; montajul de acum dă **42 mm**, la 120 mm de piesă.
+**Obiectivul stă în afara mîinii.** Consola laterală nu e o alegere estetică: pe axa sculei, la
+5 cm de `link7`, obiectivul cădea **în** carcasa încheieturii, iar toate razele cadrului loveau
+materialul brațului la mai puțin de 20 mm de lentilă. Montajul de la 90 mm lateral părea liber
+după razele din cîmp, dar lentila stătea la 38 mm de cochilia mîinii, în deschiderea ei: razele
+ieșeau printre pereți, iar cadrul arăta scena **prin** braț. La 120 mm, lentila are **61 mm** pînă
+la cochilie în orice direcție și **66 mm** pe razele cadrului. `--check` măsoară ambele
+(`scene.lens_clearance`, `scene.lens_surround_clearance`) și cere
+`checks.MIN_LENS_CLEARANCE_M` / `checks.MIN_LENS_SURROUND_M`.
 
 **Umbra care nu vine de la celulă.** Fiecare model Panda are propriul reflector „top", care se
 lipește de braț și se rotește cu el. Cu umbra pornită, reflectorul arunca peste piesa ținută o a

@@ -48,15 +48,21 @@ ARM_MOUNTS: tuple[tuple[str, str], ...] = (("arm1", "arm1_mount"), ("arm2", "arm
 #: înainte — obiectivul cădea **în** carcasa încheieturii (``link6``), iar toate cele 225 de raze
 #: ale câmpului de vedere loveau materialul brațului la mai puțin de 20 mm de lentilă. Cadrul ieșea
 #: atunci „prin" mână — materialul nu se vedea (fețele din spate nu se randează), dar umbra lui
-#: cădea peste piesă, iar scena se vedea ca printr-o fantă. La (90, 0, 130) mm obiectivul stă în aer
-#: liber, cu 42 mm până la primul material de pe orice rază a cadrului, la 120 mm de piesa ținută și
-#: cu 80 mm deasupra ei: o consolă pe latura încheieturii, privind piesa de sus și din lateral.
-#: Măsurat cu ``scene.lens_clearance``, pe care `view.py --check` îl cere. Cîmpul de vedere este
-#: 52°, nu 60°: la 120 mm de piesă, roata de 104 mm trece de la ~345 px la ~400 px din 640, iar
-#: falcile rămîn încadrate. Cadrul mai strîns scoate din imagine banda și raftul, care nu ajută
-#: verdictul, și lasă defectele de 2,5 mm la ~12 px.
-WRIST_CAMERA_OFFSET = (0.09, 0.0, 0.13)
-WRIST_CAMERA_FOVY = 52.0
+#: cădea peste piesă, iar scena se vedea ca printr-o fantă. Montajul a stat apoi la (90, 0, 130) mm,
+#: dar obiectivul ajungea la numai 38 mm de cochilia mîinii, în deschiderea ei: razele cadrului
+#: ieșeau printre pereți, iar brațul se vedea tot ca o fantă. La (120, 0, 130) mm obiectivul stă
+#: în afara cochiliei, cu 60 mm pînă la ea și 64 mm pînă la primul material de pe razele cadrului,
+#: la 144 mm de piesa ținută: o consolă pe latura încheieturii, privind piesa de sus și din lateral.
+#: Măsurat cu ``scene.lens_clearance`` și ``scene.lens_surround_clearance``, pe care
+#: `view.py --check` le cere. Cîmpul de vedere este 46°, nu 52°: la 144 mm de piesă, roata de
+#: 104 mm iese la ~392 px din 640 (~3,9 px/mm), iar falcile rămîn încadrate. Cadrul acoperă
+#: aproximativ aceeași suprafață ca montajul vechi de 52° la 120 mm, doar privită de mai departe,
+#: și lasă defectele de 2,5 mm la ~10 px.
+WRIST_CAMERA_OFFSET = (0.12, 0.0, 0.13)
+WRIST_CAMERA_FOVY = 46.0
+
+#: Cîte direcții se trag în jurul obiectivului cînd se măsoară spațiul liber din toate părțile.
+LENS_SURROUND_GRID = 24
 
 #: Câte raze se trag în câmpul camerei când se măsoară spațiul liber din fața obiectivului.
 LENS_RAY_GRID = 15
@@ -500,6 +506,41 @@ def lens_clearance(model: mujoco.MjModel, data: mujoco.MjData, camera: str, arm:
             geom_id = int(hit[0])
             if geom_id < 0:
                 continue
+            body = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY,
+                                     int(model.geom_bodyid[geom_id])) or ""
+            if body.startswith(arm):
+                nearest = min(nearest, float(distance))
+    return float(nearest)
+
+
+def lens_surround_clearance(model: mujoco.MjModel, data: mujoco.MjData, camera: str, arm: str,
+                            grid: int = LENS_SURROUND_GRID) -> float:
+    """Cea mai mică distanță de la obiectiv la brațul propriu, în toate direcțiile.
+
+    ``lens_clearance`` măsoară doar razele din cîmpul camerei. O cameră așezată în deschiderea
+    cochiliei mîinii vede scena printre pereți: toate razele cadrului ies afară, deci verificarea
+    din cîmp raportează o distanță mare, iar brațul apare ca o fantă. Aici obiectivul este
+    înconjurat cu raze, ca poziția din cavitate să fie prinsă.
+    """
+    camera_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, camera)
+    if camera_id < 0:
+        raise ValueError(f"cameră inexistentă în scenă: {camera}")
+    origin = np.asarray(data.cam_xpos[camera_id], dtype=float)
+    axes = np.asarray(data.cam_xmat[camera_id], dtype=float).reshape(3, 3)
+    group = np.ones(6, dtype=np.uint8)
+    hit = np.zeros(1, dtype=np.int32)
+    nearest = math.inf
+    for row in range(grid):
+        elevation = math.pi * (row + 0.5) / grid - math.pi / 2
+        for column in range(2 * grid):
+            azimuth = 2 * math.pi * (column + 0.5) / (2 * grid)
+            direction = np.array([math.cos(elevation) * math.cos(azimuth),
+                                  math.cos(elevation) * math.sin(azimuth),
+                                  math.sin(elevation)])
+            distance = mujoco.mj_ray(model, data, origin, axes @ direction, group, 1, -1, hit)
+            if distance < 0:
+                continue
+            geom_id = int(hit[0])
             body = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY,
                                      int(model.geom_bodyid[geom_id])) or ""
             if body.startswith(arm):

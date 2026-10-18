@@ -157,18 +157,19 @@ def check(args: argparse.Namespace) -> int:
         if not row["ok"]:
             failures.append(f"ținta „{row['label']}\" ({row['arm']}) este în afara razei brațului")
 
-    print("\nCamere de pe flanșe: față de punctul de strângere, la 52° pe verticală")
+    print("\nCamere de pe flanșe: față de punctul de strângere, la 46° pe verticală")
     for arm in arms.ARMS:
         subject = arms.tool_point(model, data, arm)
         view = scene.camera_view(model, data, f"{arm}_wrist_camera", subject)
         diameter_mm = 2 * part.gear_radius_m(metadata["part"]["family"]) * 1000
         pixels = diameter_mm * float(view["px_per_mm"])
         clearance = scene.lens_clearance(model, data, f"{arm}_wrist_camera", arm)
+        surround = scene.lens_surround_clearance(model, data, f"{arm}_wrist_camera", arm)
         print(f"  {arm}: punctul de strângere la {view['depth_m'] * 1000:.0f} mm, "
               f"abatere {view['angle_x_deg']:+.1f}° / {view['angle_y_deg']:+.1f}° față de ax, "
               f"piesa de {diameter_mm:.0f} mm iese la {pixels:.0f} px")
-        print(f"  {'':<{len(arm)}}  spațiu liber până la materialul brațului: "
-              f"{clearance * 1000:.0f} mm")
+        print(f"  {'':<{len(arm)}}  spațiu liber în cîmp / în jurul obiectivului: "
+              f"{clearance * 1000:.0f} / {surround * 1000:.0f} mm")
         if not view["in_frame"]:
             failures.append(f"camera de pe {arm} nu are scula în cadru")
         elif pixels < checks.MIN_WRIST_PART_PX:
@@ -178,6 +179,10 @@ def check(args: argparse.Namespace) -> int:
             failures.append(f"obiectivul camerei de pe {arm} stă în materialul brațului "
                             f"({clearance * 1000:.0f} mm < "
                             f"{checks.MIN_LENS_CLEARANCE_M * 1000:.0f} mm)")
+        if surround < checks.MIN_LENS_SURROUND_M:
+            failures.append(f"camera de pe {arm} stă în cochilia mîinii și vede prin braț "
+                            f"({surround * 1000:.0f} mm < "
+                            f"{checks.MIN_LENS_SURROUND_M * 1000:.0f} mm)")
 
     print("\nMaterial: două stări, în celulă")
     for body, place in metadata["placements"].items():

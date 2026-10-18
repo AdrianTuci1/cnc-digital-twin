@@ -712,6 +712,11 @@ def test_scena_se_compileaza_si_cadrele_de_pe_flansa_contin_punctul_de_strangere
         clearance = scene.lens_clearance(model, data, f"{arm}_wrist_camera", arm)
         assert clearance >= checks.MIN_LENS_CLEARANCE_M, \
             f"obiectivul camerei de pe {arm} stă în materialul brațului ({clearance * 1000:.0f} mm)"
+        # Razele din cîmp pot ieși prin deschiderea cochiliei mîinii, deci verificarea de mai sus
+        # trece și cînd camera stă în cavitate. Măsurarea în toate direcțiile prinde poziția aceea.
+        surround = scene.lens_surround_clearance(model, data, f"{arm}_wrist_camera", arm)
+        assert surround >= checks.MIN_LENS_SURROUND_M, \
+            f"camera de pe {arm} stă în cochilia mîinii ({surround * 1000:.0f} mm)"
 
 
 def test_piesele_inguste_sint_prinse_cu_ambele_falci() -> None:

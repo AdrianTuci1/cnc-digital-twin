@@ -34,7 +34,7 @@ INDEX_FILE = "images.jsonl"
 DEFAULT_VIEWS = 4
 
 #: Latura cadrului, în pixeli. La Ø100 mm piesa umple ~560 px, adică ~5,6 px/mm, peste rezoluția
-#: camerei de pe flanșă (4,0 px/mm), deci cel mai fin defect din catalog rămâne vizibil.
+#: camerei de pe flanșă (3,9 px/mm), deci cel mai fin defect din catalog rămâne vizibil.
 DEFAULT_SIZE = 640
 
 #: Câmpul vizual al camerei de randare, în grade.

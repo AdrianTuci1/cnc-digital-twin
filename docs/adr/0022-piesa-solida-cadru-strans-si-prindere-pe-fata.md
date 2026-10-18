@@ -12,9 +12,11 @@ Trei probleme apăreau în același timp în geamănul MuJoCo:
    pentru un astfel de vîrf normala unui singur triunghi — a flancului —, iar triunghiurile feței
    de sus erau iluminate ca niște plane înclinate. Efectul se vedea în toate cadrele, mai ales la
    piesa prinsă, și ascundea atît forma, cît și contactul cu falcile.
-2. **Cadrul camerei de pe flanșă lăsa prea mult fundal.** La 60° pe verticală, roata de 104 mm ocupa
-   ~345 px din 640, iar banda întunecată și raftul luminat luau restul. Piesa era vizibilă, dar
-   verdictul se dădea pe o regiune mică din imagine.
+2. **Cadrul camerei de pe flanșă lăsa prea mult fundal, iar montajul stătea în mînă.** La 60° pe
+   verticală, roata de 104 mm ocupa ~345 px din 640, iar banda întunecată și raftul luminat luau
+   restul. Piesa era vizibilă, dar verdictul se dădea pe o regiune mică din imagine. Montajul
+   lateral de la 90 mm părea în aer liber după razele din cîmp, dar lentila stătea în deschiderea
+   cochiliei mîinii: camera vedea scena prin braț.
 3. **Prinderea nu ținea cont de forma piesei.** Piesa stă pe bandă la un yaw aleator, iar scula
    cobora cu falcile pe o direcție fixă. La hexagon, falcile închideau pe o coardă de 62,4 mm, nu
    pe lățimea dintre fețe (58,5 mm); prinderea „reușea” pentru că legătura rigidă prelua piesa, dar
@@ -69,10 +71,14 @@ rigidă: piesa ar sta pe un vîrf și ar aluneca la prima accelerație. `session
 `left_contacts` și `right_contacts`; cîmpul `contact` rămîne „a atins piesa măcar o falcă”, iar
 `success` cere ambele.
 
-**Cîmp de vedere de 52°.** Montajul rămîne la (90, 0, 130) mm în sistemul ultimei verigi, cu
-obiectivul spre punctul de strângere. La 52°, roata de 104 mm iese la ~400 px (~4,0 px/mm), iar
-falcile rămîn încadrate. Gaura dezaxată de 2,5 mm ajunge la ~12 px, dintele ciobit de 4 mm la
-~17 px. Spațiul liber al obiectivului rămîne ~42 mm, peste pragul de 20 mm.
+**Montaj la 120 mm și cîmp de vedere de 46°.** Consola laterală trece de la (90, 0, 130) la
+(120, 0, 130) mm în sistemul ultimei verigi, cu obiectivul spre punctul de strângere. La 90 mm,
+lentila ajungea la numai 38 mm de cochilia mîinii, în deschiderea ei: razele cadrului ieșeau
+printre pereți, verificarea din cîmp raporta 42 mm și trecea, dar camera vedea scena prin braț.
+La 120 mm, lentila stă în afara cochiliei, cu 61 mm pînă la ea în orice direcție și 66 mm pe
+razele cadrului. Cîmpul scade de la 52° la 46°, ca să păstreze încadrarea: la 144 mm de piesă,
+roata de 104 mm iese la ~392 px (~3,9 px/mm), iar falcile rămîn în câmp. Gaura dezaxată de
+2,5 mm ajunge la ~10 px, dintele ciobit de 4 mm la ~16 px.
 
 **Umbra vine doar de la lumina celulei.** Modelul Panda își aduce un reflector „top" care se
 lipește de fiecare braț și se rotește cu el. Cu umbra pornită, reflectorul arunca peste piesa
@@ -87,13 +93,14 @@ piesei. Cadrul general al celulei păstrează umbrele, ca să se citească adîn
 
 - Toate cadrele arată piesa ca un solid, cu fața de sus uniform luminată; dispare și efectul de
   cioburi, și a doua siluetă dată de umbra brațului, care făceau contactul greu de citit.
+  Cadrele de pe flanșe nu mai arată scena prin cochilia mîinii: camera stă în afara ei.
 - Prinderea pe contur este deterministă: la hexagon, deschiderea măsurată scade la 58,3 mm, cît
   lățimea reală; piesa nu se mai rotește în falci între preluare și așezare.
 - `session.json` are două cîmpuri noi, aditive; un consumator vechi le ignoră. Nu se schimbă nicio
   schemă din `telemetry/schemas/`.
-- Testele noi acoperă axele înguste ale fiecărei familii, normalele plate ale meshului compilat
-  și faptul că reflectoarele brațelor nu aruncă umbră (`tests/unit/test_mujoco_scene.py`).
-  Verificarea din `view.py --check` rămîne poarta pentru
+- Testele noi acoperă axele înguste ale fiecărei familii, normalele plate ale meshului compilat,
+  spațiul liber din jurul obiectivului și faptul că reflectoarele brațelor nu aruncă umbră
+  (`tests/unit/test_mujoco_scene.py`). Verificarea din `view.py --check` rămîne poarta pentru
   cameră: punctul de strângere în cadru, cel puțin 150 px pentru piesă și 20 mm spațiu liber.
 - Numerele de rezoluție din ADR 0014 (60°, ~345 px, ~3,4 px/mm) descriu starea de atunci; acest
   ADR le înlocuiește.
@@ -105,6 +112,7 @@ piesei. Cadrul general al celulei păstrează umbrele, ca să se citească adîn
 | Doar `smoothnormal=False`, fără vîrfuri repetate | Testat: nu schimbă nimic. Compilatorul păstrează normalele medii ale vîrfurilor împărtășite. |
 | Normalare manuală după compilare | `model.mesh_normal` este generat la compilare și se recalculează; o corecție după compilare s-ar pierde la următoarea scenă. |
 | Cameră coaxială cu scula, mai aproape | La 5 cm de `link7`, obiectivul intră în carcasa încheieturii; măsurat, spațiul liber coboară la 0,8–17,6 mm, sub prag. |
-| Cameră mai laterală, la 11 cm | Spațiul liber crește, dar piesa coboară la ~2,9 px/mm și se pierde rezoluția pentru defecte. |
+| Menținerea montajului la 90 mm lateral | Lentila rămîne la 38 mm de cochilia mîinii, în deschiderea ei; razele cadrului ies printre pereți, deci verificarea din cîmp trece, iar camera vede prin braț. |
+| Cameră mai laterală, la 16 cm | Spațiul liber crește, dar la 46° piesa coboară la ~2,8 px/mm și se pierde rezoluția pentru defecte. |
 | Rotirea piesei în scenă în locul sculei | Piesa trebuie să cadă pe bandă la un yaw arbitrar, ca în realitate; rotirea din scenă ar ascunde variația pe care trebuie să o învețe clasificatorul. |
 | Păstrarea verdictului pe un singur contact | Treceau prinderi pe vîrf, cu piesa rotită; legătura rigidă ascundea problema pînă la așezare. |
