@@ -26,7 +26,6 @@ Exemple::
 from __future__ import annotations
 
 import argparse
-import math
 import sys
 import time
 from collections import Counter
@@ -54,20 +53,6 @@ def build_variant_of(record: Any) -> Any:
         return build_variant_from_params(
             record.seed, record.defect, record.params, record.family)
     return build_variant(record.seed, defect=record.defect, family=record.family)
-
-
-def shard_range(total: int, shard: int, shards: int) -> tuple[int, int]:
-    """Blocul contiguu al unui container: păstrează poziția globală a fiecărei piese.
-
-    Poziția globală contează fiindcă din ea se trag unghiurile de randare; dacă fiecare felie ar
-    renumăra de la zero, toate containerele ar folosi aceleași unghiuri pentru piese diferite.
-    """
-    if shards < 1:
-        raise ValueError("numărul de felii trebuie să fie cel puțin 1")
-    if not 0 <= shard < shards:
-        raise ValueError(f"felie invalidă: {shard} din {shards}")
-    per_shard = math.ceil(total / shards)
-    return shard * per_shard, min(total, (shard + 1) * per_shard)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -123,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         print("niciun rînd după filtre", file=sys.stderr)
         return 1
 
-    start, count = shard_range(len(records), args.shard, args.shards)
+    start, count = part_images.shard_range(len(records), args.shard, args.shards)
     expected = count * args.views
     out_dir = Path(args.out) if args.out else manifest.parent
     print(f"Piese: {len(records)} din {manifest} | felia {args.shard}/{args.shards}: "

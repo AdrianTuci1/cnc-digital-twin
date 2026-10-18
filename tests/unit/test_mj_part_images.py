@@ -63,6 +63,24 @@ def test_calea_unei_imagini_este_relativa_si_stabila() -> None:
     assert not Path(path).is_absolute()
 
 
+def test_feliile_acopera_fiecare_piesa_o_singura_data() -> None:
+    """Feliile sînt contigue, disjuncte și acoperă tot manifestul, inclusiv la rest."""
+    for total, shards in ((2000, 8), (2001, 8), (10, 3), (3, 8)):
+        covered: list[int] = []
+        for shard in range(shards):
+            start, count = part_images.shard_range(total, shard, shards)
+            assert count >= 0
+            covered.extend(range(start, start + count))
+        assert sorted(covered) == list(range(total)), (total, shards)
+
+
+def test_o_felie_invalida_este_refuzata() -> None:
+    with pytest.raises(ValueError):
+        part_images.shard_range(10, 0, 0)
+    with pytest.raises(ValueError):
+        part_images.shard_range(10, 3, 3)
+
+
 def test_splitul_se_citeste_din_fisierele_generatorului(tmp_path: Path) -> None:
     (tmp_path / "parts-train.jsonl").write_text(
         json.dumps({"part_id": "part-00000001"}) + "\n", encoding="utf-8")

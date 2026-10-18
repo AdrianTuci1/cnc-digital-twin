@@ -114,6 +114,22 @@ def image_relpath(record: Any, view: View) -> str:
             f"{record.part_id}-v{view.index:02d}.png")
 
 
+def shard_range(total: int, shard: int, shards: int) -> tuple[int, int]:
+    """Începutul și numărul de piese ale unei felii contigue, fără suprapuneri.
+
+    Poziția globală a piesei contează, fiindcă din ea se trag unghiurile de randare; dacă fiecare
+    felie ar renumăra de la zero, felii diferite ar folosi aceleași unghiuri pentru piese diferite.
+    """
+    if shards < 1:
+        raise ValueError("numărul de felii trebuie să fie cel puțin 1")
+    if not 0 <= shard < shards:
+        raise ValueError(f"felie invalidă: {shard} din {shards}")
+    per_shard = math.ceil(total / shards)
+    start = shard * per_shard
+    end = min(total, start + per_shard)
+    return start, max(0, end - start)
+
+
 def split_map(directory: str | Path) -> dict[str, str]:
     """Identificatorul piesei -> split, citit din ``parts-<split>.jsonl`` când fișierele există.
 
