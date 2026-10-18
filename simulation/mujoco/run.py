@@ -357,6 +357,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--only-frames", action="store_true",
                         help="scrie doar cadrele, indexul lor și session.json; telemetria, uzura "
                              "și evenimentele sînt deja colectate în alt corpus")
+    parser.add_argument("--allow-grasp-failures", action="store_true",
+                        help="cu --only-frames, acceptă sesiunea chiar dacă o prindere a ratat; "
+                             "cadrele și etichetele rămîn valide")
     return parser
 
 
@@ -365,6 +368,9 @@ def run_session(args: argparse.Namespace) -> int:
     family = args.family or part.family().name
     if args.only_frames and not args.frames:
         print("--only-frames cere cadre: scoate `--no-frames`")
+        return 1
+    if args.allow_grasp_failures and not args.only_frames:
+        print("--allow-grasp-failures are sens doar cu --only-frames")
         return 1
     directory = Path(args.out) if args.out else RUNS_DIR / f"{family}-{args.seed}"
     try:
@@ -394,6 +400,7 @@ def run_session(args: argparse.Namespace) -> int:
             component=action.component, detail=action.detail))
     started = time.monotonic()
     failures: list[str] = []
+    grasp_failures: list[str] = []
     model: mujoco.MjModel | None = None
     for index in range(1, args.cycles + 1):
         seed = args.seed + index - 1
@@ -415,7 +422,10 @@ def run_session(args: argparse.Namespace) -> int:
             samples=sum(1 for row in session.samples
                         if row["cycle_id"] == telemetry.cycle_id(index)),
             frames=recorder.cycle_frames, grasps=result.grasps, failures=result.failures))
-        failures.extend(result.failures)
+        if args.allow_grasp_failures:
+            grasp_failures.extend(result.failures)
+        else:
+            failures.extend(result.failures)
         print(f"  {telemetry.cycle_id(index)}: {label['family']}/{label['defect']} "
               f"({label['verdict']}), sămânța {seed}, {len(recorder.cycle_frames)} cadre, "
               f"{result.duration_s:.2f} s simulat, "
@@ -517,12 +527,20 @@ def run_session(args: argparse.Namespace) -> int:
               f"({sum(1 for row in session.events if row['event'] == 'failure')} eșecuri, "
               f"{sum(1 for row in session.events if row['event'] == 'action')} acțiuni)")
 
+    if grasp_failures:
+        print(f"\nPrinderi ratate: {len(grasp_failures)} "
+              "(cadrele și etichetele rămîn valide)")
+        for failure in grasp_failures[:20]:
+            print(f"  - {failure}")
     if failures:
         print(f"\nSesiune: CĂZUTĂ ({len(failures)})")
         for failure in failures[:20]:
             print(f"  - {failure}")
         return 1
-    print("\nSesiune: verde")
+    if grasp_failures:
+        print("\nSesiune: verde, cu prinderi ratate (cadrele sînt complete)")
+    else:
+        print("\nSesiune: verde")
     return 0
 
 

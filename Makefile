@@ -298,6 +298,8 @@ MJ_PUBLISH_PY     := $(PY)
 #                      telemetria are deja corpusul ei, iar cadrele sînt ce lipsește)
 #   MJ_MODAL_REQUIRE_WEAR  refuză corpusul fără semnal de uzură (implicit true)
 #   MJ_MODAL_KEEP_LOCAL    păstrează copia din volumul Modal după urcare (implicit false)
+#   MJ_MODAL_RUN_NAME      reia o rulare existentă, cu numele dat
+#   MJ_MODAL_RESUME        sare peste sesiunile deja scrise în volum (implicit false)
 MJ_MODAL_APP      := $(MJ_DIR)/modal_collect.py
 MJ_MODAL_CYCLES   ?= 25
 MJ_MODAL_SESSIONS ?= 1
@@ -305,6 +307,8 @@ MJ_MODAL_FRAMES   ?= true
 MJ_MODAL_TELEMETRY ?= false
 MJ_MODAL_REQUIRE_WEAR ?= true
 MJ_MODAL_KEEP_LOCAL   ?= false
+MJ_MODAL_RUN_NAME     ?=
+MJ_MODAL_RESUME       ?= false
 
 # Datasetul de imagini de calitate (`make mj-parts-images`, `make mj-modal-parts`).
 #   PARTS_COUNT        câte variante de piese (implicit 220)
@@ -406,7 +410,9 @@ MJ_MODAL_ARGS = --families "$(MJ_FAMILIES)" --cycles $(MJ_MODAL_CYCLES) --rate $
                 $(if $(filter true,$(MJ_MODAL_TELEMETRY)),--telemetry,) \
                 $(if $(MJ_COLLECT_MACHINING_S),--machining-s "$(MJ_COLLECT_MACHINING_S)",) \
                 $(if $(filter true,$(MJ_MODAL_REQUIRE_WEAR)),,--no-require-wear) \
-                $(if $(filter true,$(MJ_MODAL_KEEP_LOCAL)),--keep-local,)
+                $(if $(filter true,$(MJ_MODAL_KEEP_LOCAL)),--keep-local,) \
+                $(if $(MJ_MODAL_RUN_NAME),--run "$(MJ_MODAL_RUN_NAME)",) \
+                $(if $(filter true,$(MJ_MODAL_RESUME)),--resume,)
 
 MJ_MODAL_PARTS_ARGS = --count $(PARTS_COUNT) --seed0 $(PARTS_SEED0) \
                 --shuffle-seed $(PARTS_SHUFFLE_SEED) --views $(PARTS_VIEWS) \

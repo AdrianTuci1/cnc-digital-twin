@@ -184,7 +184,7 @@ def collect_command(target: Path, family: str, seed: int, cycles: int, rate: flo
                "--rate", str(rate), "--out", str(target)]
     command += ["--frames", "--grasp-frames"] if frames else ["--no-frames"]
     if frames and only_frames:
-        command.append("--only-frames")
+        command += ["--only-frames", "--allow-grasp-failures"]
     if machining_s:
         command += ["--machining-s", str(machining_s)]
     for item in injections:
@@ -244,6 +244,20 @@ def summarise_session(directory: Path, family: str, seed: int) -> dict:
             "samples": int(totals.get("samples", 0)),
             "frames": int(totals.get("frames", 0)),
             "sim_time_s": float(totals.get("sim_time_s", 0.0)), "bytes": size}
+
+
+@app.function(image=image, volumes={str(CORPUS_MOUNT): corpus}, timeout=10 * 60)
+def existing_session(run: str, family: str, seed: int) -> dict | None:
+    """Sumarul unei sesiuni deja scrise în volum, sau ``None`` dacă lipsește.
+
+    Reluarea unei rulări sare peste sesiunile terminate, ca preempțiunea ori o singură prindere
+    ratată să nu coste din nou toate ciclurile.
+    """
+    corpus.reload()
+    target = CORPUS_MOUNT / run / f"{family}-{seed}"
+    if not (target / "session.json").is_file() or not (target / "frames.jsonl").is_file():
+        return None
+    return summarise_session(target, family, seed)
 
 
 @app.function(image=image, volumes={str(CORPUS_MOUNT): corpus},
@@ -452,7 +466,7 @@ def main(families: str = "", cycles: int = 25, rate: float = 20.0, seed: int = 1
          sessions_per_family: int = 1, machining_s: float = 0.0, inject: str = "",
          require_wear: bool = True, frames: bool = False, telemetry: bool = False,
          bucket: str = "", run: str = "", keep_local: bool = False,
-         upload: bool = True) -> None:
+         upload: bool = True, resume: bool = False) -> None:
     """Lansează sesiunile în paralel, apoi urcă rularea întreagă.
 
     Cu `--frames` și fără `--telemetry` (implicit), sesiunile scriu doar cadrele și urcă sub
@@ -482,9 +496,16 @@ def main(families: str = "", cycles: int = 25, rate: float = 20.0, seed: int = 1
         print("[modal] se scriu doar cadrele; telemetria există deja", flush=True)
     print(f"[modal] urcă în s3://{bucket}/{destination}/dt=<zi UTC>/{name}/", flush=True)
 
+    rows: list[dict] = []
     handles = []
     for family, seeds in sessions:
         for one_seed in seeds:
+            if resume:
+                existing = existing_session.remote(run=name, family=family, seed=one_seed)
+                if existing is not None:
+                    print(f"[modal] {family}-{one_seed}: deja scrisă, sar peste", flush=True)
+                    rows.append(existing)
+                    continue
             arguments = {"run": name, "family": family, "seed": one_seed, "cycles": cycles,
                          "rate": rate, "machining_s": machining_s or None,
                          "injections": injections}
@@ -492,7 +513,6 @@ def main(families: str = "", cycles: int = 25, rate: float = 20.0, seed: int = 1
                 arguments["only_frames"] = only_frames
             handles.append(worker.spawn(**arguments))
 
-    rows = []
     for handle in handles:
         rows.append(handle.get())
     for row in rows:
