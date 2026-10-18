@@ -48,8 +48,8 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import (arms, belt, camera, cell, grasp_cycle, povs, part, scene,  # noqa: E402
-                      sensors, telemetry, wear)
+from cncdt_mj import (arms, belt, camera, cell, grasp, grasp_cycle, povs, part,  # noqa: E402
+                      scene, sensors, telemetry, wear)
 
 #: Unde se scriu sesiunile. Directorul e generat și ignorat de git: un ciclu de cinci familii
 #: înseamnă mii de cadre, care n-au ce căuta în istoricul repo-ului.
@@ -239,7 +239,13 @@ class Recorder:
         """Cadrele planificate pentru punctul de lucru la care tocmai s-a ajuns."""
         if self.stage is None or not self.frames_on:
             return
+        # `cnc_chuck` apare de două ori: la încărcarea blocului brut și la descărcarea piesei.
+        # Cadrul de interes este piesa mașinată; primul ar arăta un cilindru alb, fără defecte.
+        blank_in_hand = (self.stage == "cnc_chuck" and grasp.is_attached(
+            self.model, self.data, "arm1", grasp_cycle.BLANK_BODY))
         for item in povs.at_stage(self.stage):
+            if blank_in_hand:
+                continue
             if self.key(item, self.stage) not in self.taken:
                 self.capture(item, self.stage)
 

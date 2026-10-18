@@ -59,6 +59,8 @@ class GraspReport:
     finger_gap_m: float
     steps: int
     point: str = ""
+    left_contacts: int = 0
+    right_contacts: int = 0
 
     def as_dict(self) -> dict[str, object]:
         """Rîndul care intră în `session.json`, sub ciclul lui."""
@@ -70,6 +72,8 @@ class GraspReport:
             "contact": bool(self.contact),
             "success": bool(self.success),
             "finger_gap_m": round(float(self.finger_gap_m), 6),
+            "left_contacts": int(self.left_contacts),
+            "right_contacts": int(self.right_contacts),
             "steps": int(self.steps),
         }
 
@@ -194,18 +198,35 @@ def _stop(model: mujoco.MjModel, data: mujoco.MjData, body: str) -> None:
     data.qvel[address:address + 6] = 0.0
 
 
-def finger_contacts(model: mujoco.MjModel, data: mujoco.MjData, arm: str,
-                    body: str) -> int:
-    """Cîte contacte sînt între falcile brațului și piesă, în starea de acum."""
-    fingers = {body_id(model, name) for name in arms.finger_bodies(arm)}
+def finger_contact_counts(model: mujoco.MjModel, data: mujoco.MjData, arm: str,
+                          body: str) -> tuple[int, int]:
+    """Cîte contacte are fiecare falcă cu piesa, în ordinea stînga–dreapta.
+
+    O prindere sigură are contact pe ambele falci. Un contact doar pe o falcă înseamnă că piesa
+    stă pe vîrful celeilalte ori a fost împinsă într-o parte, iar legătura rigidă ar ascunde
+    problema pînă la așezare.
+    """
+    left, right = (body_id(model, name) for name in arms.finger_bodies(arm))
     part = body_id(model, body)
-    count = 0
+    counts = [0, 0]
     for contact in data.contact[:data.ncon]:
         first = int(model.geom_bodyid[contact.geom1])
         second = int(model.geom_bodyid[contact.geom2])
-        if (first in fingers and second == part) or (second in fingers and first == part):
-            count += 1
-    return count
+        if second == part:
+            first, second = second, first
+        if first != part:
+            continue
+        if second == left:
+            counts[0] += 1
+        elif second == right:
+            counts[1] += 1
+    return counts[0], counts[1]
+
+
+def finger_contacts(model: mujoco.MjModel, data: mujoco.MjData, arm: str,
+                    body: str) -> int:
+    """Cîte contacte sînt între falcile brațului și piesă, în starea de acum."""
+    return sum(finger_contact_counts(model, data, arm, body))
 
 
 def finger_gap(model: mujoco.MjModel, data: mujoco.MjData, arm: str) -> float:
@@ -230,15 +251,27 @@ def close(model: mujoco.MjModel, data: mujoco.MjData, arm: str, body: str | None
     """Comandă falcile închis și lasă fizica să oprească închiderea pe piesă."""
     arms.set_gripper(model, data, arm, arms.GRIPPER_CLOSED)
     contact = False
+    counts = (0, 0)
+    grasp_counts: tuple[int, int] | None = None
     for _ in range(steps):
         mujoco.mj_step(model, data)
         if hook is not None:
             hook(model, data)
-        if body is not None and finger_contacts(model, data, arm, body):
-            contact = True
+        if body is not None:
+            counts = finger_contact_counts(model, data, arm, body)
+            contact = contact or bool(counts[0] or counts[1])
+            # Verdictul cere ambele falci în același pas, nu contacte răzlețe: o piesă ținută
+            # de un singur vîrf alunecă la prima accelerație, iar legătura rigidă ar ascunde
+            # problema pînă la așezare.
+            if counts[0] and counts[1]:
+                grasp_counts = counts
+    if grasp_counts is None and body is not None:
+        grasp_counts = counts
+    left, right = grasp_counts or (0, 0)
     return GraspReport(arm=arm, body=body or "", action="close", contact=contact,
-                       success=bool(body is None or contact),
-                       finger_gap_m=finger_gap(model, data, arm), steps=steps)
+                       success=bool(body is None or (left and right)),
+                       finger_gap_m=finger_gap(model, data, arm), steps=steps,
+                       left_contacts=left, right_contacts=right)
 
 
 def pick(model: mujoco.MjModel, data: mujoco.MjData, arm: str, body: str,
@@ -251,7 +284,7 @@ def pick(model: mujoco.MjModel, data: mujoco.MjData, arm: str, body: str,
     după contact clema se scoate și legătura rigidă preia piesa.
     """
     report = close(model, data, arm, body, steps=steps, hook=hook)
-    if report.contact:
+    if report.success:
         attach(model, data, arm, body)
     return replace(report, action="pick", point=point)
 

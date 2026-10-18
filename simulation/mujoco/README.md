@@ -299,8 +299,11 @@ dulapul a scos piedica pe care o puneau cutiile adânci; ce a rămas la 0,55 m e
 nu sortarea.
 
 **Cum se prinde.** Fiecare preluare comandă actuatorul griperului spre închis și lasă fizica să
-oprească falcile pe piesă; după contact, `grasp.py` scrie o egalitate `weld` între mînă și piesă, la
-poziția relativă de acum, și o activează. Piesa urmează brațul rigid, ca în celula reală din Isaac
+oprească falcile pe piesă; după ce **ambele** falci au contact în același pas, `grasp.py` scrie o
+egalitate `weld` între mînă și piesă, la poziția relativă de acum, și o activează. Un contact pe o
+singură falcă nu mai trece drept reușită: piesa ar sta pe un vîrf și ar aluneca la prima
+accelerație, iar legătura rigidă ar ascunde problema pînă la așezare. `session.json` scrie acum
+contactele fiecărei falci (`left_contacts`, `right_contacts`), nu doar un contact oarecare. Piesa urmează brațul rigid, ca în celula reală din Isaac
 Sim (`grasping.py`, `/World/Robot1/GraspJoint`), iar la lăsare falcile se deschid întîi și abia apoi
 legătura se desface, ca deschiderea să nu împingă piesa în lateral. O a doua egalitate, `weld` cu
 lumea, ține piesa pe bandă cît se închid falcile și pe raft după ce brațul o lasă: este clema
@@ -309,9 +312,30 @@ scenei și pornesc inactive; `view.py --check` refuză o scenă în care vreuna 
 
 **Limita prinderii adevărate.** Mâna Panda se deschide 80 mm, blocul brut are 104 mm, iar discul
 `wheel_100` tot 104 mm; falcile coboară atunci peste fața de sus și apasă pe ea, iar legătura rigidă
-este cea care ține piesa. Pentru `gusset_72`, `hex_68`, `link_68` și `pinion_56` falcile închid pe
-contur, pe lățimea piesei. Ambele căi se raportează la fel: contact, deschidere măsurată și
-reușită, în `session.json`.
+este cea care ține piesa. Pentru `gusset_72`, `hex_68`, `link_68`, `plate_84` și `pinion_56` falcile
+închid pe contur, pe lățimea piesei. Ambele căi se raportează la fel: contact pe fiecare falcă,
+deschidere măsurată și reușită, în `session.json`.
+
+**Alinierea la forma piesei.** Piesa stă pe bandă la un yaw aleator, iar falcile au o singură
+direcție de închidere. La preluarea din universal și de pe banda 2, `grasp_cycle._aligned` rotește
+scula în jurul verticalei pînă cînd falcile închid pe axa cea mai îngustă a formei
+(`part.narrow_axes_deg`): normala la o muchie la hexagon (0°, 60°, 120°) și la triunghiul rotunjit
+(30°, 90°, 150°), axa scurtă la legătură și la placă. Roțile sînt rotunde, deci nu primesc rotire.
+Fără aliniere, falcile apucau o coardă oarecare: prinderea „reușea”, dar piesa se putea roti în
+falci, iar cadrul de pe flanșă arăta altă față la fiecare ciclu. La hexagon, deschiderea măsurată
+coboară de la 62,4 mm (coardă) la 58,3 mm, cît lățimea reală dintre fețe.
+
+**Centrarea înainte de închidere.** Poziția cerută are eroarea servo-urilor — la universal, scula
+rămîne pînă la 9 mm sub țintă. Falcile sînt cuplate: dacă una atinge piesa, cealaltă nu mai
+înaintează. La o piesă de 28 mm, o abatere de 1,5 mm lasă o falcă în aer, iar legătura rigidă ar
+ascunde prinderea pe un vîrf. De aceea `grasp_cycle._centered` măsoară în scenă mijlocul falcilor
+și centrul piesei după coborîre, mută ținta cu diferența din plan și repetă așezarea de două ori,
+cu toleranță de 0,8 mm. Cota rămîne neschimbată, ca vîrful falcii să nu intre în suport.
+
+**Piesele subțiri au nevoie de o marjă mai mare.** La `link_68` (12 mm grosime), vîrful falcii
+ajungea sub fața de jos a piesei și se oprea în banda 2: falcile se închideau la 28,4 mm fără
+niciun contact. Marja de ridicare a punctului de strângere (`PICK_CLEARANCE_M`) a crescut de la
+1,5 mm la 3 mm; după corecție, ambele falci ating piesa, iar deschiderea măsurată este 27,8 mm.
 
 **Variația de poziție.** Locurile de așezare de pe banda 2 și din raft primesc o abatere
 deterministă din sămînță (`grasp_cycle.varied_xy`), ținută pe suprafață de `part.on_surface_xy`:
@@ -321,22 +345,24 @@ fiecare ciclu arată altfel, iar eticheta rămîne aceeași.
 
 Nu mai există o cameră fixă deasupra benzii 2: verdictul de calitate îl dă camera de pe flanșa
 brațului 2. Fiecare braț are câte o cameră pe o consolă laterală a flanșei, la (90, 0, 130) mm în
-sistemul ultimei verigi, cu **60° pe verticală** și **640×480**, iar obiectivul privește punctul de
+sistemul ultimei verigi, cu **52° pe verticală** și **640×480**, iar obiectivul privește punctul de
 strângere; orientarea se calculează la compunerea scenei (`scene.wrist_camera_quat`), nu se scrie
 de mână.
 
 Camera de pe brațul 2 fotografiază piesa ținută în falci: stă la **12 cm** de punctul de strângere,
-iar roata de ~100 mm iese la **~345 px** din 640, adică **~3,4 px/mm**. La scara asta, cel mai
-fin defect din catalog — o gaură dezaxată cu 2,5 mm — ajunge la **~9 px**, iar dintele ciobit de
-4 mm la **~14 px**. Pragul `checks.MIN_WRIST_PART_PX` prinde o cameră montată greșit, care nu are
-piesa în cadru, ori o cameră prea depărtată, la care piesa ajunge un blob de câteva zeci de pixeli.
+iar roata de ~104 mm iese la **~400 px** din 640, adică **~4,0 px/mm**. La scara asta, cel mai
+fin defect din catalog — o gaură dezaxată cu 2,5 mm — ajunge la **~12 px**, iar dintele ciobit de
+4 mm la **~17 px**. Cîmpul de vedere a fost strîns de la 60° la 52° tocmai ca piesa să umple cadrul:
+la 60° roata ocupa 345 px, iar banda și raftul din fundal luau restul. Pragul
+`checks.MIN_WRIST_PART_PX` prinde o cameră montată greșit, care nu are piesa în cadru, ori o
+cameră prea depărtată, la care piesa ajunge un blob de câteva zeci de pixeli.
 
 **Obiectivul stă în aer liber.** Consola laterală nu e o alegere estetică: pe axa sculei, la 5 cm de
 `link7`, obiectivul cădea **în** carcasa încheieturii, iar toate razele cadrului loveau materialul
 brațului la mai puțin de 20 mm de lentilă. Cadrul ieșea atunci „prin" mână — materialul nu se vedea,
 fiindcă fețele din spate nu se randează, dar umbra lui cădea peste piesă. `--check` măsoară spațiul
 liber pe toate razele cadrului (`scene.lens_clearance`) și cere cel puțin
-`checks.MIN_LENS_CLEARANCE_M`; montajul de acum dă **41 mm**, la 120 mm de piesă.
+`checks.MIN_LENS_CLEARANCE_M`; montajul de acum dă **42 mm**, la 120 mm de piesă.
 
 **Axa de privire**: camerele MuJoCo privesc de-a lungul axei lor locale **−Z**, nu +Z (verificat cu
 o scenă de probă: două cutii, una deasupra și una dedesubt). Așa cum vine din catalog, camera

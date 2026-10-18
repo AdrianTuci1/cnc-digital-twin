@@ -40,6 +40,7 @@ Sursa de adevăr pentru decizii. Codul spune *ce* se întâmplă; documentele de
 | [0019](adr/0019-prinderea-fizica-si-texturi-in-geamanul-mujoco.md) | Prindere fizică în geamănul MuJoCo, cu legătură rigidă după contact, și texturi procedurale |
 | [0020](adr/0020-placa-dreptunghiulara-in-a-sasea-familie.md) | A șasea familie este o placă dreptunghiulară, ca rularea să aibă o siluetă distinctă |
 | [0021](adr/0021-doua-roti-si-patru-siluete-noi.md) | Doar două familii rămîn roți; restul primesc siluete de triunghi, hexagon și legătură |
+| [0022](adr/0022-piesa-solida-cadru-strans-si-prindere-pe-fata.md) | Mesh cu normale plate, cadru de 52° pe flanșă, falci aliniate la forma piesei și verdict pe ambele falci |
 
 ## Convenții
 

@@ -42,12 +42,18 @@ PART_BODY = "part_01"
 #: piesă sub 17 mm grosime lasă falca să atingă banda ori universalul, iar prinderea raportată ar
 #: fi de fapt o coliziune. Ridicarea nu schimbă piesa din falci, doar cota la care se închid.
 FINGER_TIP_DROP_M = 0.0085
-PICK_CLEARANCE_M = 0.0015
+PICK_CLEARANCE_M = 0.003
 
 #: În plus, la universal: fălcile lui țin piesa cu 20 mm deasupra feței (`layout`), deci vîrful
 #: falcelor brațului are loc să închidă pe piesă fără să atingă oțelul. Marja rămasă acoperă
 #: scufundarea servo-urilor, măsurată în scenă la ~6 mm la întinderea asta.
 CHUCK_PICK_CLEARANCE_M = 0.007
+
+#: Cît de aproape trebuie să cadă punctul de strângere de centrul piesei înainte de închidere.
+#: Falcile sînt cuplate: dacă una atinge piesa, cealaltă nu mai înaintează. La o piesă îngustă,
+#: o abatere de 2 mm lasă o falcă în aer, deci centrarea se măsoară și se corectează în scenă.
+CENTER_TOLERANCE_M = 0.0008
+CENTER_ATTEMPTS = 2
 
 #: Cît de mult se poate abate piesa de la locul cerut cînd o lasă brațul. Variația este mică, ca
 #: piesa să rămînă pe suprafață, dar destul ca fiecare ciclu să arate altfel.
@@ -276,27 +282,83 @@ class Cycle:
         if self.reporter is not None:
             self.reporter({"grasp": report.as_dict()})
         if not report.success:
-            self._fail(f"prinderea {body} la {point} a ratat: falcile nu au atins piesa "
-                       f"(deschidere {report.finger_gap_m * 1000:.0f} mm)")
+            self._fail(f"prinderea {body} la {point} a ratat: contact stînga/dreapta "
+                       f"{report.left_contacts}/{report.right_contacts}, deschidere "
+                       f"{report.finger_gap_m * 1000:.0f} mm")
         return report
 
     def _pick_from(self, arm: str, name: str, body: str,
-                   half_thickness_m: float, clearance_m: float = 0.0) -> grasp.GraspReport:
-        """Prinde piesa de pe suprafața ei, în locul unde se află acum."""
+                   half_thickness_m: float, clearance_m: float = 0.0,
+                   align: bool = False) -> grasp.GraspReport:
+        """Prinde piesa de pe suprafața ei, în locul unde se află acum.
+
+        Cu ``align=True``, scula se rotește în jurul verticalei pînă cînd falcile închid pe
+        direcția cea mai îngustă a piesei (`part.narrow_axes_deg`). Altfel yaw-ul piesei este
+        aleator, iar falcile apucă o coardă oarecare: prinderea reușește, dar piesa poate fi
+        împinsă ori rotită, iar cadrul de pe flanșă arată altă față la fiecare ciclu.
+        """
         item = moves.move(name, self.tool[arm], self.family)
         x, y, _ = _body_position(self.model, self.data, body)
         z = (moves.SURFACE_Z[name] + half_thickness_m + pick_lift(half_thickness_m)
              + clearance_m)
         item = replace(item, point=(x, y, z))
+        if align:
+            item = self._aligned(item, body)
         self._enter(name)
         self._reach(arm, item, "sus", item.hover)
         self._reach(arm, item, "jos", item.point)
+        item = self._centered(arm, item, body)
         report = self._grip("pick", arm, body, name)
         self._lift(arm, item)
         self._leave()
         if report.success and not grasp.is_attached(self.model, self.data, arm, body):
             self._fail(f"piesa {body} nu a rămas legată de {arm} după prindere")
         return report
+
+    def _aligned(self, item: moves.Move, body: str) -> moves.Move:
+        """Rotește scula ca falcile să închidă pe axa îngustă a piesei.
+
+        Se lucrează doar la apropieri verticale: acolo yaw-ul piesei și unghiul falcilor sînt
+        amîndouă în planul benzii. Pentru fiecare axă îngustă a formei se calculează unghiul din
+        lume cu yaw-ul citit din scenă, iar dintre candidați se alege cel mai apropiat de
+        orientarea de acum — rotirea cea mai mică, ca IK-ul să rămînă aproape de poziția
+        nominală.
+        """
+        axes = part.narrow_axes_deg(self.family)
+        if not axes or abs(item.approach[0]) + abs(item.approach[1]) > 1e-9:
+            return item
+        yaw = part.yaw_from_quat(_body_quat(self.model, self.data, body))
+        current = arms.jaw_yaw_deg(item.approach, item.spin_deg)
+
+        def delta(angle: float) -> float:
+            return (angle - current + 90.0) % 180.0 - 90.0
+
+        desired = min(((axis + yaw) % 180.0 for axis in axes), key=lambda angle: abs(delta(angle)))
+        # Un spin pozitiv rotește falcile în sens invers în plan; diferența se scade, ca să
+        # ajungem la unghiul dorit fără să ghicim semnul convenției.
+        spin = item.spin_deg - delta(desired)
+        return replace(item, spin_deg=spin)
+
+    def _centered(self, arm: str, item: moves.Move, body: str) -> moves.Move:
+        """Mută scula peste centrul piesei, măsurat în scenă, înainte de închidere.
+
+        Poziția cerută are eroarea servo-urilor: la universal, scula rămîne pînă la 9 mm sub
+        țintă. Falcile sînt cuplate, deci la o piesă de 28 mm o abatere de 1,5 mm lasă o falcă în
+        aer, iar legătura rigidă ar ascunde prinderea pe un singur vîrf. Corecția se face doar în
+        plan; cota rămîne cea calculată cu marja de coborîre, ca vîrful falcii să nu intre în
+        suport. Se repetă de două ori, fiindcă și a doua așezare are eroarea ei.
+        """
+        for _ in range(CENTER_ATTEMPTS):
+            part_xy = np.asarray(_body_position(self.model, self.data, body)[:2], dtype=float)
+            tool_xy = np.asarray(arms.tool_point(self.model, self.data, arm)[:2], dtype=float)
+            offset = part_xy - tool_xy
+            if float(np.linalg.norm(offset)) <= CENTER_TOLERANCE_M:
+                break
+            point = (item.point[0] + float(offset[0]),
+                     item.point[1] + float(offset[1]), item.point[2])
+            item = replace(item, point=point)
+            self._reach(arm, item, "centrare", item.point)
+        return item
 
     def _place_at(self, arm: str, name: str, body: str,
                   point: tuple[float, float, float] | None = None,
@@ -343,7 +405,7 @@ class Cycle:
         # 5. Brațul 1 descarcă piesa din universal și o lasă pe banda 2.
         self._phase(None, wear.Work(belts=wear.BELT_COMPONENTS, arms=("arm1",)))
         self._pick_from("arm1", "cnc_chuck", PART_BODY, self.part_half,
-                        clearance_m=CHUCK_PICK_CLEARANCE_M)
+                        clearance_m=CHUCK_PICK_CLEARANCE_M, align=True)
         drop = self._drop_point()
         self._place_at("arm1", "belt2_drop", PART_BODY, drop)
         self._settle(SETTLE_AFTER_RELEASE, belts=True)
@@ -357,7 +419,7 @@ class Cycle:
 
         # 7. Brațul 2 o prinde și o lasă în compartimentul familiei.
         self._phase(None, wear.Work(belts=wear.BELT_COMPONENTS, arms=("arm2",)))
-        self._pick_from("arm2", "belt2_pick", PART_BODY, self.part_half)
+        self._pick_from("arm2", "belt2_pick", PART_BODY, self.part_half, align=True)
         rack = layout.rack_target(self.family)
         self._place_at("arm2", rack, PART_BODY, self._rack_point(rack), hold=True)
         self._settle(SETTLE_AFTER_RELEASE)

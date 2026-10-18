@@ -157,7 +157,7 @@ def check(args: argparse.Namespace) -> int:
         if not row["ok"]:
             failures.append(f"ținta „{row['label']}\" ({row['arm']}) este în afara razei brațului")
 
-    print("\nCamere de pe flanșe: față de punctul de strângere, la 60° pe verticală")
+    print("\nCamere de pe flanșe: față de punctul de strângere, la 52° pe verticală")
     for arm in arms.ARMS:
         subject = arms.tool_point(model, data, arm)
         view = scene.camera_view(model, data, f"{arm}_wrist_camera", subject)

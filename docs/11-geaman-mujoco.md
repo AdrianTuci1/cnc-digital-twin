@@ -77,8 +77,9 @@ bandă 2 (inspecție) → braț 2 → compartimentul familiei — produce `cycle
 aceleași formate (`cyc-000001`, `part-000001`).
 
 **Prinderea este fizică.** Fiecare preluare comandă actuatorul griperului spre închis, iar contactul
-dintre vîrfurile falcilor și piesă oprește închiderea. După contact, `grasp.py` scrie o egalitate
-`weld` predefinită între mînă și piesă, la poziția relativă de acum, și o activează: piesa urmează
+dintre vîrfurile falcilor și piesă oprește închiderea. După ce **ambele** falci au contact în
+același pas, `grasp.py` scrie o egalitate `weld` predefinită între mînă și piesă, la poziția
+relativă de acum, și o activează: piesa urmează
 brațul rigid, ca o prindere reală de mare forță, și nu alunecă la schimbarea orientării. La lăsare
 falcile se deschid întîi, apoi legătura se desface, ca deschiderea să nu împingă piesa în lateral.
 O a doua egalitate, tot `weld`, ține piesa de lume cît se închid falcile și pe raft după ce brațul o
@@ -92,8 +93,24 @@ activă.
 discul de 100 mm, deci falcile coboară peste fața de sus și apasă pe ea; legătura rigidă este cea
 care ține piesa, exact cum celula din Isaac Sim o leagă de griper. `plate_84` are 84 × 56 mm și se
 prinde pe latura scurtă, iar celelalte piese (`gusset_72`, `hex_68`, `link_68`, `pinion_56`) închid
-pe contur, pe lățimea lor. Ambele căi sînt raportate la fel: contact, deschiderea măsurată și
-reușita.
+pe contur, pe lățimea lor. Ambele căi sînt raportate la fel: contact pe fiecare falcă
+(`left_contacts`, `right_contacts`), deschiderea măsurată și reușita. Un contact pe o singură
+falcă nu mai activează legătura rigidă, fiindcă piesa ar sta pe un vîrf și ar aluneca la prima
+accelerație.
+
+**Alinierea la formă.** La preluarea din universal și de pe banda 2, piesa are un yaw liber, iar
+falcile au o singură direcție de închidere. `part.narrow_axes_deg` dă axele pe care lățimea piesei
+este minimă — 0°, 60°, 120° la hexagon, 30°, 90°, 150° la triunghi, 90° la legătură și la placă,
+niciuna la roți —, iar `grasp_cycle._aligned` rotește scula în jurul verticalei cu cea mai mică
+abatere pînă la axa potrivită. La hexagon, falcile închid astfel pe lățimea reală de 58,3 mm, nu
+pe o coardă de 62,4 mm.
+
+Centrarea se măsoară în scenă: după coborîre, `_centered` compară mijlocul fețelor falcilor cu
+centrul piesei, mută ținta cu diferența din plan și repetă așezarea, cu toleranță de 0,8 mm.
+Falcile sînt cuplate, deci o abatere de 1,5 mm la o piesă de 28 mm lasă o falcă în aer. La
+universal, eroarea servo-urilor ajungea la 9 mm; după corecție, abaterea măsurată este sub 0,1 mm.
+Pentru piesele subțiri, punctul de strângere se ridică cu 3 mm (`PICK_CLEARANCE_M`): la `link_68`,
+vîrful falcii se oprea în banda 2, iar falcile se închideau la 28,4 mm fără contact.
 
 **Variația de poziție.** Locurile de așezare de pe banda 2 și din compartimentul raftului primesc o
 abatere deterministă din sămînță, ținută pe suprafață de `part.on_surface_xy`: fiecare ciclu arată
@@ -116,16 +133,17 @@ fără fereastră, pe CPU, în afara Kit.
 este adâncimea unui dinte ciobit, `chip_depth = 4 mm`, iar cea mai fină este dezaxarea radială a
 unei găuri, 2,5 mm. De separarea lor depinde clasificatorul, iar cadrul care dă verdictul vine acum
 din camera de pe flanșa brațului 2, care fotografiază piesa ținută în falci: stă la **12 cm** de
-punctul de strângere, cu **60° pe verticală** și **640×480**, iar roata de ~100 mm iese la
-**~345 px**, adică **~3,4 px/mm**. La scara asta, cel mai fin defect din catalog — o gaură
-dezaxată cu 2,5 mm — ajunge la **~9 px**, iar dintele ciobit de 4 mm la **~14 px**, deci fiecare
+punctul de strângere, cu **52° pe verticală** și **640×480**, iar roata de ~104 mm iese la
+**~400 px**, adică **~4,0 px/mm**. La scara asta, cel mai fin defect din catalog — o gaură
+dezaxată cu 2,5 mm — ajunge la **~12 px**, iar dintele ciobit de 4 mm la **~17 px**, deci fiecare
 clasă se poate separa. Pragul `checks.MIN_WRIST_PART_PX = 150 px` prinde o cameră montată greșit
 ori prea depărtată, la care piesa ajunge un blob de câteva zeci de pixeli, de neclasificat. Blurul
 din secțiunea 3 se adaugă peste aceste cadre, proporțional cu `1 - h_camera`, deci o cameră
 proiectată exact la limita de rezoluție pierde piesa, nu doar defectul.
 
 **Camerele de pe flanșe.** Catalogul Menagerie al modelului Panda nu are cameră, deci celula o
-adaugă pe flanșa fiecărui braț, cu **60° pe verticală** și **640×480**. Montajul stă pe o consolă
+adaugă pe flanșa fiecărui braț, cu **52° pe verticală** și **640×480**. Cîmpul de vedere a fost
+strîns de la 60°, unde roata ocupa 345 px și jumătate din cadru rămînea bandă și raft. Montajul stă pe o consolă
 laterală — la (90, 0, 130) mm în sistemul ultimei verigi —, nu pe axa sculei: acolo, la 5 cm de
 `link7`, obiectivul cădea **în** carcasa încheieturii, iar toate razele cadrului loveau materialul
 brațului la mai puțin de 20 mm de lentilă. Cadrul ieșea atunci „prin" mână — materialul nu se
@@ -134,7 +152,7 @@ Orientarea obiectivului se calculează la compunerea scenei, nu se scrie de mân
 catalog, camera privea **înapoi**, spre cot, iar punctul de strângere cădea la −143 mm adâncime,
 adică în spatele obiectivului. Măsurat acum cu `view.py --check`: punctul de strângere e la
 120 mm, abaterea față de axul optic e 0,0°, iar spațiul liber până la materialul brațului este de
-**41 mm**, peste pragul `checks.MIN_LENS_CLEARANCE_M`.
+**42 mm**, peste pragul `checks.MIN_LENS_CLEARANCE_M`.
 
 **Cele trei puncte de vedere** fizice — cîte o cameră pe flanșa fiecărui braț și camera liberă —
 sunt registrul din `cncdt_mj/povs.py`, care este pur: nume de cameră, rezoluție, moment de captură
@@ -349,7 +367,7 @@ aplicat) intră în metadatele cadrului. **Neimplementat**: cadrele ies deocamda
 | --- | --- | --- |
 | Bandă | scala vitezei de suprafață scade cu driftul (`speed_scale` pe fiecare bandă), iar banda care alunecă stă pe loc cât ține evenimentul | `belt_speed_mps` în diagnostic, timpi de ciclu mai lungi, mai puține eșantioane pe secundă de ceas |
 | Brațe | efortul măsurat în scenă se scalează cu `1 + 0,8 (1 - h)` | `joint_effort` mai mare, efort pe braț în diagnostic |
-| Griper | falcile se închid pe piesă și o leagă rigid de mînă; legătura nu slăbește încă odată cu uzura | jurnal de prinderi în `session.json` (contact, deschidere, reușită), evenimente |
+| Griper | falcile se închid pe piesă și o leagă rigid de mînă; legătura nu slăbește încă odată cu uzura | jurnal de prinderi în `session.json` (contact pe fiecare falcă, deschidere, reușită), evenimente |
 | CNC | amplitudinea vibrației și sarcina axului cresc cu uzura rulmentului și a sculei, debitul de răcire scade, avansul scade, temperatura urcă | `vibration`, `spindle_load`, `axis_feed`, `coolant_flow_lpm`, `temp_c`, `tool_wear_index`, `surface_quality` |
 | Cameră | — | scor de calitate, verzi la inspecția vizuală |
 

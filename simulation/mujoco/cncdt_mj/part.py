@@ -22,6 +22,7 @@ import math
 import random
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Mapping
 
 import numpy as np
@@ -81,6 +82,55 @@ def family(name: str | None = None):
 def family_names() -> tuple[str, ...]:
     """Numele familiilor, în ordinea din generator — aceeași cu ordinea compartimentelor."""
     return tuple(item.name for item in FAMILIES)
+
+
+#: Sub această variație a lățimii, piesa se citește ca rotundă: dinții unei roți schimbă lățimea
+#: cu sub 3 %, deci nu are sens să rotești scula după un dinte.
+ROUND_WIDTH_VARIATION = 0.03
+
+
+@lru_cache(maxsize=None)
+def narrow_axes_deg(family_name: str | None = None) -> tuple[float, ...]:
+    """Direcțiile, în planul piesei, pe care lățimea este minimă.
+
+    Sînt axele pe care falcile închid pe fețele cele mai apropiate: la hexagon, normala la o
+    muchie (la 0°, 60° și 120°), la triunghi, normala la o latură, iar la placă și legătură,
+    axa scurtă. Roțile sînt rotunde, deci întorc lista goală: orice direcție e la fel de bună.
+
+    Unghiurile se obțin din meshul nominal, cu o căutare de 0,25°; sînt în sistemul piesei, iar
+    la prindere se adaugă yaw-ul citit din scenă. Funcția este pură și se memorează: familiile
+    sînt fixe, iar căutarea nu trebuie repetată la fiecare ciclu.
+    """
+    variant = build_variant(DEFAULT_SEED, "PASS", family_name)
+    points = np.asarray(variant.vertices, dtype=float)[:, :2]
+    angles = np.arange(0.0, 180.0, 0.25)
+    directions = np.column_stack((np.cos(np.radians(angles)), np.sin(np.radians(angles))))
+    projections = points @ directions.T
+    widths = projections.max(axis=0) - projections.min(axis=0)
+    minimum = float(widths.min())
+    if (float(widths.max()) - minimum) / max(minimum, 1e-9) < ROUND_WIDTH_VARIATION:
+        return ()
+    previous = np.r_[widths[-1], widths[:-1]]
+    following = np.r_[widths[1:], widths[0]]
+    tolerance = minimum * 0.003 + 0.05
+    candidates = angles[(widths <= previous) & (widths <= following)
+                        & (widths <= minimum + tolerance)]
+    clusters: list[list[float]] = []
+    for angle in candidates:
+        if clusters and abs(yaw_delta_deg(angle, clusters[-1][-1])) <= 2.0:
+            clusters[-1].append(float(angle))
+        else:
+            clusters.append([float(angle)])
+    if len(clusters) > 1 and abs(yaw_delta_deg(clusters[0][0], clusters[-1][-1])) <= 2.0:
+        clusters[0] = clusters[-1] + clusters[0]
+        clusters.pop()
+    axes = []
+    for cluster in clusters:
+        radians = np.radians(cluster)
+        angle = math.degrees(math.atan2(float(np.sin(radians).mean()),
+                                        float(np.cos(radians).mean()))) % 180.0
+        axes.append(0.0 if angle > 179.5 else round(angle, 1))
+    return tuple(sorted(set(axes)))
 
 
 @dataclass(frozen=True)

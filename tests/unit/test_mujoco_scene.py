@@ -102,6 +102,25 @@ def test_piesa_masinata_are_geometria_generatorului() -> None:
         layout.BELT_SURFACE_Z + vertices[:, 2].max())
 
 
+def test_axele_inguste_ale_formelor_sunt_cele_asteptate() -> None:
+    """Falcile închid pe fețele cele mai apropiate, nu pe o coardă oarecare.
+
+    Hexagonul are trei perechi de laturi paralele (normalele la 0°, 60°, 120°), triunghiul
+    rotunjit trei laturi (30°, 90°, 150°), iar legătura și placa o singură axă scurtă. Roțile sînt
+    rotunde: variația lățimii e sub prag, deci nu se rotește scula după un dinte.
+    """
+    expected = {
+        "wheel_100": (),
+        "pinion_56": (),
+        "gusset_72": (30.0, 90.0, 150.0),
+        "hex_68": (0.0, 60.0, 120.0),
+        "link_68": (90.0,),
+        "plate_84": (90.0,),
+    }
+    for family, axes in expected.items():
+        assert part.narrow_axes_deg(family) == axes, family
+
+
 def test_piesa_este_reproductibila_din_samanta() -> None:
     """Aceeași sămânță dă aceeași piesă; alta dă altă piesă."""
     variant = part.load_variant(part.DEFAULT_SEED)
@@ -693,6 +712,53 @@ def test_scena_se_compileaza_si_cadrele_de_pe_flansa_contin_punctul_de_strangere
         clearance = scene.lens_clearance(model, data, f"{arm}_wrist_camera", arm)
         assert clearance >= checks.MIN_LENS_CLEARANCE_M, \
             f"obiectivul camerei de pe {arm} stă în materialul brațului ({clearance * 1000:.0f} mm)"
+
+
+def test_piesele_inguste_sint_prinse_cu_ambele_falci() -> None:
+    """Ciclul complet trece pentru legătură și placă, cu contact pe ambele falci.
+
+    Sînt cele două forme la care o abatere de 1–2 mm lăsa o falcă în aer: legătura are 28 mm
+    lățime, iar placa se prinde pe latura de 56 mm. Testul acoperă centrarea măsurată în scenă și
+    marja de ridicare pentru piesele subțiri.
+    """
+    mujoco = pytest.importorskip("mujoco", reason="ciclul cere mujoco")
+    from cncdt_mj import grasp_cycle, scene
+
+    for family in ("link_68", "plate_84"):
+        model, metadata = scene.build_model(seed=7, family=family)
+        data = mujoco.MjData(model)
+        scene.apply_nominal(model, data, metadata["placements"])
+        scene.settle(model, data)
+        result = grasp_cycle.run_cycle(model, data, family, seed=7)
+        assert result.failures == [], f"{family}: {result.failures}"
+        assert result.grasp_success, f"{family}: o prindere a rămas fără piesă"
+        for row in result.grasps:
+            if row["action"] != "pick":
+                continue
+            assert row["left_contacts"] > 0, f"{family}: falca stîngă nu a atins piesa"
+            assert row["right_contacts"] > 0, f"{family}: falca dreaptă nu a atins piesa"
+
+
+def test_meshul_piesei_are_normale_plate_pe_fiecare_triunghi() -> None:
+    """Fiecare triunghi are aceeași normală pe toate cele trei vîrfuri.
+
+    Cu vîrfuri împărtășite între fața de sus și flanc, compilatorul alegea normala flancului
+    pentru triunghiurile feței, iar piesa randa ca niște cioburi albe. Vîrfurile repetate per
+    triunghi (triangle soup) fac randatorul să păstreze normala feței.
+    """
+    mujoco = pytest.importorskip("mujoco", reason="meshul compilat cere mujoco")
+    from cncdt_mj import scene
+
+    model, _ = scene.build_model()
+    mesh_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_MESH, "machined_part_mesh")
+    assert mesh_id >= 0
+    start = int(model.mesh_vertadr[mesh_id])
+    count = int(model.mesh_vertnum[mesh_id])
+    normals = np.asarray(model.mesh_normal[start:start + count], dtype=float)
+    triangles = normals.reshape(-1, 3, 3)
+    assert np.allclose(triangles, triangles[:, :1, :], atol=1e-5), (
+        "normalele nu sînt plate: un triunghi are vîrfuri cu normale diferite")
+    assert np.allclose(np.linalg.norm(triangles[:, 0, :], axis=1), 1.0, atol=1e-4)
 
 
 def test_o_varianta_de_piesa_se_randeaza_ca_imagine_de_calitate(tmp_path: Path) -> None:

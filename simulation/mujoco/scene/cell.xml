@@ -49,12 +49,13 @@
     <material name="rack_mat" rgba="0.42 0.66 0.38 1"/>
     <material name="scrap_mat" rgba="0.70 0.28 0.28 1"/>
     <material name="marker_mat" rgba="0.85 0.78 0.35 1"/>
-    <!-- Blocul brut și piesa mașinată ies în metal deschis: contrast pe banda închisă, ca piesa să
-         se vadă în cadrul camerei de pe flanșă. -->
+    <!-- Blocul brut rămîne metal deschis. Piesa mașinată e mai închisă: pe falcile albe, un
+         metal aproape alb își pierdea conturul exact în dreptul vîrfurilor, iar camera de pe
+         flanșă arăta o pată albă fără margini. -->
     <material name="blank_brushed" texture="brushed_tex" texuniform="false" texrepeat="1 1"
               rgba="0.80 0.82 0.84 1" specular="0.30" shininess="0.50"/>
     <material name="part_brushed" texture="brushed_tex" texuniform="false" texrepeat="1 1"
-              rgba="0.86 0.88 0.90 1" specular="0.35" shininess="0.55"/>
+              rgba="0.55 0.58 0.63 1" specular="0.35" shininess="0.55"/>
   </asset>
 
   <worldbody>

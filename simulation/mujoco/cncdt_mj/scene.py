@@ -49,11 +49,14 @@ ARM_MOUNTS: tuple[tuple[str, str], ...] = (("arm1", "arm1_mount"), ("arm2", "arm
 #: ale câmpului de vedere loveau materialul brațului la mai puțin de 20 mm de lentilă. Cadrul ieșea
 #: atunci „prin" mână — materialul nu se vedea (fețele din spate nu se randează), dar umbra lui
 #: cădea peste piesă, iar scena se vedea ca printr-o fantă. La (90, 0, 130) mm obiectivul stă în aer
-#: liber, cu 43 mm până la primul material de pe orice rază a cadrului, la 120 mm de piesa ținută și
+#: liber, cu 42 mm până la primul material de pe orice rază a cadrului, la 120 mm de piesa ținută și
 #: cu 80 mm deasupra ei: o consolă pe latura încheieturii, privind piesa de sus și din lateral.
-#: Măsurat cu ``scene.lens_clearance``, pe care `view.py --check` îl cere.
+#: Măsurat cu ``scene.lens_clearance``, pe care `view.py --check` îl cere. Cîmpul de vedere este
+#: 52°, nu 60°: la 120 mm de piesă, roata de 104 mm trece de la ~345 px la ~400 px din 640, iar
+#: falcile rămîn încadrate. Cadrul mai strîns scoate din imagine banda și raftul, care nu ajută
+#: verdictul, și lasă defectele de 2,5 mm la ~12 px.
 WRIST_CAMERA_OFFSET = (0.09, 0.0, 0.13)
-WRIST_CAMERA_FOVY = 60.0
+WRIST_CAMERA_FOVY = 52.0
 
 #: Câte raze se trag în câmpul camerei când se măsoară spațiul liber din fața obiectivului.
 LENS_RAY_GRID = 15
@@ -200,10 +203,25 @@ def _add_parts(spec: mujoco.MjSpec, variant: part.PartVariant, blank: part.Blank
     meshul piesei primește UV-uri ca textura de metal periat să se vadă.
     """
     vertices, faces = part.scaled_geometry(variant)
-    uv = _planar_uv(vertices)
-    spec.add_mesh(name="machined_part_mesh", uservert=vertices.ravel().tolist(),
-                  usertexcoord=uv.ravel().tolist(), userface=faces.ravel().tolist(),
-                  userfacetexcoord=faces.ravel().tolist())
+    # Vîrfurile se repetă pentru fiecare triunghi, ca la randarea de catalog: altfel un vîrf de
+    # pe muchia de sus este împărtășit cu flancul, iar randatorul ia normala flancului pentru
+    # triunghiurile feței de sus. Piesa apare atunci ca niște cioburi albe, deși meshul e plat.
+    triangles = vertices[faces]
+    normals = np.cross(triangles[:, 1] - triangles[:, 0],
+                       triangles[:, 2] - triangles[:, 0])
+    lengths = np.linalg.norm(normals, axis=1)
+    degenerate = lengths < 1e-12
+    lengths[degenerate] = 1.0
+    normals = normals / lengths[:, None]
+    normals[degenerate] = (0.0, 0.0, 1.0)
+    flat_vertices = triangles.reshape(-1, 3)
+    flat_normals = np.repeat(normals, 3, axis=0)
+    uv = _planar_uv(flat_vertices)
+    corners = np.arange(len(flat_vertices), dtype=np.int64).reshape(-1, 3)
+    spec.add_mesh(name="machined_part_mesh", uservert=flat_vertices.ravel().tolist(),
+                  usernormal=flat_normals.ravel().tolist(),
+                  usertexcoord=uv.ravel().tolist(), userface=corners.ravel().tolist(),
+                  userfacetexcoord=corners.ravel().tolist(), smoothnormal=False)
     for body, place in places.items():
         spec_body = spec.worldbody.add_body(name=body, pos=list(place["pos"]),
                                             quat=list(part.yaw_quat(place["yaw_deg"])))

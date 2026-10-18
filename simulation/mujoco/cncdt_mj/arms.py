@@ -290,6 +290,20 @@ def spin_quat(quat: np.ndarray, approach: tuple[float, float, float], degrees: f
     return result
 
 
+def jaw_yaw_deg(approach: tuple[float, float, float], spin_deg: float = 0.0) -> float:
+    """Direcția în plan a axei pe care se închid falcile, în grade, modulo 180.
+
+    Falcile se închid pe axa ``Y`` a sculei (`tool_quat`), iar ``spin_deg`` o rotește în jurul
+    direcției de apropiere. Pentru o apropiere verticală, unghiul este cel din planul benzii și
+    se compară direct cu yaw-ul piesei; pentru o apropiere înclinată, este proiecția lui.
+    """
+    quat = tool_quat(approach)
+    if spin_deg:
+        quat = spin_quat(quat, approach, spin_deg)
+    jaw = rotation_matrix(quat)[:, 1]
+    return math.degrees(math.atan2(float(jaw[1]), float(jaw[0]))) % 180.0
+
+
 def solve(model: mujoco.MjModel, data: mujoco.MjData, arm: str, target_position: np.ndarray,
           target_quat: np.ndarray, seed: np.ndarray | None = None) -> np.ndarray:
     """Țintele de articulație care aduc flanșa în poziția și orientarea date.
