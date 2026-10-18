@@ -462,6 +462,29 @@ def parts(count: int = 220, seed0: int = 0, shuffle_seed: int = 0,
 
 
 @app.local_entrypoint()
+def publish(run: str = "", bucket: str = "", frames: bool = True,
+            keep_local: bool = False) -> None:
+    """Urcă o rulare deja scrisă în volum, fără să mai colecteze.
+
+    Folosit cînd colectarea este oprită înainte de final: publisherul verifică fiecare sesiune
+    terminată și urcă doar ce are `session.json` și indexul cadrelor.
+    """
+    if not run:
+        raise SystemExit("lipsește --run (numele rulării din volum)")
+    if not bucket:
+        raise SystemExit("lipsește --bucket")
+    revision = git_revision()
+    if frames:
+        published = publish_frames_run.remote(run=run, bucket=bucket, revision=revision,
+                                              keep_local=keep_local)
+        print(f"[modal] gata: {published} în s3://{bucket}/training-data/grasp/", flush=True)
+    else:
+        published = publish_run.remote(run=run, bucket=bucket, revision=revision,
+                                       keep_local=keep_local)
+        print(f"[modal] gata: {published} în s3://{bucket}/training-data/mujoco/", flush=True)
+
+
+@app.local_entrypoint()
 def main(families: str = "", cycles: int = 25, rate: float = 20.0, seed: int = 100,
          sessions_per_family: int = 1, machining_s: float = 0.0, inject: str = "",
          require_wear: bool = True, frames: bool = False, telemetry: bool = False,
