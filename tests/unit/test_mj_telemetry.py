@@ -225,6 +225,15 @@ def test_cadrele_de_pe_flanse_opresc_umbrele_aruncate() -> None:
     assert povs.pov("cell").shadows, "cadrul general păstrează umbrele, ca să se citească scena"
 
 
+def test_cadrele_de_pe_flanse_randeaza_si_fetele_din_spate() -> None:
+    """Mîna brațului, văzută din interior, își arată pereții; altfel scena trece prin braț."""
+    for item in povs.POVS:
+        if item.camera is None:
+            continue
+        assert item.backfaces, f"{item.name} elimină fețele din spate ale mîinii"
+    assert not povs.pov("cell").backfaces, "cadrul general păstrează eliminarea fețelor din spate"
+
+
 def test_fiecare_punct_de_vedere_are_un_moment_de_captura() -> None:
     """Un punct de vedere fără moment nu s-ar fotografia niciodată, tăcut."""
     for item in povs.POVS:

@@ -344,15 +344,15 @@ fiecare ciclu arată altfel, iar eticheta rămîne aceeași.
 ## Camerele de pe flanșe
 
 Nu mai există o cameră fixă deasupra benzii 2: verdictul de calitate îl dă camera de pe flanșa
-brațului 2. Fiecare braț are câte o cameră pe o consolă laterală a flanșei, la (120, 0, 130) mm în
+brațului 2. Fiecare braț are câte o cameră pe o consolă laterală a flanșei, la (140, 0, 140) mm în
 sistemul ultimei verigi, cu **46° pe verticală** și **640×480**, iar obiectivul privește punctul de
-strângere; orientarea se calculează la compunerea scenei (`scene.wrist_camera_quat`), nu se scrie
-de mână.
+strângere, întors 4° la stânga; orientarea se calculează la compunerea scenei
+(`scene.wrist_camera_quat`), nu se scrie de mână.
 
-Camera de pe brațul 2 fotografiază piesa ținută în falci: stă la **14,4 cm** de punctul de
-strângere, iar roata de ~104 mm iese la **~392 px** din 640, adică **~3,9 px/mm**. La scara asta,
-cel mai fin defect din catalog — o gaură dezaxată cu 2,5 mm — ajunge la **~10 px**, iar dintele
-ciobit de 4 mm la **~16 px**. Cîmpul de vedere a fost strîns de la 60° la 52°, apoi la 46° după ce
+Camera de pe brațul 2 fotografiază piesa ținută în falci: stă la **15,6 cm** de punctul de
+strângere, iar roata de ~104 mm iese la **~377 px** din 640, adică **~3,6 px/mm**. La scara asta,
+cel mai fin defect din catalog — o gaură dezaxată cu 2,5 mm — ajunge la **~9 px**, iar dintele
+ciobit de 4 mm la **~14 px**. Cîmpul de vedere a fost strîns de la 60° la 52°, apoi la 46° după ce
 montajul a fost mutat mai departe: la 60° roata ocupa 345 px, iar banda și raftul din fundal luau
 restul. Pragul `checks.MIN_WRIST_PART_PX` prinde o cameră montată greșit, care nu are piesa în
 cadru, ori o cameră prea depărtată, la care piesa ajunge un blob de câteva zeci de pixeli.
@@ -361,10 +361,20 @@ cadru, ori o cameră prea depărtată, la care piesa ajunge un blob de câteva z
 5 cm de `link7`, obiectivul cădea **în** carcasa încheieturii, iar toate razele cadrului loveau
 materialul brațului la mai puțin de 20 mm de lentilă. Montajul de la 90 mm lateral părea liber
 după razele din cîmp, dar lentila stătea la 38 mm de cochilia mîinii, în deschiderea ei: razele
-ieșeau printre pereți, iar cadrul arăta scena **prin** braț. La 120 mm, lentila are **61 mm** pînă
-la cochilie în orice direcție și **66 mm** pe razele cadrului. `--check` măsoară ambele
-(`scene.lens_clearance`, `scene.lens_surround_clearance`) și cere
+ieșeau printre pereți, iar cadrul arăta scena **prin** braț. La 140 mm lateral și 140 mm sus,
+lentila are **78 mm** pînă la cochilie în orice direcție și **83 mm** pe razele cadrului. `--check`
+măsoară ambele (`scene.lens_clearance`, `scene.lens_surround_clearance`) și cere
 `checks.MIN_LENS_CLEARANCE_M` / `checks.MIN_LENS_SURROUND_M`.
+
+**Privirea întoarsă la stînga și fețele din spate.** Chiar cu lentila în afara cochiliei, la
+120 mm consola privea mîna aproape din lung, iar razele de jos ale cadrului intrau în cavitatea
+ei: pereții văzuți din interior sînt fețe din spate, eliminate implicit de randator, deci banda
+se vedea prin material. Montajul de la 140 mm lateral și 140 mm sus vede mîna de sus, din
+exterior, iar orientarea se rotește cu `scene.WRIST_CAMERA_YAW_DEG = 4,0°` spre stînga imaginii,
+în jurul axei locale `Y`, după țintirea punctului de strângere, ca mîna să iasă din zona centrală.
+Cadrele de pe flanșe randează și fețele din spate (`Pov.backfaces=True`, `mjRND_CULL_FACE = 0`), ca
+pereții concavi să fie opaci oricum ar fi orientată camera. Punctul de strângere cade la **4,0° la
+dreapta axului optic**, cu marjă pînă la marginea cadrului.
 
 **Umbra care nu vine de la celulă.** Fiecare model Panda are propriul reflector „top", care se
 lipește de braț și se rotește cu el. Cu umbra pornită, reflectorul arunca peste piesa ținută o a

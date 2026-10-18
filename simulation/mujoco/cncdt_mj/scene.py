@@ -50,16 +50,23 @@ ARM_MOUNTS: tuple[tuple[str, str], ...] = (("arm1", "arm1_mount"), ("arm2", "arm
 #: atunci „prin" mână — materialul nu se vedea (fețele din spate nu se randează), dar umbra lui
 #: cădea peste piesă, iar scena se vedea ca printr-o fantă. Montajul a stat apoi la (90, 0, 130) mm,
 #: dar obiectivul ajungea la numai 38 mm de cochilia mîinii, în deschiderea ei: razele cadrului
-#: ieșeau printre pereți, iar brațul se vedea tot ca o fantă. La (120, 0, 130) mm obiectivul stă
-#: în afara cochiliei, cu 60 mm pînă la ea și 64 mm pînă la primul material de pe razele cadrului,
-#: la 144 mm de piesa ținută: o consolă pe latura încheieturii, privind piesa de sus și din lateral.
-#: Măsurat cu ``scene.lens_clearance`` și ``scene.lens_surround_clearance``, pe care
-#: `view.py --check` le cere. Cîmpul de vedere este 46°, nu 52°: la 144 mm de piesă, roata de
-#: 104 mm iese la ~392 px din 640 (~3,9 px/mm), iar falcile rămîn încadrate. Cadrul acoperă
-#: aproximativ aceeași suprafață ca montajul vechi de 52° la 120 mm, doar privită de mai departe,
-#: și lasă defectele de 2,5 mm la ~10 px.
-WRIST_CAMERA_OFFSET = (0.12, 0.0, 0.13)
+#: ieșeau printre pereți, iar brațul se vedea tot ca o fantă. La (120, 0, 130) mm lentila a ieșit
+#: din cochilie, dar privea mîna aproape din lung: pereții concavi, văzuți din interior, sînt fețe
+#: din spate, deci banda se vedea prin material, iar falcile păreau goale. La (140, 0, 140) mm
+#: obiectivul stă în afara cochiliei, cu 78 mm pînă la ea în orice direcție și 83 mm pe razele
+#: cadrului, la 156 mm de piesa ținută, și vede mîna de sus, din exterior: falcile sînt solide, iar
+#: piesa stă în cadru cu marjă. Măsurat cu ``scene.lens_clearance`` și
+#: ``scene.lens_surround_clearance``, pe care `view.py --check` le cere. Cîmpul de vedere este 46°,
+#: nu 52°: la 156 mm de piesă, roata de 104 mm iese la ~377 px din 640 (~3,6 px/mm), iar falcile
+#: rămîn încadrate; defectele de 2,5 mm cad la ~9 px, dintele ciobit de 4 mm la ~14 px.
+WRIST_CAMERA_OFFSET = (0.14, 0.0, 0.14)
 WRIST_CAMERA_FOVY = 46.0
+
+#: Cît de mult privește camera la stânga față de punctul de strângere, în grade. Consola stă pe
+#: latura încheieturii, deci mîna îi intră în cadru pe jos, chiar sub obiectiv. Rotirea mută
+#: privirea peste falcile apropiate, iar piesa rămîne în cîmp cu marjă la dreapta. Semnul este
+#: pozitiv în jurul axei locale ``Y`` a camerei, adică exact spre stânga imaginii.
+WRIST_CAMERA_YAW_DEG = 4.0
 
 #: Cîte direcții se trag în jurul obiectivului cînd se măsoară spațiul liber din toate părțile.
 LENS_SURROUND_GRID = 24
@@ -260,12 +267,16 @@ def wrist_camera_quat(model: mujoco.MjModel, arm: str,
     """Orientarea camerei de pe flanșă, ca obiectivul să privească punctul de strângere.
 
     Punctul de strângere se măsoară din geometria falcilor (`arms.tool_point`), nu se presupune:
-    de el atârnă distanța la care ajunge piesa în cadru, iar distanța se citește din montajul de
-    mai sus — 143 mm, cât să cuprindă roata de ~104 mm cu contextul falcilor.
+    el stă la ~143 mm de flanșă, iar camera la ~156 mm de el, cât să cuprindă roata de ~104 mm
+    împreună cu contextul falcilor.
 
     Camerele MuJoCo privesc de-a lungul axei lor ``−Z``, iar „sus"-ul cadrului se ia din axa
     sculei, proiectată perpendicular pe direcția de privire: imaginea stă la fel față de piesă
     oricum ar fi orientat brațul, în loc să se răsucească o dată cu încheietura.
+
+    Privirea se mai rotește cu :data:`WRIST_CAMERA_YAW_DEG` spre stânga, în jurul axei locale
+    ``Y`` a camerei, după ce s-a țintit punctul de strângere: mîna stă chiar sub obiectiv, iar
+    fără rotire intră adînc în cadru, pe jos, și își arată interiorul.
     """
     data = mujoco.MjData(model)
     for side in (1, 2):
@@ -286,7 +297,12 @@ def wrist_camera_quat(model: mujoco.MjModel, arm: str,
     y_axis = np.cross(z_axis, x_axis)
     quat = np.zeros(4)
     mujoco.mju_mat2Quat(quat, np.column_stack((x_axis, y_axis, z_axis)).ravel())
-    return quat
+    yaw = np.zeros(4)
+    mujoco.mju_axisAngle2Quat(yaw, np.array([0.0, 1.0, 0.0]),
+                              math.radians(WRIST_CAMERA_YAW_DEG))
+    result = np.zeros(4)
+    mujoco.mju_mulQuat(result, quat, yaw)
+    return result
 
 
 def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,

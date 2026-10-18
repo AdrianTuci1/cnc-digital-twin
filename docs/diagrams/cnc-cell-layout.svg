@@ -82,15 +82,15 @@
 <text x="192.5" y="352.5" font-size="13" text-anchor="start" fill="#7a4408" font-weight="bold" opacity="1.00">Braț 1 (Panda #1)</text>
 <text x="192.5" y="372.5" font-size="11" text-anchor="start" fill="#8a5a1f" font-weight="normal" opacity="1.00">încarcă și descarcă CNC, așază piesa pe banda 2</text>
 <line x1="439.5" y1="356.5" x2="621.7" y2="354.5" stroke="#a85f13" stroke-width="1.0" stroke-dasharray="3 3"/>
-<line x1="648.5" y1="352.5" x2="717.5" y2="393.7" stroke="#8a63b8" stroke-width="1.0" stroke-dasharray="2 2" opacity="0.80"/>
-<path d="M 717.5 380.4 L 730.8 393.7 L 717.5 407.0 L 704.2 393.7 Z" fill="#e6dbf6" stroke="#8a63b8" stroke-width="1.4"/>
+<line x1="648.5" y1="352.5" x2="721.7" y2="393.2" stroke="#8a63b8" stroke-width="1.0" stroke-dasharray="2 2" opacity="0.80"/>
+<path d="M 721.7 379.9 L 735.0 393.2 L 721.7 406.5 L 708.4 393.2 Z" fill="#e6dbf6" stroke="#8a63b8" stroke-width="1.4"/>
 <circle cx="601.0" cy="561.5" r="162.4" fill="none" stroke="#a85f13" stroke-width="1.1" stroke-dasharray="4 6" opacity="0.5"/>
 <circle cx="601.0" cy="561.5" r="22.8" fill="#f4b071" stroke="#a85f13" stroke-width="1.6"/>
 <text x="192.5" y="561.5" font-size="13" text-anchor="start" fill="#7a4408" font-weight="bold" opacity="1.00">Braț 2 (Panda #2)</text>
 <text x="192.5" y="581.5" font-size="11" text-anchor="start" fill="#8a5a1f" font-weight="normal" opacity="1.00">ridică piesa de pe bandă și o lasă în locul familiei</text>
 <line x1="439.5" y1="565.5" x2="574.2" y2="563.5" stroke="#a85f13" stroke-width="1.0" stroke-dasharray="3 3"/>
-<line x1="601.0" y1="561.5" x2="560.0" y2="503.2" stroke="#8a63b8" stroke-width="1.0" stroke-dasharray="2 2" opacity="0.80"/>
-<path d="M 560.0 489.9 L 573.3 503.2 L 560.0 516.5 L 546.7 503.2 Z" fill="#e6dbf6" stroke="#8a63b8" stroke-width="1.4"/>
+<line x1="601.0" y1="561.5" x2="560.5" y2="499.1" stroke="#8a63b8" stroke-width="1.0" stroke-dasharray="2 2" opacity="0.80"/>
+<path d="M 560.5 485.8 L 573.8 499.1 L 560.5 512.4 L 547.2 499.1 Z" fill="#e6dbf6" stroke="#8a63b8" stroke-width="1.4"/>
 <line x1="135.5" y1="808.5" x2="249.5" y2="808.5" stroke="#555" stroke-width="1.4" marker-end="url(#arrow-gray)"/>
 <text x="259.0" y="812.5" font-size="11" text-anchor="start" fill="#555" font-weight="normal" opacity="1.00">X est</text>
 <line x1="135.5" y1="808.5" x2="135.5" y2="694.5" stroke="#555" stroke-width="1.4" marker-end="url(#arrow-gray)"/>

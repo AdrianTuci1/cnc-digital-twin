@@ -132,10 +132,10 @@ fără fereastră, pe CPU, în afara Kit.
 **Rezoluția nu poate rămâne la implicitul de 160×120.** Diferența cea mai grosieră de rezolvat
 este adâncimea unui dinte ciobit, `chip_depth = 4 mm`, iar cea mai fină este dezaxarea radială a
 unei găuri, 2,5 mm. De separarea lor depinde clasificatorul, iar cadrul care dă verdictul vine acum
-din camera de pe flanșa brațului 2, care fotografiază piesa ținută în falci: stă la **14,4 cm** de
+din camera de pe flanșa brațului 2, care fotografiază piesa ținută în falci: stă la **15,6 cm** de
 punctul de strângere, cu **46° pe verticală** și **640×480**, iar roata de ~104 mm iese la
-**~392 px**, adică **~3,9 px/mm**. La scara asta, cel mai fin defect din catalog — o gaură
-dezaxată cu 2,5 mm — ajunge la **~10 px**, iar dintele ciobit de 4 mm la **~16 px**, deci fiecare
+**~377 px**, adică **~3,6 px/mm**. La scara asta, cel mai fin defect din catalog — o gaură
+dezaxată cu 2,5 mm — ajunge la **~9 px**, iar dintele ciobit de 4 mm la **~14 px**, deci fiecare
 clasă se poate separa. Pragul `checks.MIN_WRIST_PART_PX = 150 px` prinde o cameră montată greșit
 ori prea depărtată, la care piesa ajunge un blob de câteva zeci de pixeli, de neclasificat. Blurul
 din secțiunea 3 se adaugă peste aceste cadre, proporțional cu `1 - h_camera`, deci o cameră
@@ -144,17 +144,29 @@ proiectată exact la limita de rezoluție pierde piesa, nu doar defectul.
 **Camerele de pe flanșe.** Catalogul Menagerie al modelului Panda nu are cameră, deci celula o
 adaugă pe flanșa fiecărui braț, cu **46° pe verticală** și **640×480**. Cîmpul de vedere a fost
 strîns de la 60°, unde roata ocupa 345 px și jumătate din cadru rămînea bandă și raft, apoi de la
-52° după mutarea montajului. Montajul stă pe o consolă laterală — la (120, 0, 130) mm în sistemul
+52° după mutarea montajului. Montajul stă pe o consolă laterală — la (140, 0, 140) mm în sistemul
 ultimei verigi —, nu pe axa sculei: acolo, la 5 cm de `link7`, obiectivul cădea **în** carcasa
 încheieturii, iar toate razele cadrului loveau materialul brațului la mai puțin de 20 mm de
 lentilă. Nici montajul de 90 mm nu era în afara mîinii: lentila stătea la 38 mm de cochilia ei, în
 deschiderea dintre pereți, iar razele cadrului ieșeau afară, deci cadrul arăta scena **prin** braț.
-La 120 mm, lentila are 61 mm pînă la cochilie în orice direcție.
+La 120 mm lentila a ieșit din cochilie, dar privea mîna aproape din lung, iar pereții concavi,
+văzuți din interior, lăsau banda să treacă prin material. La 140 mm lateral și 140 mm sus, lentila
+are 78 mm pînă la cochilie în orice direcție și vede mîna de sus, din exterior.
+
+**Brațul se vedea tot prin mînă.** Consola stă deasupra mîinii, iar razele de jos ale cadrului
+intră în cavitatea ei: pereții văzuți din interior sînt fețe din spate, eliminate implicit de
+randator, deci banda se vedea prin material. Două corecții lucrează împreună. Orientarea se
+rotește cu `WRIST_CAMERA_YAW_DEG = 4,0°` spre stînga imaginii, în jurul axei locale `Y`, după ce
+s-a țintit punctul de strângere; mîna iese astfel din zona centrală a cadrului. Cadrele de pe
+flanșe randează și fețele din spate (`Pov.backfaces=True`, `mjRND_CULL_FACE = 0`), deci pereții
+concavi ai mîinii sînt opaci. Punctul de strângere cade la 4,0° la dreapta axului optic, cu marjă
+pînă la marginea cadrului.
+
 Orientarea obiectivului se calculează la compunerea scenei, nu se scrie de mână: așa cum vine din
 catalog, camera privea **înapoi**, spre cot, iar punctul de strângere cădea la −143 mm adâncime,
 adică în spatele obiectivului. Măsurat acum cu `view.py --check`: punctul de strângere e la
-144 mm, abaterea față de axul optic e 0,0°, iar spațiul liber până la materialul brațului este de
-**66 mm** în cîmp și **61 mm** în toate direcțiile, peste pragurile `checks.MIN_LENS_CLEARANCE_M`
+156 mm, piesa de 100 mm ia 362 px din 640, iar spațiul liber pînă la materialul brațului este de
+**83 mm** în cîmp și **78 mm** în toate direcțiile, peste pragurile `checks.MIN_LENS_CLEARANCE_M`
 și `checks.MIN_LENS_SURROUND_M`. Reflectoarele aduse de modelul Panda
 (`arm1_top`, `arm2_top`) luminează în continuare, dar nu mai aruncă umbră: altfel silueta lor,
 rotită cu brațul, cădea peste piesa ținută și fața de sus ieșea vălurită. Umbra rămîne doar de la

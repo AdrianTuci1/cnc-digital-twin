@@ -71,14 +71,26 @@ rigidă: piesa ar sta pe un vîrf și ar aluneca la prima accelerație. `session
 `left_contacts` și `right_contacts`; cîmpul `contact` rămîne „a atins piesa măcar o falcă”, iar
 `success` cere ambele.
 
-**Montaj la 120 mm și cîmp de vedere de 46°.** Consola laterală trece de la (90, 0, 130) la
-(120, 0, 130) mm în sistemul ultimei verigi, cu obiectivul spre punctul de strângere. La 90 mm,
+**Montaj la 140 mm și cîmp de vedere de 46°.** Consola laterală trece de la (90, 0, 130) la
+(140, 0, 140) mm în sistemul ultimei verigi, cu obiectivul spre punctul de strângere. La 90 mm,
 lentila ajungea la numai 38 mm de cochilia mîinii, în deschiderea ei: razele cadrului ieșeau
 printre pereți, verificarea din cîmp raporta 42 mm și trecea, dar camera vedea scena prin braț.
-La 120 mm, lentila stă în afara cochiliei, cu 61 mm pînă la ea în orice direcție și 66 mm pe
-razele cadrului. Cîmpul scade de la 52° la 46°, ca să păstreze încadrarea: la 144 mm de piesă,
-roata de 104 mm iese la ~392 px (~3,9 px/mm), iar falcile rămîn în câmp. Gaura dezaxată de
-2,5 mm ajunge la ~10 px, dintele ciobit de 4 mm la ~16 px.
+La 120 mm lentila a ieșit din cochilie, dar privea mîna aproape din lung: pereții concavi, văzuți
+din interior, lăsau banda să treacă prin material. La 140 mm lateral și 140 mm sus, lentila are
+78 mm pînă la cochilie în orice direcție și 83 mm pe razele cadrului, iar mîna se vede de sus, din
+exterior. Cîmpul scade de la 52° la 46°, ca să păstreze încadrarea: la 156 mm de piesă, roata de
+104 mm iese la ~377 px (~3,6 px/mm), iar falcile rămîn în cîmp. Gaura dezaxată de 2,5 mm ajunge
+la ~9 px, dintele ciobit de 4 mm la ~14 px.
+
+**Privire 4° la stânga și fețe din spate randate.** Chiar cu lentila în afara cochiliei, razele
+de jos ale cadrului pot intra în cavitatea mîinii, unde pereții sînt fețe din spate, eliminate
+implicit de randator, iar banda se vede prin material. Orientarea se rotește cu
+`WRIST_CAMERA_YAW_DEG = 4,0°` spre stânga imaginii, în jurul axei locale `Y`, după ce obiectivul a
+fost țintit pe punctul de strângere; mîna iese din zona centrală a cadrului, iar piesa rămîne în
+cîmp cu marjă. În plus, cadrele de pe flanșe randează și fețele din spate (`Pov.backfaces=True`,
+`mjRND_CULL_FACE = 0`), deci pereții concavi ai mîinii sînt opaci, oricum ar fi orientată camera.
+Punctul de strângere cade la 4,0° la dreapta axului optic; `view.py --check` îl raportează
+explicit.
 
 **Umbra vine doar de la lumina celulei.** Modelul Panda își aduce un reflector „top" care se
 lipește de fiecare braț și se rotește cu el. Cu umbra pornită, reflectorul arunca peste piesa
@@ -93,15 +105,18 @@ piesei. Cadrul general al celulei păstrează umbrele, ca să se citească adîn
 
 - Toate cadrele arată piesa ca un solid, cu fața de sus uniform luminată; dispare și efectul de
   cioburi, și a doua siluetă dată de umbra brațului, care făceau contactul greu de citit.
-  Cadrele de pe flanșe nu mai arată scena prin cochilia mîinii: camera stă în afara ei.
+  Cadrele de pe flanșe nu mai arată scena prin cochilia mîinii: camera stă în afara ei, privește
+  4° la stânga, iar pereții mîinii se randează din interior.
 - Prinderea pe contur este deterministă: la hexagon, deschiderea măsurată scade la 58,3 mm, cît
   lățimea reală; piesa nu se mai rotește în falci între preluare și așezare.
 - `session.json` are două cîmpuri noi, aditive; un consumator vechi le ignoră. Nu se schimbă nicio
   schemă din `telemetry/schemas/`.
 - Testele noi acoperă axele înguste ale fiecărei familii, normalele plate ale meshului compilat,
-  spațiul liber din jurul obiectivului și faptul că reflectoarele brațelor nu aruncă umbră
-  (`tests/unit/test_mujoco_scene.py`). Verificarea din `view.py --check` rămîne poarta pentru
-  cameră: punctul de strângere în cadru, cel puțin 150 px pentru piesă și 20 mm spațiu liber.
+  spațiul liber din jurul obiectivului, faptul că reflectoarele brațelor nu aruncă umbră și că
+  cadrele de pe flanșe randează fețele din spate (`tests/unit/test_mujoco_scene.py`,
+  `tests/unit/test_mj_telemetry.py`). Verificarea din `view.py --check` rămîne poarta pentru
+  cameră: punctul de strângere în cadru, cel puțin 150 px pentru piesă, 20 mm spațiu liber în cîmp
+  și 50 mm în jurul obiectivului.
 - Numerele de rezoluție din ADR 0014 (60°, ~345 px, ~3,4 px/mm) descriu starea de atunci; acest
   ADR le înlocuiește.
 
@@ -113,6 +128,8 @@ piesei. Cadrul general al celulei păstrează umbrele, ca să se citească adîn
 | Normalare manuală după compilare | `model.mesh_normal` este generat la compilare și se recalculează; o corecție după compilare s-ar pierde la următoarea scenă. |
 | Cameră coaxială cu scula, mai aproape | La 5 cm de `link7`, obiectivul intră în carcasa încheieturii; măsurat, spațiul liber coboară la 0,8–17,6 mm, sub prag. |
 | Menținerea montajului la 90 mm lateral | Lentila rămîne la 38 mm de cochilia mîinii, în deschiderea ei; razele cadrului ies printre pereți, deci verificarea din cîmp trece, iar camera vede prin braț. |
-| Cameră mai laterală, la 16 cm | Spațiul liber crește, dar la 46° piesa coboară la ~2,8 px/mm și se pierde rezoluția pentru defecte. |
+| Cameră mai laterală, la 16 cm | Spațiul liber crește, dar la 46° piesa coboară la ~3,3 px/mm, iar gaura de 2,5 mm la ~8,3 px, sub rezoluția de acum. |
+| Rotire mai mare, 10–15° la stânga | La 10° roata de 104 mm ajunge la marginea din dreapta a cadrului, iar la 15° falca îndepărtată iese din cîmp. |
+| Doar rotirea camerei, fără mutarea montajului | La (120, 0, 130) mm mîna e văzută din lung: falcile apar goale, iar rotirea de 4° schimbă prea puțin unghiul din care se vede cochilia. |
 | Rotirea piesei în scenă în locul sculei | Piesa trebuie să cadă pe bandă la un yaw arbitrar, ca în realitate; rotirea din scenă ar ascunde variația pe care trebuie să o învețe clasificatorul. |
 | Păstrarea verdictului pe un singur contact | Treceau prinderi pe vîrf, cu piesa rotită; legătura rigidă ascundea problema pînă la așezare. |

@@ -648,7 +648,12 @@ def main(argv: list[str] | None = None) -> int:
             f"{camera_name}.png" if camera_name else "cell.png")
         model, data, metadata, warnings = build(args)
         prepare(model, data, metadata, args.steps or scene.SETTLE_STEPS)
-        camera.render(model, data, path, camera_name, width, height)
+        # Cadrul de verificare al unei camere de pe flanșă arată ca în dataset: fără umbre
+        # aruncate și cu fețele din spate ale mîinii, ca brațul să nu pară transparent.
+        item = next((pov for pov in povs.POVS if pov.camera == camera_name), None)
+        camera.render(model, data, path, camera_name, width, height,
+                      shadows=item.shadows if item else True,
+                      backfaces=item.backfaces if item else False)
         print(f"scris {path} ({width}x{height}, camera "
               f"{camera_name or 'liberă'}, {len(warnings)} avertismente)")
         return 0

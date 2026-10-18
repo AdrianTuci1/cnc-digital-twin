@@ -64,6 +64,11 @@ class Pov:
     #: are nevoie de suprafața piesei, nu de efecte de lumină.
     shadows: bool = True
 
+    #: Fețele din spate ale geometriei. Cadrele de pe flanșe le randează: obiectivul stă lîngă
+    #: mîna brațului, iar pereții concavi ai mîinii, văzuți din interior, sînt fețe din spate.
+    #: Fără ele, mîna apare ca o fantă, cu banda văzută prin material.
+    backfaces: bool = False
+
     @property
     def resolution(self) -> tuple[int, int]:
         """Rezoluția cadrului, ca pereche."""
@@ -73,17 +78,20 @@ class Pov:
 #: Registrul punctelor de vedere. Ordinea este ordinea în care se scriu în documentație.
 POVS: tuple[Pov, ...] = (
     Pov("arm1_wrist", "camera de pe flanșa brațului 1: blocul brut în falci și piesa în universal",
-        "arm1_wrist_camera", *PROCESS_FRAME, stages=("belt1_pick", "cnc_chuck"), shadows=False),
+        "arm1_wrist_camera", *PROCESS_FRAME, stages=("belt1_pick", "cnc_chuck"), shadows=False,
+        backfaces=True),
     Pov("arm2_wrist", "camera de pe flanșa brațului 2: verdictul de calitate, piesa ținută în falci",
         "arm2_wrist_camera", *PROCESS_FRAME, stages=("belt2_pick",), role=ROLE_SORTING,
-        shadows=False),
+        shadows=False, backfaces=True),
     Pov("cell", "cadrul general al celulei, din camera liberă: piesa în locul familiei ei",
         None, *CELL_FRAME, stages=tuple(layout.rack_target(family)
                                        for family in layout.RACK_FAMILIES)),
     Pov("arm1_grasp", "secvența de prindere a brațului 1: apropiere, piesa în falci, ridicare",
-        "arm1_wrist_camera", *PROCESS_FRAME, grasp_points=("belt1_pick",), shadows=False),
+        "arm1_wrist_camera", *PROCESS_FRAME, grasp_points=("belt1_pick",), shadows=False,
+        backfaces=True),
     Pov("arm2_grasp", "secvența de prindere a brațului 2: apropiere, piesa în falci, ridicare",
-        "arm2_wrist_camera", *PROCESS_FRAME, grasp_points=("belt2_pick",), shadows=False),
+        "arm2_wrist_camera", *PROCESS_FRAME, grasp_points=("belt2_pick",), shadows=False,
+        backfaces=True),
 )
 
 
