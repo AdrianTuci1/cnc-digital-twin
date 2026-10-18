@@ -364,6 +364,14 @@ fiindcă fețele din spate nu se randează, dar umbra lui cădea peste piesă. `
 liber pe toate razele cadrului (`scene.lens_clearance`) și cere cel puțin
 `checks.MIN_LENS_CLEARANCE_M`; montajul de acum dă **42 mm**, la 120 mm de piesă.
 
+**Umbra care nu vine de la celulă.** Fiecare model Panda are propriul reflector „top", care se
+lipește de braț și se rotește cu el. Cu umbra pornită, reflectorul arunca peste piesa ținută o a
+doua siluetă, decalată, iar la rezoluția implicită a hărții de umbre fața de sus ieșea vălurită.
+Reflectoarele `arm1_top` și `arm2_top` rămîn aprinse, dar cu `castshadow=False`; umbra se ia doar
+de la `key_light` din celulă. Cadrele de pe flanșe opresc și umbra cheii (`Pov.shadows=False`),
+ca silueta decalată de pe bandă să nu se citească drept a doua piesă; cadrul general al celulei
+păstrează umbrele.
+
 **Axa de privire**: camerele MuJoCo privesc de-a lungul axei lor locale **−Z**, nu +Z (verificat cu
 o scenă de probă: două cutii, una deasupra și una dedesubt). Așa cum vine din catalog, camera
 privea **înapoi**, spre cot, iar punctul de strângere cădea la −143 mm adâncime, adică în spatele

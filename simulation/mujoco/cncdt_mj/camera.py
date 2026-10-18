@@ -104,8 +104,12 @@ class Frames:
 
     def write(self, data: mujoco.MjData, path: Any, camera: str | None = None,
               width: int | None = None, height: int | None = None,
-              preset: Mapping[str, Any] | None = None) -> None:
-        """Scrie un cadru, din camera dată ori din camera liberă."""
+              preset: Mapping[str, Any] | None = None, shadows: bool = True) -> None:
+        """Scrie un cadru, din camera dată ori din camera liberă.
+
+        ``shadows=False`` scoate umbrele aruncate după ce scena a fost actualizată: steagul din
+        ``MjvScene`` se resetează la fiecare ``update_scene``, deci nu se poate pune o singură dată.
+        """
         renderer = self.renderer(width, height)
         if camera is None:
             free = mujoco.MjvCamera()
@@ -114,6 +118,7 @@ class Frames:
             renderer.update_scene(data, camera=free)
         else:
             renderer.update_scene(data, camera=camera)
+        renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 1 if shadows else 0
         write_png(path, renderer.render())
 
     def write_pov(self, data: mujoco.MjData, pov: povs.Pov, path: Any) -> None:
@@ -121,7 +126,7 @@ class Frames:
         if pov.camera is None and pov.name not in FREE_PRESETS:
             raise ValueError(f"punctul de vedere {pov.name} nu are nici cameră, nici cadru liber")
         self.write(data, path, camera=pov.camera, width=pov.width, height=pov.height,
-                   preset=FREE_PRESETS.get(pov.name))
+                   preset=FREE_PRESETS.get(pov.name), shadows=pov.shadows)
 
     def close(self) -> None:
         """Închide randatoarele."""

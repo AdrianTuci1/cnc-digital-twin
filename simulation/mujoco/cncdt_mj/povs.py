@@ -59,6 +59,11 @@ class Pov:
     #: așezarea pe punct, ci trece prin toate momentele mișcării.
     grasp_points: tuple[str, ...] = ()
 
+    #: Umbrele aruncate în cadru. Cadrele de pe flanșe le opresc: silueta umbrei cheii pe bandă
+    #: și umbra falcii pe piesă se citesc ca o a doua piesă și ca o față ciobită, iar verdictul
+    #: are nevoie de suprafața piesei, nu de efecte de lumină.
+    shadows: bool = True
+
     @property
     def resolution(self) -> tuple[int, int]:
         """Rezoluția cadrului, ca pereche."""
@@ -68,16 +73,17 @@ class Pov:
 #: Registrul punctelor de vedere. Ordinea este ordinea în care se scriu în documentație.
 POVS: tuple[Pov, ...] = (
     Pov("arm1_wrist", "camera de pe flanșa brațului 1: blocul brut în falci și piesa în universal",
-        "arm1_wrist_camera", *PROCESS_FRAME, stages=("belt1_pick", "cnc_chuck")),
+        "arm1_wrist_camera", *PROCESS_FRAME, stages=("belt1_pick", "cnc_chuck"), shadows=False),
     Pov("arm2_wrist", "camera de pe flanșa brațului 2: verdictul de calitate, piesa ținută în falci",
-        "arm2_wrist_camera", *PROCESS_FRAME, stages=("belt2_pick",), role=ROLE_SORTING),
+        "arm2_wrist_camera", *PROCESS_FRAME, stages=("belt2_pick",), role=ROLE_SORTING,
+        shadows=False),
     Pov("cell", "cadrul general al celulei, din camera liberă: piesa în locul familiei ei",
         None, *CELL_FRAME, stages=tuple(layout.rack_target(family)
                                        for family in layout.RACK_FAMILIES)),
     Pov("arm1_grasp", "secvența de prindere a brațului 1: apropiere, piesa în falci, ridicare",
-        "arm1_wrist_camera", *PROCESS_FRAME, grasp_points=("belt1_pick",)),
+        "arm1_wrist_camera", *PROCESS_FRAME, grasp_points=("belt1_pick",), shadows=False),
     Pov("arm2_grasp", "secvența de prindere a brațului 2: apropiere, piesa în falci, ridicare",
-        "arm2_wrist_camera", *PROCESS_FRAME, grasp_points=("belt2_pick",)),
+        "arm2_wrist_camera", *PROCESS_FRAME, grasp_points=("belt2_pick",), shadows=False),
 )
 
 

@@ -152,7 +152,11 @@ Orientarea obiectivului se calculează la compunerea scenei, nu se scrie de mân
 catalog, camera privea **înapoi**, spre cot, iar punctul de strângere cădea la −143 mm adâncime,
 adică în spatele obiectivului. Măsurat acum cu `view.py --check`: punctul de strângere e la
 120 mm, abaterea față de axul optic e 0,0°, iar spațiul liber până la materialul brațului este de
-**42 mm**, peste pragul `checks.MIN_LENS_CLEARANCE_M`.
+**42 mm**, peste pragul `checks.MIN_LENS_CLEARANCE_M`. Reflectoarele aduse de modelul Panda
+(`arm1_top`, `arm2_top`) luminează în continuare, dar nu mai aruncă umbră: altfel silueta lor,
+rotită cu brațul, cădea peste piesa ținută și fața de sus ieșea vălurită. Umbra rămîne doar de la
+`key_light` din celulă, iar cadrele de pe flanșe o opresc complet la randare (`Pov.shadows=False`):
+silueta decalată de pe bandă arăta ca o a doua piesă. Cadrul general păstrează umbrele.
 
 **Cele trei puncte de vedere** fizice — cîte o cameră pe flanșa fiecărui braț și camera liberă —
 sunt registrul din `cncdt_mj/povs.py`, care este pur: nume de cameră, rezoluție, moment de captură

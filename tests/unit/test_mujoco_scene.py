@@ -761,6 +761,24 @@ def test_meshul_piesei_are_normale_plate_pe_fiecare_triunghi() -> None:
     assert np.allclose(np.linalg.norm(triangles[:, 0, :], axis=1), 1.0, atol=1e-4)
 
 
+def test_luminile_bratelor_nu_arunca_umbra_pe_piesa() -> None:
+    """Doar lumina celulei aruncă umbră; reflectoarele Panda luminează, dar nu umbresc.
+
+    Reflectorul „top" al modelului Panda se lipește de fiecare braț și se rotește cu el. Umbra
+    lui cădea peste piesa ținută ca o a doua siluetă, decalată, iar fața de sus ieșea vălurită.
+    """
+    mujoco = pytest.importorskip("mujoco", reason="luminile compilate cer mujoco")
+    from cncdt_mj import scene
+
+    model, _ = scene.build_model()
+    for prefix in ("arm1", "arm2"):
+        light = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_LIGHT, f"{prefix}_top")
+        assert light >= 0, f"lipsa reflectorului {prefix}_top"
+        assert not model.light_castshadow[light], f"{prefix}_top aruncă umbră"
+    key = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_LIGHT, "key_light")
+    assert key >= 0 and model.light_castshadow[key], "lumina celulei trebuie să umbrească"
+
+
 def test_o_varianta_de_piesa_se_randeaza_ca_imagine_de_calitate(tmp_path: Path) -> None:
     """Randatorul de piese scrie un PNG cu conținut, la unghiul din plan.
 

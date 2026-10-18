@@ -314,6 +314,13 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
         frame = mount_body.to_frame()
         spec.attach(child, prefix=f"{prefix}_", frame=frame)
 
+    # Modelul Panda își aduce propriul reflector „top", care se lipește de braț și se rotește cu
+    # el. Umbra lui cădea peste piesa ținută ca o a doua siluetă, decalată, iar la 60% rezoluția
+    # hărții de umbre fața de sus ieșea vălurită — exact efectul de „piesă stricată" rămas după
+    # repararea normalelor. Lumina rămîne (umple brațul), dar umbra se ia doar de la `key_light`.
+    for prefix, _ in ARM_MOUNTS:
+        spec.light(f"{prefix}_top").castshadow = False
+
     _add_parts(spec, variant, blank, places)
     # Legăturile de prindere și clemele pieselor: inactive pînă la ciclu, dar prezente în model,
     # fiindcă MuJoCo nu poate adăuga constrângeri după compilare.

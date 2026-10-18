@@ -74,16 +74,26 @@ obiectivul spre punctul de strângere. La 52°, roata de 104 mm iese la ~400 px 
 falcile rămîn încadrate. Gaura dezaxată de 2,5 mm ajunge la ~12 px, dintele ciobit de 4 mm la
 ~17 px. Spațiul liber al obiectivului rămîne ~42 mm, peste pragul de 20 mm.
 
+**Umbra vine doar de la lumina celulei.** Modelul Panda își aduce un reflector „top" care se
+lipește de fiecare braț și se rotește cu el. Cu umbra pornită, reflectorul arunca peste piesa
+ținută o a doua siluetă, decalată, iar la 60% rezoluția hărții de umbre fața de sus ieșea
+vălurită; efectul se citea ca piesă stricată. Reflectoarele `arm1_top` și `arm2_top` rămîn
+pornite ca lumină de umplere, dar cu `castshadow=False`. `key_light` din celulă rămîne singurul
+care aruncă umbră. Cadrele de pe flanșe opresc și umbra lui la randare (`Pov.shadows=False`):
+silueta decalată de pe bandă se citea drept o a doua piesă, iar verdictul are nevoie de suprafața
+piesei. Cadrul general al celulei păstrează umbrele, ca să se citească adîncimea scenei.
+
 ## Consecințe
 
-- Toate cadrele arată piesa ca un solid, cu fața de sus uniform luminată; dispare efectul de
-  cioburi care făcea și contactul greu de citit.
+- Toate cadrele arată piesa ca un solid, cu fața de sus uniform luminată; dispare și efectul de
+  cioburi, și a doua siluetă dată de umbra brațului, care făceau contactul greu de citit.
 - Prinderea pe contur este deterministă: la hexagon, deschiderea măsurată scade la 58,3 mm, cît
   lățimea reală; piesa nu se mai rotește în falci între preluare și așezare.
 - `session.json` are două cîmpuri noi, aditive; un consumator vechi le ignoră. Nu se schimbă nicio
   schemă din `telemetry/schemas/`.
-- Testele noi acoperă axele înguste ale fiecărei familii și normalele plate ale meshului compilat
-  (`tests/unit/test_mujoco_scene.py`). Verificarea din `view.py --check` rămîne poarta pentru
+- Testele noi acoperă axele înguste ale fiecărei familii, normalele plate ale meshului compilat
+  și faptul că reflectoarele brațelor nu aruncă umbră (`tests/unit/test_mujoco_scene.py`).
+  Verificarea din `view.py --check` rămîne poarta pentru
   cameră: punctul de strângere în cadru, cel puțin 150 px pentru piesă și 20 mm spațiu liber.
 - Numerele de rezoluție din ADR 0014 (60°, ~345 px, ~3,4 px/mm) descriu starea de atunci; acest
   ADR le înlocuiește.

@@ -216,6 +216,15 @@ def test_verdictul_vine_de_la_camera_de_pe_flansa_bratului_2() -> None:
     assert not hasattr(povs, "ON_BELT") and not hasattr(povs, "on_belt")
 
 
+def test_cadrele_de_pe_flanse_opresc_umbrele_aruncate() -> None:
+    """Cadrele de inspecție arată suprafața piesei, fără silueta umbrei pe bandă."""
+    for item in povs.POVS:
+        if item.camera is None:
+            continue
+        assert not item.shadows, f"{item.name} păstrează umbrele aruncate"
+    assert povs.pov("cell").shadows, "cadrul general păstrează umbrele, ca să se citească scena"
+
+
 def test_fiecare_punct_de_vedere_are_un_moment_de_captura() -> None:
     """Un punct de vedere fără moment nu s-ar fotografia niciodată, tăcut."""
     for item in povs.POVS:
