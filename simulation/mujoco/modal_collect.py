@@ -213,10 +213,14 @@ def run_collection(run: str, family: str, seed: int, cycles: int, rate: float,
 
 
 @app.function(image=image, volumes={str(CORPUS_MOUNT): corpus},
-              cpu=1.0, memory=2048, timeout=6 * 3600)
+              cpu=2.0, memory=4096, timeout=6 * 3600)
 def collect_session(run: str, family: str, seed: int, cycles: int, rate: float,
                     machining_s: float | None, injections: list[str]) -> dict:
-    """Sesiune de senzori, pe CPU: fără cadre, fără GPU, fără context grafic."""
+    """Sesiune de senzori, pe CPU: fără cadre, fără GPU, fără context grafic.
+
+    Două core-uri și 4 GiB țin fizica și scrierea JSONL fără să adauge timp de așteptare;
+    peste asta costul crește fără să scurteze sesiunea, fiindcă simularea este pe un singur fir.
+    """
     return run_collection(run, family, seed, cycles, rate, machining_s, injections,
                           frames=False)
 
@@ -463,38 +467,37 @@ def parts(count: int = 220, seed0: int = 0, shuffle_seed: int = 0,
 
 @app.local_entrypoint()
 def publish(run: str = "", bucket: str = "", frames: bool = True,
-            keep_local: bool = False) -> None:
+            require_wear: bool = True, keep_local: bool = False,
+            revision: str = "") -> None:
     """Urcă o rulare deja scrisă în volum, fără să mai colecteze.
 
     Folosit cînd colectarea este oprită înainte de final: publisherul verifică fiecare sesiune
-    terminată și urcă doar ce are `session.json` și indexul cadrelor.
+    terminată și urcă doar ce are `session.json` și indexul cadrelor. `--no-require-wear`
+    permite un corpus sănătos, colectat la `rate 0`, unde pragul de uzură nu are sens.
     """
     if not run:
         raise SystemExit("lipsește --run (numele rulării din volum)")
     if not bucket:
         raise SystemExit("lipsește --bucket")
-    revision = git_revision()
+    revision = revision or git_revision()
     if frames:
         published = publish_frames_run.remote(run=run, bucket=bucket, revision=revision,
                                               keep_local=keep_local)
         print(f"[modal] gata: {published} în s3://{bucket}/training-data/grasp/", flush=True)
     else:
-        published = publish_run.remote(run=run, bucket=bucket, revision=revision,
-                                       keep_local=keep_local)
+        published = publish_run.remote(run=run, bucket=bucket, require_wear=require_wear,
+                                       revision=revision, keep_local=keep_local)
         print(f"[modal] gata: {published} în s3://{bucket}/training-data/mujoco/", flush=True)
 
 
-@app.local_entrypoint()
-def main(families: str = "", cycles: int = 25, rate: float = 20.0, seed: int = 100,
-         sessions_per_family: int = 1, machining_s: float = 0.0, inject: str = "",
-         require_wear: bool = True, frames: bool = False, telemetry: bool = False,
-         bucket: str = "", run: str = "", keep_local: bool = False,
-         upload: bool = True, resume: bool = False) -> None:
-    """Lansează sesiunile în paralel, apoi urcă rularea întreagă.
+def _collect_plan(run: str, families: str, cycles: int, rate: float, seed: int,
+                  sessions_per_family: int, machining_s: float, inject: str,
+                  require_wear: bool, frames: bool, telemetry: bool, bucket: str,
+                  keep_local: bool, upload: bool, resume: bool, revision: str) -> None:
+    """ Orchestrarea unei rulări: pornește sesiunile, le așteaptă, apoi urcă.
 
-    Cu `--frames` și fără `--telemetry` (implicit), sesiunile scriu doar cadrele și urcă sub
-    `training-data/grasp/`: telemetria are deja corpusul ei. `--telemetry` readuce sesiunea
-    completă, cu senzori, uzură și evenimente, sub `training-data/mujoco/`.
+    Rulează fie în procesul local, fie într-un container (`cloud_run`), ca `modal run -d` să
+    poată închide laptopul fără să întrerupă colectarea și urcarea.
     """
     family_list = split_list(families)
     if not family_list:
@@ -504,32 +507,28 @@ def main(families: str = "", cycles: int = 25, rate: float = 20.0, seed: int = 1
     sessions = [(family, session_seeds(seed, index, sessions_per_family))
                 for index, family in enumerate(family_list)]
     total = sum(len(seeds) for _, seeds in sessions)
-    name = run or "run-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    # Revisia se citește la lansare, nu la urcare: containerele primesc codul acum, iar între
-    # timp un commit de documentație ar intra în manifest fără să fi trecut prin simulare.
-    revision = git_revision()
     injections = split_list(inject)
     worker = collect_session_frames if frames else collect_session
     only_frames = bool(frames and not telemetry)
     frame_note = "cu cadre, pe GPU T4" if frames else "fără cadre, pe CPU"
     destination = "training-data/grasp" if only_frames else "training-data/mujoco"
-    print(f"[modal] rularea {name}: {total} sesiuni, {cycles} cicluri, rata {rate}, "
+    print(f"[modal] rularea {run}: {total} sesiuni, {cycles} cicluri, rata {rate}, "
           f"{frame_note}, în {len(sessions)} familii", flush=True)
     if only_frames:
         print("[modal] se scriu doar cadrele; telemetria există deja", flush=True)
-    print(f"[modal] urcă în s3://{bucket}/{destination}/dt=<zi UTC>/{name}/", flush=True)
+    print(f"[modal] urcă în s3://{bucket}/{destination}/dt=<zi UTC>/{run}/", flush=True)
 
     rows: list[dict] = []
     handles = []
     for family, seeds in sessions:
         for one_seed in seeds:
             if resume:
-                existing = existing_session.remote(run=name, family=family, seed=one_seed)
+                existing = existing_session.remote(run=run, family=family, seed=one_seed)
                 if existing is not None:
                     print(f"[modal] {family}-{one_seed}: deja scrisă, sar peste", flush=True)
                     rows.append(existing)
                     continue
-            arguments = {"run": name, "family": family, "seed": one_seed, "cycles": cycles,
+            arguments = {"run": run, "family": family, "seed": one_seed, "cycles": cycles,
                          "rate": rate, "machining_s": machining_s or None,
                          "injections": injections}
             if frames:
@@ -548,12 +547,62 @@ def main(families: str = "", cycles: int = 25, rate: float = 20.0, seed: int = 1
           f"{sum(row['bytes'] for row in rows) / 1024 / 1024:.2f} MB", flush=True)
 
     if not upload:
-        print(f"[modal] urcare sărită: datele rămîn în volumul Modal, la {name}", flush=True)
+        print(f"[modal] urcare sărită: datele rămîn în volumul Modal, la {run}", flush=True)
         return
     if only_frames:
-        published = publish_frames_run.remote(run=name, bucket=bucket, revision=revision,
+        published = publish_frames_run.remote(run=run, bucket=bucket, revision=revision,
                                               keep_local=keep_local)
     else:
-        published = publish_run.remote(run=name, bucket=bucket, require_wear=require_wear,
+        published = publish_run.remote(run=run, bucket=bucket, require_wear=require_wear,
                                        revision=revision, keep_local=keep_local)
     print(f"[modal] gata: {published} în s3://{bucket}/{destination}/", flush=True)
+
+
+@app.function(image=image, volumes={str(CORPUS_MOUNT): corpus},
+              cpu=1.0, memory=2048, timeout=6 * 3600)
+def cloud_run(run: str, families: str, cycles: int, rate: float, seed: int,
+              sessions_per_family: int, machining_s: float, inject: str,
+              require_wear: bool, frames: bool, telemetry: bool, bucket: str,
+              keep_local: bool, upload: bool, resume: bool, revision: str) -> None:
+    """Aceeași orchestrare, dar în cloud: supraviețuiește închiderii laptopului."""
+    _collect_plan(run, families, cycles, rate, seed, sessions_per_family, machining_s,
+                  inject, require_wear, frames, telemetry, bucket, keep_local,
+                  upload, resume, revision)
+
+
+@app.local_entrypoint()
+def main(families: str = "", cycles: int = 25, rate: float = 20.0, seed: int = 100,
+         sessions_per_family: int = 1, machining_s: float = 0.0, inject: str = "",
+         require_wear: bool = True, frames: bool = False, telemetry: bool = False,
+         bucket: str = "", run: str = "", keep_local: bool = False,
+         upload: bool = True, resume: bool = False, cloud: bool = False) -> None:
+    """Lansează sesiunile în paralel, apoi urcă rularea întreagă.
+
+    Cu `--frames` și fără `--telemetry` (implicit), sesiunile scriu doar cadrele și urcă sub
+    `training-data/grasp/`: telemetria are deja corpusul ei. `--telemetry` readuce sesiunea
+    completă, cu senzori, uzură și evenimente, sub `training-data/mujoco/`.
+
+    Cu `--cloud`, orchestrarea pleacă într-un container și `modal run -d` poate fi închis imediat;
+    altfel, procesul local așteaptă sesiunile și face urcarea.
+    """
+    family_list = split_list(families)
+    if not family_list:
+        raise SystemExit("lipsește lista de familii: dă `--families \"wheel_100 hex_68\"`")
+    if not bucket:
+        raise SystemExit("lipsește bucketul: dă `--bucket` (din `make training-data-status`)")
+    name = run or "run-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    # Revisia se citește la lansare, nu la urcare: containerele primesc codul acum, iar între
+    # timp un commit de documentație ar intra în manifest fără să fi trecut prin simulare.
+    revision = git_revision()
+    arguments = {"run": name, "families": families, "cycles": cycles, "rate": rate,
+                 "seed": seed, "sessions_per_family": sessions_per_family,
+                 "machining_s": machining_s, "inject": inject,
+                 "require_wear": require_wear, "frames": frames, "telemetry": telemetry,
+                 "bucket": bucket, "keep_local": keep_local, "upload": upload,
+                 "resume": resume, "revision": revision}
+    if cloud:
+        cloud_run.spawn(**arguments)
+        print(f"[modal] orchestrarea rulează în cloud pentru {name}; "
+              "poți închide laptopul.", flush=True)
+        return
+    _collect_plan(**arguments)
