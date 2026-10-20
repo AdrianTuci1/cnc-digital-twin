@@ -63,6 +63,7 @@ simulation/assets/**/*.png
 simulation/assets/**/*.jpg
 # Arhive de asset-uri descărcate (snapshot-uri Isaac Sim), nu surse: se refac din origine.
 simulation/assets/**/*.zip
+simulation/assets/*.snapshot.*/
 simulation/logs/
 simulation/cache/
 # Cadrele din `view.py --demo --shots`: se refac dintr-o rulare, una la fiecare oprire a ciclului.
