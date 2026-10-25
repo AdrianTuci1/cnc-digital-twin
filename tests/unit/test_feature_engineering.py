@@ -183,3 +183,40 @@ def test_column_order_starts_with_the_contract() -> None:
     columns = build_features.column_order([window_record(0), {"coloana_extra": 1}])
     assert columns[: len(ENRICHED_COLUMNS)] == list(ENRICHED_COLUMNS)
     assert columns[-1] == "coloana_extra"
+
+
+def test_window_features_can_be_limited_to_cutting() -> None:
+    """Fereastra numără toate eșantioanele, dar statisticile vin doar din așchiere."""
+    from cncdt_ml.features import compute_window_features
+
+    samples = [
+        {"machine_state": "IDLE", "spindle_load": 0.0, "vibration": 0.0, "temp_c": 22.0,
+         "coolant_flow_lpm": 0.0, "axis_feed": 0.0},
+        {"machine_state": "LOADING", "spindle_load": 1.0, "vibration": 9.0, "temp_c": 40.0,
+         "coolant_flow_lpm": 9.0, "axis_feed": 1.0},
+        {"machine_state": "CUTTING", "spindle_load": 0.6, "vibration": 0.4, "temp_c": 24.0,
+         "coolant_flow_lpm": 6.0, "axis_feed": 0.08},
+        {"machine_state": "CUTTING", "spindle_load": 0.8, "vibration": 0.6, "temp_c": 26.0,
+         "coolant_flow_lpm": 6.0, "axis_feed": 0.08},
+    ]
+
+    features = compute_window_features(samples, only_states=("CUTTING",))
+
+    assert features.sample_count == 4
+    assert features.extras["conditioned_samples"] == 2
+    assert features.spindle_load_mean == pytest.approx(0.7)
+    assert features.temp_c_max == pytest.approx(26.0)
+    assert features.coolant_flow_lpm == pytest.approx(6.0)
+
+
+def test_window_without_cutting_has_no_statistics() -> None:
+    from cncdt_ml.features import compute_window_features
+
+    features = compute_window_features(
+        [{"machine_state": "IDLE", "spindle_load": 0.01, "vibration": 0.02, "temp_c": 22.0,
+          "coolant_flow_lpm": 0.0, "axis_feed": 0.0}],
+        only_states=("CUTTING",))
+
+    assert features.sample_count == 1
+    assert features.extras["conditioned_samples"] == 0
+    assert features.spindle_load_mean == 0.0

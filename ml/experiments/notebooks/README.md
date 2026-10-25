@@ -6,12 +6,19 @@ locul unde rulează.
 
 ## Notebook-uri disponibile
 
+Toate citesc direct din S3, cu rolul de execuție al Studio, și își descarcă singure pachetul de
+cod din `s3://<data-lake>/notebooks/studio/code/cncdt-code.tgz` (reîmprospătat cu
+`make studio-code`).
+
 | Notebook | Rol | Intrare |
 | --- | --- | --- |
-| `pm-01-dataset.ipynb` | ferestre de 60 s, caracteristici offline, etichete | `simulation/mujoco/runs/` |
-| `pm-02-rcf.ipynb` | baseline `IsolationForest`, evaluare pe ferestre | `ml/artifacts/pm/features.parquet` |
-| `qa-01-dataset.ipynb` | inventar de cadre, clase, split pe cicluri | `simulation/mujoco/runs/` |
-| `qa-02-vision.ipynb` | schiță de clasificator PASS/REJECT | `ml/artifacts/qa/qa-frames.json` |
+| `pm-01-dataset.ipynb` | inventar de rulări, ferestre de 60 s, etichete | corpus `training-data/mujoco/` |
+| `pm-02-rcf.ipynb` | RCF built-in: antrenare spot, batch transform, prag, ploturi | `features/predictive-maintenance/v1/windows.parquet` |
+| `qa-01-dataset.ipynb` | inventar de piese, clase și verificarea scurgerii între splituri | `training-data/parts/` |
+| `qa-02-vision.ipynb` | clasificator ResNet18 cu două capete (familie + PASS/REJECT) pe un singur GPU spot | indexurile `images-*.jsonl` ale rulării de piese |
+
+`qa-01` doar confirmă datele; `qa-02` lansează un job de `ml.g5.xlarge` pe spot, cu limita de
+o oră, și se oprește singur la final.
 
 ## Etichete pe MuJoCo
 
@@ -23,9 +30,12 @@ maximă și temperatura maximă; coolantul rămâne în afara etichetei până l
 ferestre `CUTTING`. Diferența dintre cele două seturi de etichete apare explicit în
 `pm-01-dataset.ipynb`.
 
-Rularea de referință `run-20261015T172741` are 144 de ferestre, din care 19 sănătoase după
-`twin_label`. Este un corpus de uzură, nu o bază normală: pentru un detector RCF real, colectează
-întâi sesiuni sănătoase la `--rate 1`.
+Corpusul are două rulări pe aceleași șase familii: `run-20261018T230709` (`wear.rate = 0`,
+sănătoasă) și `pm-wear-20261024T212228` (rampă lentă, `rate 1`, 200 de cicluri). `pm-02-rcf.ipynb`
+antrenează pe prima și testează pe a doua, ținută complet deoparte; rularea de test începe
+sănătos și coboară treptat, deci se poate măsura și preavizul. Cifrele de detecție, de alarme
+false pe oră și preavizul minim se scriu în `metrics.json` la fiecare antrenare; metricele rămân
+preliminare până există mai multe rulări degradate pe fiecare familie.
 
 Drumul complet, ambele direcții, este în [`ops/runbooks/notebooks.md`](../../../ops/runbooks/notebooks.md):
 

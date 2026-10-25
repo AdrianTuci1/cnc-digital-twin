@@ -140,10 +140,12 @@ def test_aggregate_uses_threshold_fallback_without_model() -> None:
 
 
 def test_aggregate_applies_model_predictions() -> None:
-    samples = [raw_sample(1_700_000_000_000 + index) for index in range(5)]
+    samples = [raw_sample(1_700_000_000_000 + index) for index in range(30)]
 
     def provider(records):
         assert len(records) == 1
+        # Coloană din MODEL_FEATURE_ORDER care nu face parte din contractul Firehose.
+        assert records[0]["axis_feed_mean"] == 0.8
         return [{"anomaly_score": 0.91, "anomaly_detected": True, "model_version": "pm-2026-01"}]
 
     decoded, _ = core.decode_batch(firehose_event(samples))
@@ -153,8 +155,25 @@ def test_aggregate_applies_model_predictions() -> None:
     assert record["model_version"] == "pm-2026-01"
 
 
+def test_aggregate_skips_model_when_window_has_no_cutting() -> None:
+    """O fereastră de repaus nu are semnal de uzură, deci nu consumă un apel de endpoint."""
+    samples = [raw_sample(1_700_000_000_000 + index, machine_state="IDLE")
+               for index in range(40)]
+    calls: list[list[dict]] = []
+
+    def provider(records):
+        calls.append(records)
+        return [{"anomaly_score": 0.99, "anomaly_detected": True}]
+
+    decoded, _ = core.decode_batch(firehose_event(samples))
+    results, _ = core.aggregate(decoded, window_s=60, prediction_provider=provider)
+    assert calls == []
+    assert results[0].record["model_version"] == "thresholds"
+    assert results[0].record["anomaly_detected"] is False
+
+
 def test_aggregate_survives_provider_failure() -> None:
-    samples = [raw_sample(1_700_000_000_000)]
+    samples = [raw_sample(1_700_000_000_000 + index) for index in range(30)]
 
     def provider(_records):
         raise RuntimeError("endpoint indisponibil")
@@ -165,7 +184,7 @@ def test_aggregate_survives_provider_failure() -> None:
 
 
 def test_score_threshold_marks_anomaly_without_physical_violation() -> None:
-    samples = [raw_sample(1_700_000_000_000) for _ in range(4)]
+    samples = [raw_sample(1_700_000_000_000) for _ in range(30)]
     decoded, _ = core.decode_batch(firehose_event(samples))
 
     def provider(_records):
@@ -179,6 +198,21 @@ def test_score_threshold_marks_anomaly_without_physical_violation() -> None:
 def test_feature_vector_order_is_stable() -> None:
     record = {name: float(index) for index, name in enumerate(core.MODEL_FEATURE_ORDER)}
     assert core.feature_vector(record) == [float(index) for index in range(len(core.MODEL_FEATURE_ORDER))]
+
+
+def test_model_feature_order_is_the_training_contract() -> None:
+    """Ordinea pozițională din containerul RCF; o schimbare cere reantrenare și bump de versiune."""
+    assert core.MODEL_FEATURE_ORDER == (
+        "spindle_load_mean",
+        "spindle_load_p95",
+        "spindle_load_std",
+        "vibration_rms",
+        "vibration_peak",
+        "vibration_std",
+        "coolant_flow_lpm",
+        "temp_c_mean",
+        "axis_feed_mean",
+    )
 
 
 def test_feature_vector_zero_fills_missing() -> None:
@@ -197,6 +231,13 @@ def test_endpoint_body_and_response_roundtrip() -> None:
         json.dumps({"predictions": [{"anomaly_score": 0.7, "anomaly_detected": True}]})
     )
     assert decisions == [{"anomaly_score": 0.7, "anomaly_detected": True}]
+
+
+def test_rcf_scores_are_read_as_anomaly_scores() -> None:
+    scores = core.parse_endpoint_response(
+        json.dumps({"scores": [{"score": 1.87}, {"score": 0.42}]})
+    )
+    assert [item["anomaly_score"] for item in scores] == [1.87, 0.42]
 
 
 def test_parse_endpoint_response_rejects_unknown_shape() -> None:

@@ -45,6 +45,18 @@ doar măsurători: `spindle_load_*`, `vibration_*`, `coolant_flow_lpm`, `temp_c_
 dashboard-ul de degradare, dar nu intră în vector: sunt `1 - h`, adică starea internă a
 motorului de uzură, iar un model care le primește are răspunsul în intrare (ADR 0013).
 
+Endpoint-ul poate fi un `inference.py` propriu (`{"predictions": [...]}`) ori containerul
+built-in Random Cut Forest (`{"scores": [{"score": ...}]}`). Ambele forme ajung la același
+`anomaly_score`; pragul RCF se copiază din `metrics.json` (percentila 97,5 pe ferestre
+sănătoase, cu alarmă pe două ferestre consecutive), fiindcă scorul RCF nu este o probabilitate
+între 0 și 1.
+
+Statisticile ferestrei se calculează pe eșantioanele din starea `CUTTING`, nu pe toate: într-o
+fereastră de 60 s intră și repaus, iar proporția de așchiere variază de la o fereastră la alta.
+Amestecate, variația de încărcare a celulei acoperă semnalul de uzură. O fereastră cu mai puțin
+de `core.MIN_CUTTING_SAMPLES` eșantioane de așchiere nu ajunge la model; rămâne cu pragurile
+absolute, ca să nu consume un apel de endpoint fără semnal.
+
 ## Fallback pe praguri
 
 Dacă `SAGEMAKER_ENDPOINT_NAME` este gol sau invocarea eșuează, scorul vine din
@@ -59,7 +71,7 @@ este scrisă și în `s3://<datalake>/replay/manual/dt=<zi>/` pentru reluare ult
 | `TELEMETRY_NAMESPACE` | `CNCDT/Telemetry` | Namespace-ul metricilor CloudWatch |
 | `SAGEMAKER_ENDPOINT_NAME` | gol | Endpoint-ul de anomalii; gol înseamnă praguri |
 | `MODEL_VERSION` | `unversioned` | Valoarea scrisă în coloana `model_version` |
-| `ANOMALY_SCORE_THRESHOLD` | `0.65` | Pragul peste care scorul înseamnă anomalie |
+| `ANOMALY_SCORE_THRESHOLD` | `0.65` | Pragul scorului modelului; pentru RCF se copiază percentila 99 din `metrics.json`, fiindcă scorul nu este o probabilitate |
 | `DATA_LAKE_BUCKET` | gol | Bucket-ul pentru replay |
 | `WINDOW_SECONDS` | `60` | Durata ferestrei |
 | `LOG_LEVEL` | `INFO` | Nivelul de jurnalizare |

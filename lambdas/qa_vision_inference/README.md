@@ -31,7 +31,8 @@ feature engineering.
 3. **Fotografie** — `GetObject` pe `image_key` (același nume, extensia `.png`). O poză lipsă
    ori prea mare este sărită cu un log, iar cadrul pleacă totuși, cu `image_captured: false`.
 4. **Scor** — se cheamă endpoint-ul din `SAGEMAKER_ENDPOINT_NAME`.
-5. **Verdict** — `REJECT` când probabilitatea ≥ `DEFECT_THRESHOLD`.
+5. **Verdict** — `REJECT` când probabilitatea ≥ `DEFECT_THRESHOLD`; un răspuns cu
+   `judged: false` nu produce verdict.
 6. **Arhivare** — verdictul se scrie în `curated/qa-verdicts/dt=<zi>/<ciclu>-<piesă>.json`.
 7. **Publicare** — verdictul ajunge pe `CONTROL_TOPIC` (contractul `cnc.control.v1`).
 
@@ -46,6 +47,11 @@ lipsește.
 Comportamentul este deliberat: o rezervă pe praguri citită din metadate ar produce verdicte în
 `dev` care par că vin dintr-un model. Vezi ADR 0013 pentru separarea dintre colectare și
 demonstrație.
+
+Aceeași regulă acoperă cadrul fără fotografie: modelul răspunde cu `judged: false`, Lambda-ul
+îl numără în `QaModelMissing` și nu publică verdictul de umplutură (0,5). Altfel un cadru fără
+imagine ar produce `REJECT` la praguri sub 0,5, adică exact verdictul pe care ADR 0013 îl
+interzice.
 
 ## Contractul cererii către endpoint
 

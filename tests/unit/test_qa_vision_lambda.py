@@ -177,6 +177,12 @@ def test_parse_endpoint_response_clamps_and_validates():
         core.parse_endpoint_response(b"nu e json")
 
 
+def test_parse_endpoint_response_marks_an_unjudged_frame():
+    """Modelul care nu a putut citi cadrul nu are voie să producă un verdict de 0,5."""
+    body = b'{"predictions": [{"defect_probability": 0.5, "judged": false}]}'
+    assert core.parse_endpoint_response(body) == [None]
+
+
 # ---------------------------------------------------------------- verdictul vine din model
 def test_a_defect_drawn_by_the_simulator_does_not_reach_the_request():
     """Piesa rea și piesa bună produc exact aceeași cerere: modelul nu are ce dezvălui.
@@ -441,6 +447,51 @@ def test_handler_publishes_no_verdict_when_the_endpoint_fails():
     assert verdicts == []
     names = {metric["MetricName"] for batch in metrics for metric in batch}
     assert core.METRIC_ENDPOINT_FAILURES in names
+
+
+class FakeRuntime:
+    """Răspunsul unui endpoint, fără rețea."""
+
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    def invoke_endpoint(self, **_kwargs):
+        return {"Body": BytesIO(self.body)}
+
+
+def test_handler_publishes_no_verdict_for_an_unjudged_frame():
+    """Cadrul fără fotografie se numără ca model lipsă, iar piesa urmează ruta de rezervă."""
+    snap = snapshot()
+    objects = {
+        "raw/qa-snapshots/cyc-000001-part-000001.json": json.dumps(snap).encode("utf-8"),
+        snap["image_key"]: b"\x89PNG-cadru",
+    }
+    handler = load_module("qa_vision_handler_unjudged",
+                          "lambdas/qa_vision_inference/handler.py")
+    fake_s3 = FakeS3(objects)
+    runtime = FakeRuntime(json.dumps({"predictions": [
+        {"part_id": "part-000001", "defect_probability": 0.5, "judged": False},
+    ]}).encode("utf-8"))
+    verdicts: list[dict] = []
+    metrics: list[list[dict]] = []
+    handler.client = lambda service, **kwargs: (
+        runtime if service == "sagemaker-runtime" else fake_s3)
+    handler.SAGEMAKER_ENDPOINT_NAME = "ep-de-test"
+    handler.SEND_IMAGE = True
+    handler._write_verdict = lambda *args, **kwargs: "cheie"
+    handler._publish = verdicts.append
+    handler._publish_metrics = lambda *args, **kwargs: metrics.append(
+        handler.core.metric_data(*args, **kwargs)
+    )
+
+    result = handler.lambda_handler(s3_event(["raw/qa-snapshots/cyc-000001-part-000001.json"]))
+
+    assert result["processed"] == 0
+    assert result["unjudged"] == 1
+    assert result["model_missing"] == 1
+    assert verdicts == []
+    names = {metric["MetricName"] for batch in metrics for metric in batch}
+    assert core.METRIC_MODEL_MISSING in names
 
 
 def test_handler_counts_a_frame_that_carries_the_answer_as_skipped():

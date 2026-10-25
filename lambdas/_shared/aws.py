@@ -13,11 +13,19 @@ class AwsUnavailable(RuntimeError):
     """Ridicată când boto3 lipsește sau clientul nu poate fi creat."""
 
 
-def client(service: str, region: str | None = None, endpoint_url: str | None = None) -> Any:
+def client(
+    service: str,
+    region: str | None = None,
+    endpoint_url: str | None = None,
+    read_timeout: float | None = None,
+) -> Any:
     """Întoarce un client boto3, cu eroare clară dacă mediul nu are bibliotecile AWS.
 
     ``endpoint_url`` este necesar pentru serviciile cu endpoint specific de cont, cum este
     planul de date IoT Core (``<cont>-ats.iot.<regiune>.amazonaws.com``).
+
+    ``read_timeout`` se folosește pentru endpoint-urile serverless: prima invocare plătește
+    pornirea containerului, iar timeout-ul implicit de 60 de secunde ar tăia-o.
     """
     try:
         import boto3  # type: ignore
@@ -29,6 +37,13 @@ def client(service: str, region: str | None = None, endpoint_url: str | None = N
         kwargs["region_name"] = region
     if endpoint_url:
         kwargs["endpoint_url"] = endpoint_url
+    if read_timeout is not None:
+        from botocore.config import Config  # type: ignore
+
+        # O singură încercare: dacă așteptăm un cold start, o reîncercare ar depăși oricum
+        # timeout-ul funcției, iar verdictul are rezerva lui în simulare.
+        kwargs["config"] = Config(read_timeout=read_timeout, connect_timeout=10,
+                                  retries={"max_attempts": 1})
 
     try:
         return boto3.client(service, **kwargs)

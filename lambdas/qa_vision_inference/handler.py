@@ -100,7 +100,9 @@ def _probabilities(
         return None, "model_missing", 0, len(snapshots)
 
     try:
-        runtime = client("sagemaker-runtime")
+        # Cold start-ul containerului PyTorch poate depăși un minut; citirea așteaptă mai mult
+        # decât timeout-ul implicit, iar funcția are 120 de secunde.
+        runtime = client("sagemaker-runtime", read_timeout=110)
         response = runtime.invoke_endpoint(
             EndpointName=SAGEMAKER_ENDPOINT_NAME,
             ContentType=core.CONTENT_TYPE,
@@ -205,9 +207,17 @@ def lambda_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]
             "endpoint_failures": endpoint_failures,
         }
 
+    # Un cadru fără fotografie primește `judged: false` de la model. Absența judecății nu devine
+    # verdict: se numără ca model lipsă, iar piesa urmează ruta de rezervă din simulare.
+    judged = [(snapshot, probability) for snapshot, probability in zip(snapshots, probabilities)
+              if probability is not None]
+    unjudged = len(snapshots) - len(judged)
+    if unjudged:
+        model_missing += unjudged
+
     rejects = 0
     published = 0
-    for snapshot, probability in zip(snapshots, probabilities):
+    for snapshot, probability in judged:
         verdict = core.verdict_message(snapshot, probability, DEFECT_THRESHOLD, source)
         captured_at = str(snapshot.get("captured_at", ""))
         if verdict["verdict"] == core.VERDICT_REJECT:
@@ -225,24 +235,26 @@ def lambda_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]
     log_event(
         logger,
         "verdicts_ready",
-        processed=len(snapshots),
+        processed=len(judged),
         rejects=rejects,
         published=published,
         skipped=skipped,
         images=len(images),
         source=source,
+        unjudged=unjudged,
     )
     try:
-        _publish_metrics(len(snapshots), rejects, endpoint_failures, len(images), model_missing)
+        _publish_metrics(len(judged), rejects, endpoint_failures, len(images), model_missing)
     except Exception as exc:  # metricile nu sunt critice pentru buclă
         note_error(logger, "metrics_publish_failed", exc)
 
     return {
-        "processed": len(snapshots),
+        "processed": len(judged),
         "rejects": rejects,
         "published": published,
         "skipped": skipped,
         "images": len(images),
         "source": source,
         "model_missing": model_missing,
+        "unjudged": unjudged,
     }

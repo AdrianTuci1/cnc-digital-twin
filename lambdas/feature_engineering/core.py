@@ -34,8 +34,9 @@ from cncdt_ml.features import (
 from cncdt_ml.schema import ENRICHED_COLUMNS, conform, partition_for
 from cncdt_ml.windows import window_key
 
-# Ordinea intrărilor modelului. Trebuie să coincidă cu antrenarea
-# (``ml/training/predictive_maintenance``) și cu ``ml/inference/predictive_maintenance``.
+# Ordinea intrărilor modelului. Trebuie să coincidă cu lista ``FEATURES`` din notebook-ul de
+# antrenare (``ml/experiments/notebooks/pm-02-rcf.ipynb``): containerul built-in Random Cut
+# Forest primește vectorul pozițional, fără numele coloanelor.
 #
 # Aici stau doar măsurători. ``tool_wear_index`` și ``joint_friction_index`` sunt `1 - h`, adică
 # parametrul intern al simulării, nu o citire de senzor: un model care le primește are răspunsul
@@ -52,6 +53,13 @@ MODEL_FEATURE_ORDER: tuple[str, ...] = (
     "temp_c_mean",
     "axis_feed_mean",
 )
+
+# Stările în care mașina așchiază. Doar atunci sarcina axului, vibrația și debitul de răcire
+# depind de sănătatea sculei și a pompei; în repaus sunt constante și nu spun nimic despre uzură.
+CUTTING_STATES: tuple[str, ...] = ("CUTTING",)
+# Sub atâtea eșantioane de așchiere (la 10 Hz, adică sub 3 secunde) fereastra nu are destul
+# semnal: modelul nu se cheamă, iar rândul rămâne cu pragurile absolute.
+MIN_CUTTING_SAMPLES = 30
 
 CONTENT_TYPE = "application/json"
 # Numărul maxim de apeluri către endpoint într-o invocare. Peste acest prag se folosesc
@@ -102,6 +110,18 @@ class WindowResult:
     record: dict[str, Any]
     features: WindowFeatures
     samples: int
+
+
+def model_view(result: WindowResult) -> dict[str, Any]:
+    """Înregistrarea plus măsurătorile care intră în model, dar nu în contractul Firehose.
+
+    ``axis_feed_mean`` este în ``MODEL_FEATURE_ORDER``, însă ``conform`` o scoate din rândul
+    scris în Parquet. Endpoint-ul trebuie să o vadă, deci vectorul se compune din vedere, nu
+    din ``record``.
+    """
+    view = dict(result.record)
+    view["axis_feed_mean"] = round(result.features.axis_feed_mean, 6)
+    return view
 
 
 def decode_data(data: str | bytes) -> dict[str, Any]:
@@ -187,20 +207,27 @@ def endpoint_body(records: Sequence[Mapping[str, Any]]) -> str:
 def parse_endpoint_response(body: str | bytes) -> list[dict[str, Any]]:
     """Citește răspunsul endpoint-ului.
 
-    Sunt acceptate două forme, ca modelul să poată fi schimbat fără să atingă Lambda-ul:
+    Sunt acceptate trei forme, ca modelul să poată fi schimbat fără să atingă Lambda-ul:
 
-    - ``{"predictions": [0.12, 0.87]}`` — probabilitatea de anomalie;
+    - ``{"predictions": [0.12, 0.87]}`` — probabilitatea de anomalie, din ``inference.py``;
     - ``{"predictions": [{"anomaly_score": 0.87, "anomaly_detected": true}]}`` — decizie luată
-      în container.
+      în container;
+    - ``{"scores": [{"score": 1.87}]}`` — răspunsul containerului built-in Random Cut Forest.
+
+    Scorul RCF nu este o probabilitate: pragul lui vine din antrenare (percentila pe ferestrele
+    sănătoase), nu din intervalul 0–1.
     """
     try:
         payload = json.loads(body.decode("utf-8") if isinstance(body, bytes) else body)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RecordError(f"răspuns de endpoint invalid: {exc}") from exc
 
-    predictions = payload.get("predictions") if isinstance(payload, dict) else None
+    if isinstance(payload, dict):
+        predictions = payload.get("predictions", payload.get("scores"))
+    else:
+        predictions = None
     if not isinstance(predictions, list):
-        raise RecordError("răspunsul nu conține lista 'predictions'")
+        raise RecordError("răspunsul nu conține lista 'predictions' ori 'scores'")
 
     parsed: list[dict[str, Any]] = []
     for item in predictions:
@@ -229,12 +256,22 @@ def enrich_window(
     thresholds: AnomalyThresholds = AnomalyThresholds(),
     context: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], WindowFeatures]:
-    """Agregă o fereastră și completează scorul de anomalie cu pragurile absolute."""
-    features = compute_window_features(samples)
+    """Agregă o fereastră și completează scorul de anomalie cu pragurile absolute.
+
+    Statisticile se calculează pe eșantioanele de așchiere, ca în corpusul de antrenare
+    (``cncdt_ml.mujoco_corpus.build_windows``). Altfel proporția de repaus din fereastră
+    acoperă semnalul de uzură, iar modelul învață altă distribuție decât cea din producție.
+    """
+    features = compute_window_features(samples, only_states=CUTTING_STATES)
     record = enriched_record(features, raw_samples=samples, context=context, window_s=window_s)
     record["anomaly_score"] = threshold_score(features, thresholds)
     record["anomaly_detected"] = thresholds.is_anomalous(features)
     return record, features
+
+
+def is_model_worthy(result: "WindowResult") -> bool:
+    """Fereastra are destule eșantioane de așchiere ca modelul să aibă ce citi."""
+    return int(result.features.extras.get("conditioned_samples", 0)) >= MIN_CUTTING_SAMPLES
 
 
 def apply_predictions(
@@ -337,18 +374,23 @@ def aggregate(
             )
         )
 
-    # Decizia modelului se cere o singură dată per lot, pentru toate ferestrele.
-    if prediction_provider is not None and results:
+    # Decizia modelului se cere o singură dată per lot, pentru toate ferestrele. Vectorul
+    # primește și măsurători care nu intră în contractul Firehose (`axis_feed_mean`), altfel
+    # modelul ar vedea un zero pe o coloană pe care a învățat-o.
+    eligible = [result for result in results if is_model_worthy(result)]
+    predictions: list[dict[str, Any]] = []
+    if prediction_provider is not None and eligible:
         try:
-            predictions = prediction_provider([result.record for result in results])
+            predictions = prediction_provider([model_view(result) for result in eligible])
         except Exception:  # pragma: no cover - depinde de rețea; handler-ul jurnalizează
             predictions = []
-        for index, result in enumerate(results):
-            prediction = predictions[index] if index < len(predictions) else None
+    if prediction_provider is not None and results:
+        by_key = {id(result): prediction for result, prediction in zip(eligible, predictions)}
+        for result in results:
             result.record = apply_predictions(
                 result.record,
                 result.features,
-                prediction,
+                by_key.get(id(result)),
                 thresholds=thresholds,
                 score_threshold=score_threshold,
                 model_version=model_version,

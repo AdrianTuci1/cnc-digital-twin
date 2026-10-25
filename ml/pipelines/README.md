@@ -15,7 +15,7 @@ trasabile, ceea ce face posibilă compararea a două antrenări și promovarea u
 | --- | --- | --- | --- | --- |
 | 1 | `ProcessingStep` | Fluxul Data Wrangler (`run_flow.py` pentru rulare manuală) | `s3://<datalake>/raw/telemetry/` | `s3://<datalake>/features/predictive_maintenance/<versiune>/row-level/` |
 | 2 | `ProcessingStep` | `ml/feature_engineering/build_features.py` cu `cncdt_ml/offline.py` | ieșirea pasului 1 | `.../<versiune>/training/` |
-| 3 | `TrainingStep` | `ml/training/predictive_maintenance/train.py` | ieșirea pasului 2 | `s3://<datalake>/models/predictive-maintenance/<versiune>/` |
+| 3 | `TrainingStep` | containerul built-in `randomcutforest:1`, pașii din `pm-02-rcf.ipynb` | ieșirea pasului 2 | `s3://<datalake>/models/predictive-maintenance/<versiune>/` |
 | 4 | `ProcessingStep` | evaluare pe setul de validare | model + date | raport de metrice |
 | 5 | `ConditionStep` | prag de metrice | raport | continuare sau oprire |
 | 6 | `RegisterModel` | înregistrarea modelului | model + raport | model versionat în registry |
@@ -33,8 +33,12 @@ container de antrenare.
 
 ## Ce lipsește înainte de implementare
 
-1. `ml/training/predictive_maintenance/train.py` (script-mode SageMaker).
-2. `ml/inference/predictive_maintenance/inference.py` (contractul de inferență).
+1. `TrainingStep` pentru RCF: containerul built-in `randomcutforest:1`, cu intrare
+   RecordIO-protobuf. Pașii există în `ml/experiments/notebooks/pm-02-rcf.ipynb` și se mută
+   într-o componentă când notebook-ul se stabilizează; nu se scrie un `train.py` separat.
+2. Contractul de inferență pentru PM este containerul built-in, care citește direct
+   `model_algo-*.model.rcf`; nu se scrie un `inference.py` separat. Pentru viziune, contractul
+   există deja în `ml/inference/vision_qa/inference.py`.
 3. Definirea pipeline-ului cu SDK-ul SageMaker și un test care îl validează fără a-l porni
    (`pipeline.definition()` serializează în JSON, deci poate fi verificat offline).
 4. Un loc de rulare: manual din Studio, apoi din CI cu `StartPipelineExecution`.

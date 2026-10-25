@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Collection, Iterable, Mapping, Sequence
 
 from .schema import ENRICHED_COLUMNS, SCHEMA_VERSION
 
@@ -133,12 +133,30 @@ class WindowFeatures:
         return record
 
 
-def compute_window_features(samples: Iterable[Mapping[str, Any]]) -> WindowFeatures:
-    """Caracteristicile unei ferestre de eșantioane brute."""
+def compute_window_features(
+    samples: Iterable[Mapping[str, Any]],
+    *,
+    only_states: Collection[str] | None = None,
+) -> WindowFeatures:
+    """Caracteristicile unei ferestre de eșantioane brute.
+
+    Cu ``only_states``, statisticile se calculează doar pe eșantioanele din stările date, iar
+    ``sample_count`` rămâne numărul total din fereastră. Motivul: într-o fereastră de 60 s
+    intră și repaus, și așchiere, iar proporția de așchiere variază de la o fereastră la alta.
+    Media peste toate eșantioanele amestecă cele două regimuri, iar variația de încărcare a
+    celulei acoperă semnalul de uzură; pe ferestrele de așchiere, sarcina axului și debitul
+    depind direct de sănătatea sculei și a pompei.
+    """
     rows = list(samples)
     features = WindowFeatures(sample_count=len(rows))
     if not rows:
         return features
+    if only_states is not None:
+        allowed = {str(state).upper() for state in only_states}
+        rows = [row for row in rows if str(row.get("machine_state", "")).upper() in allowed]
+        features.extras["conditioned_samples"] = len(rows)
+        if not rows:
+            return features
 
     load = _values(rows, "spindle_load")
     vibration = _values(rows, "vibration")

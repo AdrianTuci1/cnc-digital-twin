@@ -176,12 +176,16 @@ def endpoint_body(
     ).encode("utf-8")
 
 
-def parse_endpoint_response(body: bytes | str) -> list[float]:
+def parse_endpoint_response(body: bytes | str) -> list[float | None]:
     """Extrage probabilitatea de defect din răspunsul endpoint-ului.
 
     Acceptă ``{"predictions": [...]}``, ``{"outputs": [...]}`` sau o listă simplă. Fiecare
     element poate fi un număr ori un dicționar cu ``defect_probability`` / ``score``. Un
     vector (softmax) este tratat ca atare: clasa de defect este ultima.
+
+    Un element cu ``judged: false`` înseamnă că modelul nu a putut citi cadrul (lipsește
+    fotografia ori nu o poate deschide); întoarce ``None``, iar Lambda-ul nu fabrică un verdict
+    din valoarea de umplutură.
     """
     if isinstance(body, bytes):
         body = body.decode("utf-8")
@@ -197,8 +201,11 @@ def parse_endpoint_response(body: bytes | str) -> list[float]:
     if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
         raise SnapshotError("răspunsul endpoint-ului nu conține o listă de predicții")
 
-    probabilities: list[float] = []
+    probabilities: list[float | None] = []
     for item in values:
+        if isinstance(item, Mapping) and item.get("judged") is False:
+            probabilities.append(None)
+            continue
         raw: Any = item
         if isinstance(item, Mapping):
             raw = item.get("defect_probability", item.get("score", item.get("probability")))

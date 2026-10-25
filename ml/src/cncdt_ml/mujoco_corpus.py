@@ -115,11 +115,10 @@ def window_label(record: Mapping[str, Any]) -> str:
     """Eticheta unei ferestre MuJoCo, calibrată pe scara geamănului.
 
     `cncdt_ml.labels.health_label` folosește pragul de coolant al celulei Isaac Sim (3 LPM).
-    În MuJoCo, media pe fereastră este ~1,8 LPM fiindcă mașina stă mult în `IDLE`, deci acel
-    prag ar eticheta aproape orice fereastră ca `coolant`. Aici coolantul nu decide eticheta:
-    se folosesc defectul majoritar al pieselor, uzura maximă a sculei, frecarea maximă a
-    articulațiilor și temperatura maximă. Calibrarea coolantului rămâne un pas separat, după o
-    colectare cu ferestre numai în `CUTTING`.
+    În MuJoCo, media pe toată fereastra coboară sub el fiindcă mașina stă mult în `IDLE`, deci
+    acel prag ar eticheta aproape orice fereastră ca `coolant`. Aici coolantul nu decide
+    eticheta: se folosesc defectul majoritar al pieselor, uzura maximă a sculei, frecarea
+    maximă a articulațiilor și temperatura maximă.
     """
     if record.get("defect_majority"):
         return "defect"
@@ -151,7 +150,10 @@ def build_windows(directory: Path, window_s: int = 60) -> list[dict[str, Any]]:
     info = session_info(directory)
     windows: list[dict[str, Any]] = []
     for key, chunk in sorted(group_windows(samples, window_s).items()):
-        features = compute_window_features(chunk)
+        # Statisticile se calculează pe eșantioanele de așchiere: într-o fereastră intră și
+        # repaus, iar proporția de așchiere variază. Amestecate, variația de încărcare acoperă
+        # semnalul de uzură (sarcina axului și debitul de răcire depind de sănătate).
+        features = compute_window_features(chunk, only_states=("CUTTING",))
         record = enriched_record(features, raw_samples=chunk, window_s=window_s)
         defect_flags = [bool(sample.get("is_synthetic_defect")) for sample in chunk]
         record["window_key"] = key
@@ -167,6 +169,12 @@ def build_windows(directory: Path, window_s: int = 60) -> list[dict[str, Any]]:
             max(_number(sample, "joint_friction_index") for sample in chunk), 6
         )
         record["temp_c_max"] = round(features.temp_c_max, 6)
+        # Caracteristică de antrenare, în afara contractului Firehose: Lambda-ul o pune în
+        # vectorul modelului (`MODEL_FEATURE_ORDER`), deci offline trebuie să fie identică.
+        record["axis_feed_mean"] = round(features.axis_feed_mean, 6)
+        # Câte eșantioane de așchiere au intrat în statistici. Coloana există doar în tabelul
+        # offline de caracteristici; Lambda-ul decide cu ea dacă merită să cheme modelul.
+        record["cutting_samples"] = int(features.extras.get("conditioned_samples", 0))
         record["twin_label"] = window_label(record)
         record["healthy"] = record["twin_label"] == "healthy"
         windows.append(record)

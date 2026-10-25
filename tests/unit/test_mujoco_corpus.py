@@ -42,16 +42,16 @@ def _session(tmp_path: Path) -> Path:
     _write_jsonl(
         directory / "samples.jsonl",
         [
-            {"ts_ms": 1000, "spindle_load": 0.2, "vibration": 0.1, "temp_c": 30.0,
+            {"ts_ms": 1000, "machine_state": "CUTTING", "spindle_load": 0.2, "vibration": 0.1, "temp_c": 30.0,
              "coolant_flow_lpm": 4.0, "joint_effort": 5.0, "axis_feed": 0.2,
              "tool_wear_index": 0.1, "joint_friction_index": 0.2},
-            {"ts_ms": 2000, "spindle_load": 0.4, "vibration": 0.3, "temp_c": 32.0,
+            {"ts_ms": 2000, "machine_state": "CUTTING", "spindle_load": 0.4, "vibration": 0.3, "temp_c": 32.0,
              "coolant_flow_lpm": 4.0, "joint_effort": 6.0, "axis_feed": 0.3,
              "tool_wear_index": 0.1, "joint_friction_index": 0.2},
-            {"ts_ms": 61000, "spindle_load": 0.6, "vibration": 0.2, "temp_c": 40.0,
+            {"ts_ms": 61000, "machine_state": "CUTTING", "spindle_load": 0.6, "vibration": 0.2, "temp_c": 40.0,
              "coolant_flow_lpm": 3.0, "joint_effort": 7.0, "axis_feed": 0.4,
              "tool_wear_index": 0.8, "joint_friction_index": 0.2, "is_synthetic_defect": True},
-            {"ts_ms": 62000, "spindle_load": 0.8, "vibration": 0.5, "temp_c": 42.0,
+            {"ts_ms": 62000, "machine_state": "CUTTING", "spindle_load": 0.8, "vibration": 0.5, "temp_c": 42.0,
              "coolant_flow_lpm": 3.0, "joint_effort": 8.0, "axis_feed": 0.5,
              "tool_wear_index": 0.8, "joint_friction_index": 0.2, "is_synthetic_defect": True},
         ],
@@ -104,6 +104,7 @@ def test_build_windows_splits_on_utc_minute(tmp_path: Path) -> None:
     assert windows[0]["defect_share"] == 0.0
     assert windows[0]["twin_label"] == "healthy"
     assert windows[0]["healthy"] is True
+    assert windows[0]["axis_feed_mean"] == 0.25
     assert windows[1]["window_key"] == 1
     assert windows[1]["sample_count"] == 2
     assert windows[1]["tool_wear_index"] == 0.8
