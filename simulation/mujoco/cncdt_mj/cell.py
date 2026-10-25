@@ -92,13 +92,18 @@ def belt_speed_scale(speed_scale: float | Mapping[str, float], key: str) -> floa
 
 def apply_belt_forces(model: mujoco.MjModel, data: mujoco.MjData,
                       speed_scale: float | Mapping[str, float] = 1.0,
-                      parts: tuple[str, ...] | None = None) -> dict[str, tuple[float, float]]:
+                      parts: tuple[str, ...] | None = None, *,
+                      pass_stops: bool = False) -> dict[str, tuple[float, float]]:
     """Scrie în `data.xfrc_applied` forța pe care o pune fiecare bandă pe piesa de pe ea.
 
     Forța se scrie pentru fiecare piesă, cu zero acolo unde nu e cazul: `mj_step` **nu** golește
     `xfrc_applied`, deci o piesă ridicată de braț ori ajunsă la linia de oprire a benzii ar rămâne
     cu forța de la pasul dinainte. Componenta verticală rămâne a contactului: banda trage
     tangențial, nu ridică.
+
+    Cu ``pass_stops=True`` banda nu-și mai scoate forța la linia de preluare și împinge piesa
+    până iese de pe platformă: este ruta de rebut, unde brațul 2 nu ridică piesa. Forța dispare
+    oricum la capătul benzii, fiindcă acolo piesa nu mai atinge platforma.
 
     Întoarce forțele scrise, ca ``{corp: (Fx, Fy)}``, pentru raportare și pentru teste.
     """
@@ -111,7 +116,7 @@ def apply_belt_forces(model: mujoco.MjModel, data: mujoco.MjData,
         force = (0.0, 0.0)
         if key is not None:
             item = belt.belt(key)
-            if not item.reached_stop(float(data.xpos[identifier][0])):
+            if pass_stops or not item.reached_stop(float(data.xpos[identifier][0])):
                 mass = float(model.body_mass[identifier])
                 force = item.drag_force(mass, part_velocity(model, data, body),
                                         speed_scale=belt_speed_scale(speed_scale, key))
@@ -122,14 +127,17 @@ def apply_belt_forces(model: mujoco.MjModel, data: mujoco.MjData,
 
 def transport(model: mujoco.MjModel, data: mujoco.MjData, steps: int,
               speed_scale: float | Mapping[str, float] = 1.0,
-              parts: tuple[str, ...] | None = None, hook: StepHook | None = None) -> None:
+              parts: tuple[str, ...] | None = None, hook: StepHook | None = None, *,
+              pass_stops: bool = False) -> None:
     """Rulează pașii cu benzile pornite: forța se rescrie la fiecare pas, apoi se face pasul.
 
     `mj_step` nu golește `data.xfrc_applied`, deci forța se scrie la fiecare pas: o dată pentru
     toată cursa ar rămâne aplicată și după ce piesa ajunge la linia de oprire ori e ridicată de braț.
+    ``pass_stops`` merge mai departe la :func:`apply_belt_forces`: banda nu se mai oprește la linia
+    de preluare, ci duce piesa până la capătul ei.
     """
     for _ in range(steps):
-        apply_belt_forces(model, data, speed_scale, parts)
+        apply_belt_forces(model, data, speed_scale, parts, pass_stops=pass_stops)
         mujoco.mj_step(model, data)
         if hook is not None:
             hook(model, data)
@@ -169,3 +177,27 @@ def bring_parts_to_pickup(model: mujoco.MjModel, data: mujoco.MjData, parts: tup
         if arrived:
             break
     return {body: float(part_positions(model, data, parts)[body][0]) for body in parts}
+
+
+def carry_past_pickup(model: mujoco.MjModel, data: mujoco.MjData, body: str,
+                      budget: int = 20000, hook: StepHook | None = None,
+                      speed_scale: float | Mapping[str, float] = 1.0,
+                      chunk: int = 200) -> bool:
+    """Duce piesa refuzată mai departe de linia de preluare, până iese de pe bandă.
+
+    Ruta de rebut nu are braț: piesa rămâne pe bandă, trece de linia de preluare a brațului 2 și
+    cade de la capătul de vest al benzii în ladă (`docs/11-geaman-mujoco.md` §2). Aici banda este
+    lăsată să împingă și după linie, iar bucla se oprește când piesa nu mai atinge platforma.
+
+    Bugetul este plasa de siguranță pentru o bandă care alunecă ori o piesă prinsă între șine:
+    20 000 de pași acoperă cursa întreagă a benzii 2 la viteza nominală, cu marjă. Întoarce
+    ``True`` când piesa a ieșit de pe bandă, ``False`` când bugetul s-a terminat înainte.
+    """
+    spent = 0
+    while spent < budget:
+        transport(model, data, chunk, speed_scale=speed_scale, parts=(body,), hook=hook,
+                  pass_stops=True)
+        spent += chunk
+        if carried_parts(model, data, (body,)).get(body) is None:
+            return True
+    return False

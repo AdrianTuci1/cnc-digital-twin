@@ -345,16 +345,22 @@ def test_sablonul_are_carcasa_rafturi_si_despartitor() -> None:
 
 
 def test_lada_de_rebut_sta_sub_capatul_de_vest_al_benzii_2() -> None:
-    """Lada e la capătul benzii, lată cât ea, cu marginea sub nivelul benzii."""
+    """Lada e sub capătul benzii, cu gura peste el și marginea sub nivelul benzii.
+
+    Piesa nu cade vertical: părăsește platforma cu viteza benzii și ajunge la 10–15 cm înăuntru,
+    deci gura lăzii trebuie să acopere capătul benzii, nu să se oprească înaintea lui.
+    """
     geometry = layout.scrap_bin_geometry()
     rim = geometry["scrap_bin_wall_z"] + geometry["scrap_bin_wall_hz"]
     assert rim == pytest.approx(layout.SCRAP_BIN_RIM_Z)
     assert layout.SCRAP_BIN_RIM_Z < layout.BELT_SURFACE_Z - 0.2, (
         "marginea lăzii prea aproape de bandă: piesa s-ar sprijini pe perete")
     belt_x0, _, belt_y0, belt_y1 = layout.belt_bounds(layout.BELT_OUT)
+    west = geometry["scrap_bin_cx"] - geometry["scrap_bin_hx"]
     east = geometry["scrap_bin_cx"] + geometry["scrap_bin_hx"]
-    assert 0.0 < belt_x0 - east < 0.1, (
-        "gura lăzii trebuie să fie chiar sub capătul de vest al benzii")
+    assert east > belt_x0, (
+        "gura lăzii trebuie să acopere capătul de vest al benzii")
+    assert west < belt_x0 - 0.3, "lada trebuie să aibă loc și la vest de capătul benzii"
     assert geometry["scrap_bin_cy"] - geometry["scrap_bin_hy"] <= belt_y0
     assert geometry["scrap_bin_cy"] + geometry["scrap_bin_hy"] >= belt_y1
 
@@ -742,6 +748,158 @@ def test_piesele_inguste_sint_prinse_cu_ambele_falci() -> None:
                 continue
             assert row["left_contacts"] > 0, f"{family}: falca stîngă nu a atins piesa"
             assert row["right_contacts"] > 0, f"{family}: falca dreaptă nu a atins piesa"
+
+
+def test_ruta_de_rebut_duce_piesa_in_lada_fara_sa_o_ridice() -> None:
+    """Piesa refuzată rămîne pe bandă, trece de linia de preluare și cade în ladă.
+
+    Brațul 2 coboară doar cît să ia cadrul de sortare, apoi se retrage: nicio prindere a lui nu
+    apare în raport, iar piesa ajunge sub marginea lăzii, în amprenta ei din plan.
+    """
+    mujoco = pytest.importorskip("mujoco", reason="ciclul cere mujoco")
+    from cncdt_mj import grasp, grasp_cycle, inspection, scene
+
+    model, metadata = scene.build_model(seed=7, family="wheel_100")
+    data = mujoco.MjData(model)
+    scene.apply_nominal(model, data, metadata["placements"])
+    scene.settle(model, data)
+
+    result = grasp_cycle.run_cycle(
+        model, data, "wheel_100", seed=7, machining_s=0.0,
+        router=lambda _frame: grasp_cycle.Routing(inspection.ROUTE_SCRAP, None, "test"))
+
+    assert result.failures == [], result.failures
+    assert result.routing is not None
+    assert result.routing.destination == inspection.ROUTE_SCRAP
+    assert not [row for row in result.grasps if row["arm"] == "arm2"], \
+        "brațul 2 nu are voie să ridice rebutul"
+
+    part_position = data.xpos[grasp.body_id(model, grasp_cycle.PART_BODY)]
+    geometry = layout.scrap_bin_geometry()
+    assert geometry["scrap_bin_cx"] - geometry["scrap_bin_hx"] <= part_position[0] \
+        <= geometry["scrap_bin_cx"] + geometry["scrap_bin_hx"], (
+            f"piesa a căzut la x = {part_position[0]:.3f} m, în afara lăzii")
+    assert geometry["scrap_bin_cy"] - geometry["scrap_bin_hy"] <= part_position[1] \
+        <= geometry["scrap_bin_cy"] + geometry["scrap_bin_hy"]
+    floor_top = geometry["scrap_bin_floor_z"] + geometry["scrap_bin_floor_hz"]
+    assert part_position[2] >= floor_top - grasp_cycle.SCRAP_FLOOR_TOLERANCE_M, (
+        f"piesa a trecut prin podeaua lăzii ({part_position[2]:.3f} m)")
+    assert part_position[2] <= layout.SCRAP_BIN_RIM_Z, (
+        f"piesa a rămas peste marginea lăzii ({part_position[2]:.3f} m)")
+
+
+def test_ruta_din_verdict_trimite_cadrul_de_sortare_endpointului(tmp_path: Path,
+                                                                monkeypatch: pytest.MonkeyPatch
+                                                                ) -> None:
+    """`--route vision` leagă cadrul de sortare de endpoint, fără eticheta piesei în cerere."""
+    pytest.importorskip("mujoco", reason="run.py importă motorul")
+    import argparse
+    import json
+
+    import run as run_module
+
+    frame = tmp_path / "arm2_wrist-belt2_pick.png"
+    frame.write_bytes(b"\x89PNG\r\n\x1a\n")
+    seen: dict[str, object] = {}
+
+    def fake_invoke(endpoint: str, body: bytes, **_: object) -> bytes:
+        seen["endpoint"] = endpoint
+        seen["body"] = json.loads(body)
+        return json.dumps({"predictions": [{
+            "part_id": "part-000001", "defect_probability": 0.97, "judged": True,
+            "family": "wheel_100", "family_probability": 0.99}]}).encode("utf-8")
+
+    monkeypatch.setattr(run_module.inspection, "invoke", fake_invoke)
+    args = argparse.Namespace(route="vision", vision_endpoint="cncdt-dev-vision-qa",
+                              aws_region="eu-central-1", defect_threshold=0.91,
+                              family_threshold=0.80)
+    routing = run_module.build_router(args, 1)(frame)
+
+    assert seen["endpoint"] == "cncdt-dev-vision-qa"
+    instance = seen["body"]["instances"][0]  # type: ignore[index]
+    assert instance["part_id"] == "part-000001"
+    assert instance["camera_role"] == "sorting"
+    assert not {"family", "defect", "verdict"} & set(instance)
+    assert routing.destination == "SCRAP"
+    assert routing.family is None
+
+
+def test_viewerul_publica_esantioane_din_uzura_lui() -> None:
+    """Viewer-ul publică la 10 Hz, din exact modelul de uzură pe care îl repară panoul."""
+    mujoco = pytest.importorskip("mujoco", reason="viewer-ul cere mujoco")
+    from cncdt_mj import cell, scene, wear
+
+    import view as view_module
+
+    class Publisher:
+        def __init__(self) -> None:
+            self.rows: list[dict[str, object]] = []
+
+        def publish(self, record: dict[str, object]) -> None:
+            self.rows.append(record)
+
+    model, metadata = scene.build_model()
+    data = mujoco.MjData(model)
+    scene.apply_nominal(model, data, metadata["placements"])
+    scene.settle(model, data, 10)
+    publisher = Publisher()
+    sink = view_module.DemoTelemetry(publisher)
+    wear_model = wear.WearModel(seed=1)
+
+    sink.record(model, data, wear_model, cell.part_bodies(model))
+    assert len(publisher.rows) == 1
+    row = publisher.rows[0]
+    assert row["machine_state"] == "IDLE"
+    assert row["cycle_id"] == "cyc-000001"
+    assert row["part_id"] == "part-000001"
+    assert 0.0 <= float(row["tool_wear_index"]) <= 1.0  # type: ignore[arg-type]
+
+    sink.record(model, data, wear_model, cell.part_bodies(model))
+    assert len(publisher.rows) == 1, "al doilea eșantion nu are voie să plece în același pas"
+
+
+def test_viewerul_trimite_cadrul_de_sortare_la_endpoint(tmp_path: Path,
+                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--route vision` din viewer folosește același contract ca sesiunea de colectare."""
+    mujoco = pytest.importorskip("mujoco", reason="viewer-ul cere mujoco")
+    import argparse
+    import json
+
+    from cncdt_mj import scene
+
+    import view as view_module
+
+    model, metadata = scene.build_model()
+    data = mujoco.MjData(model)
+    scene.apply_nominal(model, data, metadata["placements"])
+    scene.settle(model, data, 10)
+    seen: dict[str, object] = {}
+
+    def fake_invoke(endpoint: str, body: bytes, **_: object) -> bytes:
+        seen["endpoint"] = endpoint
+        seen["body"] = json.loads(body)
+        return json.dumps({"predictions": [{
+            "part_id": "part-000001", "defect_probability": 0.97, "judged": True,
+            "family": "wheel_100", "family_probability": 0.99}]}).encode("utf-8")
+
+    monkeypatch.setattr(view_module.inspection, "invoke", fake_invoke)
+    args = argparse.Namespace(route="vision", vision_endpoint="cncdt-dev-vision-qa",
+                              aws_region="eu-central-1", defect_threshold=0.91,
+                              family_threshold=0.80)
+    router, frames = view_module.vision_router(model, data, args, tmp_path)
+    try:
+        routing = router(None)
+    finally:
+        frames.close()
+
+    assert seen["endpoint"] == "cncdt-dev-vision-qa"
+    instance = seen["body"]["instances"][0]  # type: ignore[index]
+    assert instance["part_id"] == "part-000001"
+    assert instance["camera_role"] == "sorting"
+    assert not {"family", "defect", "verdict"} & set(instance)
+    assert (tmp_path / "sorting.png").stat().st_size > 1000
+    assert routing.destination == "SCRAP"
+    assert routing.family is None
 
 
 def test_meshul_piesei_are_normale_plate_pe_fiecare_triunghi() -> None:

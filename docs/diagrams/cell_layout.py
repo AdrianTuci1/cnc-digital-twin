@@ -177,11 +177,12 @@ def rack_entry_floor(index: int) -> float:
     """Cota podelei unei intrări, din listă."""
     return float(rack_entry(index)["floor"])
 
-# Lada de rebut stă sub capătul de vest al benzii 2, cu gura spre est: piesa neconformă rămâne pe
-# bandă, trece de linia de oprire a brațului 2 și cade de la capătul benzii în ladă. Marginea ei
-# e sub nivelul benzii (0,62 m), ca piesa să nu se sprijine pe perete, iar latura de est nu are
-# perete, ca nimic să nu prindă piesa chiar la marginea benzii.
-SCRAP_BIN = dict(name="scrap_bin", kind="trash", x=0.14, y=1.80, w=0.62, h=0.40)
+# Lada de rebut stă sub capătul de vest al benzii 2: piesa neconformă rămâne pe bandă, trece de
+# linia de oprire a brațului 2 și cade de la capătul benzii în ladă. Gura lăzii acoperă capătul
+# benzii, fiindcă piesa nu cade vertical: pleacă de pe platformă cu viteza benzii și ajunge la
+# 10–15 cm înăuntru. Marginea ei e sub nivelul benzii (0,62 m), ca piesa să nu se sprijine pe
+# perete, iar latura de est nu are perete, ca nimic să nu prindă piesa la intrare.
+SCRAP_BIN = dict(name="scrap_bin", kind="trash", x=0.28, y=1.80, w=0.62, h=0.40)
 
 ARMS = [
     dict(key="arm1", name="arm1_cnc", x=2.95, y=2.65, reach=0.855,

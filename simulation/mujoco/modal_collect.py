@@ -207,7 +207,13 @@ def run_collection(run: str, family: str, seed: int, cycles: int, rate: float,
     print(f"[modal] {family}-{seed}: {' '.join(command)}", flush=True)
     finished = subprocess.run(command, check=False)
     if finished.returncode != 0:
-        raise RuntimeError(f"colectarea {family}-{seed} a căzut cu {finished.returncode}")
+        # O sesiune care a ajuns la capăt are `session.json`, chiar dacă o verificare a căzut.
+        # Prinderea ratată este ea însăși un eșec de înregistrat, nu un motiv să aruncăm
+        # sesiunea: pentru corpusul de uzură, ciclurile bune din ea rămîn valoroase.
+        if not (target / "session.json").exists():
+            raise RuntimeError(f"colectarea {family}-{seed} a căzut cu {finished.returncode}")
+        print(f"[modal] {family}-{seed}: ieșire {finished.returncode}, dar sesiunea e scrisă; "
+              "o păstrez", flush=True)
     corpus.commit()
     return summarise_session(target, family, seed)
 
@@ -535,8 +541,13 @@ def _collect_plan(run: str, families: str, cycles: int, rate: float, seed: int,
                 arguments["only_frames"] = only_frames
             handles.append(worker.spawn(**arguments))
 
+    failures: list[str] = []
     for handle in handles:
-        rows.append(handle.get())
+        try:
+            rows.append(handle.get())
+        except Exception as exc:  # o sesiune nu are voie să blocheze urcarea celorlalte
+            failures.append(str(exc))
+            print(f"[modal] sesiune căzută: {exc}", flush=True)
     for row in rows:
         print(f"[modal] {row['session']:<20} {row['cycles']:>4} cicluri, "
               f"{row['samples']:>7} eșantioane, {row['frames']:>5} cadre, "
@@ -545,6 +556,10 @@ def _collect_plan(run: str, families: str, cycles: int, rate: float, seed: int,
     print(f"[modal] total: {sum(row['samples'] for row in rows)} eșantioane, "
           f"{sum(row['frames'] for row in rows)} cadre, "
           f"{sum(row['bytes'] for row in rows) / 1024 / 1024:.2f} MB", flush=True)
+    if failures:
+        print(f"[modal] {len(failures)} sesiuni au căzut: {'; '.join(failures)}", flush=True)
+    if not rows:
+        raise SystemExit("nicio sesiune nu a fost scrisă; nu am ce urca")
 
     if not upload:
         print(f"[modal] urcare sărită: datele rămîn în volumul Modal, la {run}", flush=True)

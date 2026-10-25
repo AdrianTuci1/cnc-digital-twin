@@ -214,7 +214,7 @@ ca planul și scena să nu se poată contrazice.
 | Raftul 2, compartimentul B (link_68) — podea 1,16 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
 | Raftul 3, compartimentul A (pinion_56) — podea 1,41 m | (3,20, 1,04) | 0,30 × 0,50 | G2–G3 |
 | Raftul 3, compartimentul B (plate_84) — podea 1,41 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
-| Ladă rebut | (0,45, 2,00) | 0,6 × 0,4 | A4–B5 |
+| Ladă rebut | (0,59, 2,00) | 0,6 × 0,4 | A4–B5 |
 
 Fiecare țintă de prindere cade în raza de 0,855 m a brațului care o deservește, măsurată în plan:
 
@@ -642,8 +642,8 @@ Două piese lipsesc de pe calea live, amândouă în afara geamănului: urcarea 
 `raw/qa-snapshots/` și un publicator MQTT pentru eșantioane. Sunt subțiri — fișierul JSON urcat sub
 `raw/qa-snapshots/`, respectiv un client `paho-mqtt` care trimite rândurile existente —, iar
 contractele sunt deja identice, deci fișierele sesiunii nu se schimbă când se scriu. Urcarea
-**offline**, a corpusului de antrenare, există deja și merge pe alt prefix (`datasets/`, mai sus):
-cele două căi au cititori diferiți și rămân separate.
+**offline**, a corpusului de antrenare, există deja și merge pe alt prefix
+(`training-data/mujoco/`): cele două căi au cititori diferiți și rămân separate.
 
 ## 5. Detecția anomaliilor și timpul de anticipare
 
@@ -681,8 +681,44 @@ Două precizări de onestitate, care se repetă și în `ml/models/`:
    de date este aceeași; `ml/src/cncdt_ml/labels.py` există deja pentru partea de etichetare.
 
 Pentru AWS, `mujoco` se înlocuiește cu un export de ferestre în S3: aceleași coloane, același
-`$schema`, deci antrenarea SageMaker RCF și inferența din `ml/training/predictive_maintenance/`
-și `ml/inference/predictive_maintenance/` se scriu fără să atingă simularea.
+`$schema`. Antrenarea RCF scrie un artefact pe care containerul built-in `randomcutforest:1` îl
+citește direct; Lambda-ul trimite cele nouă valori din `MODEL_FEATURE_ORDER` ca
+`{"instances": [[...]]}` și citește `{"scores": [{"score": ...}]}`. Contractele ambelor modele
+sunt descrise în `ml/inference/README.md`.
+
+Simularea folosește modelele prin două endpoint-uri serverless, amândouă oprite în `dev` până
+există un artefact:
+
+| Endpoint | Imagine | Artefact | Lambda |
+| --- | --- | --- | --- |
+| predictive maintenance | `randomcutforest:1` | `models/predictive-maintenance/<versiune>/model.tar.gz` | feature engineering |
+| inspecție vizuală | `pytorch-inference` CPU | `models/vision-qa/<versiune>/model.tar.gz` | `qa_vision_inference` |
+
+Pornirea se face din `stacks/platform/envs/dev.tfvars`, după ce notebook-ul a scris artefactul:
+`predictive_maintenance_model_data_url` ori `vision_qa_model_data_url`, plus flagul
+`enable_*_endpoint`. Pragurile se copiază din aceleași rezultate:
+`predictive_maintenance_anomaly_threshold` este percentila 99 din `metrics.json`, iar
+`vision_qa_defect_threshold` este pragul din `deployment.json`. Endpoint-ul serverless nu are
+cost când nu este invocat, iar oprirea se face cu flagul pe `false` și `make platform-up`. Fără
+endpoint, Lambda-ul de inspecție numără cadrele în `QaModelMissing` și nu publică verdicte.
+
+Serverless Inference exclude data capture, deci `stacks/platform` pornește captura doar când
+`ml_endpoint_deployment_mode = "provisioned"`; modulul refuză combinația în plan, cu un mesaj
+explicit. Prima invocare după deployment plătește cold start-ul containerului (zeci de secunde
+la RCF, până la câteva minute la PyTorch), deci se face o încălzire înainte de a lăsa celula să
+trimită cadre.
+
+Modelul de viziune este antrenat pe cadre de sus, cu piesa singură în imagine
+(`training-data/parts/`), iar cadrul QA din celulă este unul de 1280×720 cu piesa pe bandă,
+luat de camera brațului de sortare. Înainte de promovare, comparați cele două distribuții pe
+câteva zeci de cadre reale; dacă diferența de încadrare contează, datasetul se regenerează din
+cadrele aceleiași camere, nu se compensează din prag.
+
+Modelul are două capete peste același ResNet18: familia piesei (șase clase) și verdictul
+PASS/REJECT. Verdictul alege între compartiment și rebut, iar familia alege compartimentul din
+dulap. Când încrederea capului de familie coboară sub pragul stabilit în celulă, piesa urmează
+aceeași rută de rezervă ca un cadru nejugat, ca un nume ghicit să nu trimită piesa în cutia
+greșită.
 
 ## 6. Interfața de control
 
@@ -870,3 +906,98 @@ atinge contractele publicate.
    neatins. La 0,95 m ciclul se încheie pentru toate cele șase familii, fără nicio verigă atinsă.
    Verdictul de calitate rămâne al camerei de pe flanșa brațului 2, care fotografiază piesa ținută
    în falci, la ~2,6 px/mm.
+
+## 11. Demonstrația live: IoT Core, alarmă și reparație
+
+Traseul demonstrației: eșantioanele geamănului ajung în IoT Core, regula IoT le trimite la
+Firehose, Lambda-ul le taie în ferestre de 60 s și cheamă endpoint-ul RCF, iar scorul ajunge în
+CloudWatch. Alarma `process-anomaly` se aprinde când trei ferestre din zece minute sunt marcate
+anormale, iar notificarea pleacă pe SNS.
+
+### Pregătire, o singură dată
+
+```bash
+make platform-plan && make platform-up     # cere identitatea de admin
+./simulation/scripts/gen-iot-certs.sh      # certificatul thing-ului în simulation/secrets/
+```
+
+După primul apply, confirmă abonarea la SNS din emailul trimis de AWS; fără confirmare,
+notificarea nu ajunge. `alarm_email_endpoints` din `envs/dev.tfvars` trebuie să conțină adresa.
+
+### Rularea
+
+```bash
+set -a; source simulation/secrets/iot-endpoint.env; set +a
+simulation/mujoco/.venv/bin/python simulation/mujoco/run.py \
+  --cycles 60 --rate 1 --iot --start-ms "$(date +%s)000"
+```
+
+`--start-ms` mută ceasul sesiunii pe ceasul real, ca ferestrele să cadă în minutele de acum:
+altfel datele ajung într-un interval din trecut, iar dashboard-ul le arată lângă „acum".
+`--iot` publică fiecare eșantion pe `cncdt/<mediu>/cnc/<celulă>/telemetry` cu certificatul
+dispozitivului; fără el, sesiunea scrie doar local. Pentru demonstrația cu sortare, adaugă
+`--route vision` la aceeași comandă: verdictul endpoint-ului alege atunci între raft și rebut.
+
+Pentru uzură injectată de la început, adaugă `--inject cnc_tool:0.5` (sau alta componentă).
+Reparația live se face din viewer, nu din sesiunea de colectare:
+
+```bash
+simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo --iot
+```
+
+Viewer-ul rulează ciclul, apoi rămîne deschis (`--hold`, implicit cu `--iot`) și publică
+eșantioane din exact `WearModel` pe care îl repară panoul. Butonul „Repară tot” readuce scula și
+articulațiile, iar `DegradationIndex` coboară la eșantioanele următoare; alarma de degradare se
+stinge la evaluarea următoare (fereastră de 5 minute). Traseul cu `AnomalyScore` rămîne cel din
+sesiunea de colectare, fiindcă modelul RCF se antrenează doar pe eșantioane `CUTTING`, iar
+viewer-ul publică în repaus.
+
+### Ce se urmărește
+
+| Unde | Ce |
+| --- | --- |
+| `AnomalyScore` (namespace `cncdt/dev/telemetry`) | scorul RCF pe fereastră; prag 1,58 |
+| Alarma `cncdt-dev-process-anomaly` | trei ferestre marcate în 10 minute |
+| `DegradationIndex` (alarmele `cncdt-dev-cnc-degradation` și `cncdt-dev-robot-degradation`, prag 0,7) | uzura sculei și frecarea articulațiilor, independent de model |
+| `WindowsProcessed`, `EndpointFailures` | sănătatea pipeline-ului |
+
+Modelul este antrenat pe ferestre sănătoase dintr-o celulă pornită curat; pragul de 1,58 și
+metricele sunt în `ml/models/predictive-maintenance.md`. După o reparație, scorul revine la
+baseline în câteva ferestre, iar alarma se stinge singură.
+
+### Ruta de rebut
+
+Piesa refuzată nu este ridicată de brațul 2: brațul coboară peste ea doar cît să ia cadrul de
+sortare (`arm2_wrist`, rolul `sorting`), apoi se retrage, iar banda 2 își ține forța și după
+linia de preluare. Piesa trece de linia brațului 2 și cade de la capătul de vest al benzii în
+lada din `A4–B5`. Măsurat în scenă, pe toate cele șase familii: contactul cu banda se pierde la
+`x ≈ 0,78`, iar piesa se oprește la `x = 0,68–0,74`, pe podeaua lăzii (marginea de est a lăzii
+este la `x = 0,90`). Verificarea finală (`_check_scrap`) cere ca piesa să fie în amprenta lăzii și
+la cota dintre podeaua lăzii și marginea de 0,62 m, deci o piesă rămasă pe bandă, căzută pe podea
+ori trecută prin tablă cade testul.
+
+Ruta vine din verdictul endpoint-ului de viziune, prin `cncdt_mj/inspection.py`:
+
+```bash
+# rebut forțat, fără AWS: se vede mersul pe bandă în viewer
+simulation/mujoco/.venv/bin/python simulation/mujoco/run.py --cycles 1 --route scrap
+
+# verdictul modelului: cadrul de sortare ajunge la endpoint
+simulation/mujoco/.venv/bin/python simulation/mujoco/run.py --cycles 1 --route vision
+```
+
+`--route vision` cheamă `cncdt-dev-vision-qa` prin AWS CLI, cu credențialele rolului de operator.
+Serverless pornește containerul la prima invocare, deci prima piesă a unei rulări poate aștepta
+zeci de secunde; o invocare de încălzire înainte de sesiune scutește așteptarea. Un apel căzut nu
+inventează un verdict: piesa merge la rebut (`fallback`, ADR 0009), iar ciclul raportează eroarea
+în `session.json`.
+
+Familia care alege compartimentul este cea citită de model, nu eticheta sesiunii: eticheta rămîne
+în dataset (ADR 0013), iar `session.json` păstrează ambele nume la fiecare ciclu, ca o
+clasificare greșită să se poată număra.
+
+### Ce încă nu face
+
+Mașina nu are axe în scenă (`CUTTING` este o fereastră de timp), degradarea camerei nu se aplică,
+iar legătura de prindere nu slăbește cu uzura. Panoul de control și endpoint-ul HTTP local pentru
+scenarii scriptate sînt încă pe listă.

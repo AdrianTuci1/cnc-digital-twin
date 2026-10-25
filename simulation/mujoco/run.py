@@ -48,8 +48,8 @@ if str(MUJOCO_DIR) not in sys.path:
 
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
-from cncdt_mj import (arms, belt, camera, cell, grasp, grasp_cycle, povs, part,  # noqa: E402
-                      scene, sensors, telemetry, wear)
+from cncdt_mj import (arms, belt, camera, cell, grasp, grasp_cycle, inspection, iot,  # noqa: E402
+                      povs, part, scene, sensors, telemetry, wear)
 
 #: Unde se scriu sesiunile. Directorul e generat și ignorat de git: un ciclu de cinci familii
 #: înseamnă mii de cadre, care n-au ce căuta în istoricul repo-ului.
@@ -81,6 +81,9 @@ class Session:
 
     #: Uzura: aceeași peste toate ciclurile sesiunii, fiindcă scena se recompune, mașina nu.
     wear: wear.WearModel = field(default_factory=wear.WearModel)
+
+    #: Publicatorul MQTT către IoT Core, când sesiunea rulează în demonstrația live.
+    iot: Any | None = None
 
     samples: list[dict[str, Any]] = field(default_factory=list)
     snapshots: list[dict[str, Any]] = field(default_factory=list)
@@ -123,6 +126,7 @@ class Recorder:
         self.cycle_index = 0
         self.taken: set[str] = set()
         self.cycle_frames: list[str] = []
+        self.sorting_path: Path | None = None
         self.steps = 0
         self.steps_per_sample = max(
             1, int(round(1.0 / (session.sample_hz * float(model.opt.timestep)))))
@@ -134,6 +138,7 @@ class Recorder:
         self.stage = None
         self.taken = set()
         self.cycle_frames = []
+        self.sorting_path = None
         self.steps = 0
 
     def begin_phase(self, phase: str | None, work: wear.Work) -> None:
@@ -214,6 +219,8 @@ class Recorder:
             machine=machine,
             is_synthetic_defect=self.synthetic_defect,
         ))
+        if self.session.iot is not None:
+            self.session.iot.publish(self.session.samples[-1])
         self.session.readings.append(sensors.reading_row(values))
         self.session.wear_rows.append(telemetry.wear_row(
             ts_ms=self.ts_ms(), sim_time_s=self.clock(),
@@ -277,6 +284,10 @@ class Recorder:
         self.shots.write_pov(self.data, item, path)
         self.taken.add(self.key(item, stage))
         self.cycle_frames.append(name)
+        if item.role == povs.ROLE_SORTING:
+            # Cadrul care decide ruta: router-ul din `run_session` îl citește și îl trimite
+            # endpoint-ului. Rolul vine din contract, nu din numele camerei.
+            self.sorting_path = path
         self.session.frames.append(telemetry.frame_row(
             ts_ms=ts_ms, cycle=cycle, part=telemetry.part_id(self.cycle_index), pov=item.name,
             stage=stage, camera=item.camera, resolution=item.resolution,
@@ -288,6 +299,14 @@ class Recorder:
                 role=item.role, camera=item.camera or item.name, resolution=item.resolution,
                 image_key=f"{telemetry.QA_SNAPSHOT_PREFIX}/{cycle}/{name}",
                 machine_state=telemetry.machine_state_for(self.stage)))
+
+    def sorting_frame(self) -> Path | None:
+        """Cadrul care decide ruta ciclului de acum, dacă a fost scris.
+
+        Se ia din rolul `sorting` al contractului, la momentul din ciclu în care scula stă pe
+        piesă. Fără cadre (`--no-frames`), ruta nu poate veni din model, iar apelantul decide.
+        """
+        return self.sorting_path
 
     @property
     def synthetic_defect(self) -> bool:
@@ -301,7 +320,8 @@ class Recorder:
 
 def run_cycle(model: mujoco.MjModel, data: mujoco.MjData, recorder: Recorder,
               family: str, settle: int, machining_s: float = MACHINING_S,
-              seed: int = 0) -> grasp_cycle.CycleResult:
+              seed: int = 0,
+              router: grasp_cycle.Router | None = None) -> grasp_cycle.CycleResult:
     """Un ciclu întreg, cu prindere fizică; întoarce raportul și timpul lui.
 
     Eșantioanele se iau pe tot parcursul, inclusiv când merg benzile goale, ca telemetria să
@@ -312,7 +332,46 @@ def run_cycle(model: mujoco.MjModel, data: mujoco.MjData, recorder: Recorder,
     """
     return grasp_cycle.run_cycle(
         model, data, family, seed=seed, settle=settle, machining_s=machining_s,
-        recorder=recorder, hook=recorder)
+        recorder=recorder, hook=recorder, router=router)
+
+
+def build_router(args: argparse.Namespace, index: int) -> grasp_cycle.Router | None:
+    """Ruta piesei: forțată, ori verdictul endpoint-ului pe cadrul de sortare.
+
+    ``rack`` păstrează ciclul de dinainte, fără verdict. ``scrap`` forțează rebutul, ca mersul pe
+    bandă să se poată verifica fără AWS. ``vision`` trimite cadrul de sortare endpoint-ului, iar
+    cererea nu poartă eticheta piesei (ADR 0013): modelul vede poza și măsurătorile, nu răspunsul.
+    """
+    if args.route == "rack":
+        return None
+    if args.route == "scrap":
+        return lambda _frame: grasp_cycle.Routing(inspection.ROUTE_SCRAP, None, "comandă")
+
+    endpoint = args.vision_endpoint
+    region = args.aws_region
+    defect_threshold = float(args.defect_threshold)
+    family_threshold = float(args.family_threshold)
+    part_id = telemetry.part_id(index)
+    cycle_id = telemetry.cycle_id(index)
+    camera = povs.pov("arm2_wrist").camera or "arm2_wrist_camera"
+
+    def route(frame: Path | None) -> grasp_cycle.Routing:
+        if frame is None:
+            raise inspection.ResponseError(
+                "cadrul de sortare lipsește; ruta din model cere cadre (fără --no-frames)")
+        verdict = inspection.inspect_frame(
+            frame, endpoint=endpoint, region=region, part_id=part_id, cycle_id=cycle_id,
+            camera=camera, resolution=povs.PROCESS_FRAME, threshold=defect_threshold,
+            family_threshold=family_threshold)
+        probability = ("-" if verdict.family_probability is None
+                       else f"{verdict.family_probability:.3f}")
+        print(f"  {cycle_id}: verdict {verdict.verdict} "
+              f"(p={verdict.defect_probability:.3f}), familia {verdict.family or '-'} "
+              f"(p={probability}) -> {verdict.route} ({verdict.reason})")
+        family = verdict.family if verdict.route == inspection.ROUTE_RACK else None
+        return grasp_cycle.Routing(verdict.route, family, verdict.reason)
+
+    return route
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -354,9 +413,28 @@ def build_parser() -> argparse.ArgumentParser:
                         help="scrie și secvența de prindere (apropiere, piesa în falci, ridicare) "
                              "de pe fiecare flanșă (implicit); `--no-grasp-frames` păstrează doar "
                              "cadrele de proces")
+    parser.add_argument("--route", default="rack", choices=("rack", "scrap", "vision"),
+                        help="ruta piesei de pe banda 2: `rack` o lasă în compartimentul "
+                             "familiei (implicit), `scrap` forțează rebutul pe bandă, iar "
+                             "`vision` cere verdictul endpoint-ului pe cadrul de sortare")
+    parser.add_argument("--vision-endpoint", default="cncdt-dev-vision-qa",
+                        help="endpoint-ul serverless de viziune, pentru `--route vision` "
+                             "(implicit cncdt-dev-vision-qa)")
+    parser.add_argument("--aws-region", default=inspection.DEFAULT_REGION,
+                        help=f"regiunea endpoint-ului (implicit {inspection.DEFAULT_REGION})")
+    parser.add_argument("--defect-threshold", type=float, default=inspection.DEFAULT_THRESHOLD,
+                        help="pragul de defect din verdict, ca cel din dev.tfvars (implicit "
+                             f"{inspection.DEFAULT_THRESHOLD})")
+    parser.add_argument("--family-threshold", type=float,
+                        default=inspection.DEFAULT_FAMILY_THRESHOLD,
+                        help="sub acest nivel, familia este o ghicitoare și piesa merge la rebut "
+                             f"(implicit {inspection.DEFAULT_FAMILY_THRESHOLD})")
     parser.add_argument("--only-frames", action="store_true",
                         help="scrie doar cadrele, indexul lor și session.json; telemetria, uzura "
                              "și evenimentele sînt deja colectate în alt corpus")
+    parser.add_argument("--iot", action="store_true",
+                        help="publică eșantioanele în AWS IoT Core, cu certificatul din "
+                             "simulation/secrets (cere platforma aplicată)")
     parser.add_argument("--allow-grasp-failures", action="store_true",
                         help="cu --only-frames, acceptă sesiunea chiar dacă o prindere a ratat; "
                              "cadrele și etichetele rămîn valide")
@@ -372,6 +450,9 @@ def run_session(args: argparse.Namespace) -> int:
     if args.allow_grasp_failures and not args.only_frames:
         print("--allow-grasp-failures are sens doar cu --only-frames")
         return 1
+    if args.route == "vision" and not args.frames:
+        print("--route vision cere cadrul de sortare: scoate `--no-frames`")
+        return 1
     directory = Path(args.out) if args.out else RUNS_DIR / f"{family}-{args.seed}"
     try:
         injections = wear.parse_injections(args.inject)
@@ -382,12 +463,14 @@ def run_session(args: argparse.Namespace) -> int:
     session = Session(directory=directory, name=directory.name, seed=args.seed, family=family,
                       sample_hz=args.sample_hz, start_ms=args.start_ms, cycles=args.cycles,
                       frames_on=args.frames, grasp_frames=args.grasp_frames,
-                      only_frames=args.only_frames, wear=wear_model)
+                      only_frames=args.only_frames, wear=wear_model,
+                      iot=iot.IotPublisher() if args.iot else None)
     plan = povs.frames_per_cycle(family, grasp=args.grasp_frames)
     print(f"Sesiune: {directory} | familia {family} | {args.cycles} cicluri | "
           f"{args.sample_hz:g} Hz | cadre: {'da' if args.frames else 'nu'}"
           + (f" (prindere: {'da' if args.grasp_frames else 'nu'})" if args.frames else "")
-          + (" | doar cadre, fără telemetrie" if args.only_frames else ""))
+          + (" | doar cadre, fără telemetrie" if args.only_frames else "")
+          + (f" | ruta: {args.route}" if args.route != "rack" else ""))
     print(f"  puncte de vedere: {', '.join(f'{item.name} ({stage})' for stage, item in plan)}")
     print(f"  uzură: rata {args.rate:g}×, așchiere {args.machining_s:g} s pe ciclu"
           + (f", injecții: {', '.join(args.inject)}" if args.inject else ""))
@@ -413,7 +496,7 @@ def run_session(args: argparse.Namespace) -> int:
         recorder = Recorder(model, data, cell.part_bodies(model), session, shots, label)
         recorder.begin_cycle(index)
         result = run_cycle(model, data, recorder, family, args.demo_settle, args.machining_s,
-                           seed=seed)
+                           seed=seed, router=build_router(args, index))
         if shots is not None:
             shots.close()
         session.elapsed_s += result.duration_s
@@ -421,16 +504,23 @@ def run_session(args: argparse.Namespace) -> int:
             index=index, seed=seed, label=label, sim_time_s=session.elapsed_s,
             samples=sum(1 for row in session.samples
                         if row["cycle_id"] == telemetry.cycle_id(index)),
-            frames=recorder.cycle_frames, grasps=result.grasps, failures=result.failures))
+            frames=recorder.cycle_frames, grasps=result.grasps, failures=result.failures,
+            route=result.routing.as_dict() if result.routing is not None else None))
         if args.allow_grasp_failures:
             grasp_failures.extend(result.failures)
         else:
             failures.extend(result.failures)
+        route = "-" if result.routing is None else result.routing.destination
         print(f"  {telemetry.cycle_id(index)}: {label['family']}/{label['defect']} "
-              f"({label['verdict']}), sămânța {seed}, {len(recorder.cycle_frames)} cadre, "
-              f"{result.duration_s:.2f} s simulat, "
+              f"({label['verdict']}), ruta {route}, sămânța {seed}, "
+              f"{len(recorder.cycle_frames)} cadre, {result.duration_s:.2f} s simulat, "
               f"{sum(1 for row in result.grasps if row['success'])}/{len(result.grasps)} "
               f"prinderi")
+
+    if session.iot is not None:
+        print(f"  IoT Core         {session.iot.sent} eșantioane publicate, "
+              f"{session.iot.failed} refuzate")
+        session.iot.close()
 
     totals = {
         "cycles": args.cycles,
@@ -460,6 +550,7 @@ def run_session(args: argparse.Namespace) -> int:
         "frames_on": args.frames,
         "grasp_frames": bool(args.frames and args.grasp_frames),
         "only_frames": bool(args.only_frames),
+        "route": args.route,
         "device_id": telemetry.DEVICE_ID,
         "cell_id": telemetry.CELL_ID,
         "topic": telemetry.TELEMETRY_TOPIC,
@@ -495,7 +586,13 @@ def run_session(args: argparse.Namespace) -> int:
         if len(session.wear_rows) != len(session.samples):
             failures.append(f"rânduri de uzură lipsă: {len(session.wear_rows)} din "
                             f"{len(session.samples)}")
-    expected = len(plan) * args.cycles
+    # Ruta de rebut nu ridică piesa și nu ajunge la raft: cadrul de ridicare al brațului 2 și
+    # cadrul general al celulei lipsesc din plan, fiindcă brațul se retrage după coborîre.
+    scrap_cycles = sum(1 for row in session.labels
+                       if (row.get("route") or {}).get("destination") == inspection.ROUTE_SCRAP)
+    skipped = sum(1 for stage, item in plan
+                  if stage == "belt2_pick-ridicare" or item.name == "cell")
+    expected = len(plan) * args.cycles - skipped * scrap_cycles
     if args.frames and len(session.frames) != expected:
         failures.append(f"cadre lipsă: {len(session.frames)} din {expected}")
 

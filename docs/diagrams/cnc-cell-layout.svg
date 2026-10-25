@@ -69,7 +69,7 @@
 <line x1="946.0" y1="457.0" x2="256.0" y2="457.0" stroke="#5b6b7f" stroke-width="2.0" marker-end="url(#arrow-gray)"/>
 <text x="848.0" y="536.8" font-size="13" text-anchor="middle" fill="#31414f" font-weight="normal" opacity="1.00">Bandă 2: evacuare, un singur sens</text>
 <rect x="734.0" y="200.5" width="190.0" height="152.0" rx="3" fill="#a6cbea" stroke="#2f6ba8" stroke-width="1.6"/>
-<rect x="114.6" y="438.0" width="117.8" height="76.0" rx="3" fill="#ecaaaa" stroke="#9b3b3b" stroke-width="1.6"/>
+<rect x="141.2" y="438.0" width="117.8" height="76.0" rx="3" fill="#ecaaaa" stroke="#9b3b3b" stroke-width="1.6"/>
 <text x="829.0" y="272.5" font-size="14" text-anchor="middle" fill="#1d4467" font-weight="bold" opacity="1.00">Mașină CNC 3 axe</text>
 <text x="829.0" y="292.5" font-size="12" text-anchor="middle" fill="#315f86" font-weight="normal" opacity="1.00">stare: idle / cutting</text>
 <rect x="692.2" y="515.9" width="57.0" height="190.0" rx="3" fill="#e3e6ea" stroke="#8b949e" stroke-width="1.6"/>
@@ -108,7 +108,7 @@
 <circle cx="696.0" cy="658.4" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
 <circle cx="696.0" cy="563.4" r="4.5" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.4"/>
 <text x="764.4" y="610.9" font-size="12" text-anchor="start" fill="#2f5c2a" font-weight="bold" opacity="1.00">Dulap pe familii: 3 rafturi × 2 compartimente</text>
-<text x="173.5" y="525.4" font-size="12" text-anchor="middle" fill="#8a2f2f" font-weight="bold" opacity="1.00">Ladă rebut</text>
+<text x="200.1" y="525.4" font-size="12" text-anchor="middle" fill="#8a2f2f" font-weight="bold" opacity="1.00">Ladă rebut</text>
 <polyline points="192.5,229.0 601.0,229.0 753.0,295.5 734.0,476.0 601.0,476.0" fill="none" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
 <polyline points="601.0,476.0 696.0,658.4" fill="none" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
 <polyline points="601.0,476.0 696.0,563.4" fill="none" stroke="#e07b39" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>

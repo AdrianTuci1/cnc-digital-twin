@@ -89,6 +89,11 @@ $MUJOCO simulation/mujoco/run.py --cycles 5 --no-frames   # doar telemetrie, mul
 $MUJOCO simulation/mujoco/run.py --cycles 5 --rate 50     # viața mașinii comprimată de 50 de ori
 $MUJOCO simulation/mujoco/run.py --cycles 2 --inject belt_out:0.5 --inject cnc_tool:0.7
 
+# Ruta piesei de pe banda 2: `rack` (implicit) o lasă în compartimentul familiei, `scrap` forțează
+# rebutul pe bandă, iar `vision` cere verdictul endpoint-ului pe cadrul de sortare.
+$MUJOCO simulation/mujoco/run.py --cycles 1 --route scrap
+$MUJOCO simulation/mujoco/run.py --cycles 1 --route vision   # cere endpoint-ul și credențiale AWS
+
 # Un cadru al celulei, din camera liberă (implicit renders/cell.png).
 $MUJOCO simulation/mujoco/view.py --render
 
@@ -103,6 +108,15 @@ simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view
 # Aceeași fereastră, cu ciclul celulei în locul benzilor goale: ăsta e modul în care se văd
 # brațele mișcându-se, cu prindere.
 simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo
+
+# Ruta din verdictul endpoint-ului: cadrul camerei `arm2_wrist` pleacă la endpoint, iar brațul 2
+# alege raftul familiei ori lada de rebut.
+simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo --route vision
+
+# Demonstrația cu alarmă: viewer-ul publică eșantioane în IoT Core din exact modelul de uzură pe
+# care îl repară panoul și rămîne deschis după ciclu, ca uzura injectată și reparația să ajungă
+# în ferestrele următoare.
+simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo --iot
 
 # Cu blocul brut lăsat mai în amonte și în reluare lentă, ca transportul până la linia de oprire să
 # se vadă (altfel pornește chiar la linia benzii 1). Piesa mașinată stă pe masa de descărcare a
@@ -119,9 +133,9 @@ piesa, blocul brut, compartimentul din raft și cota de lucru), `--blank-shape`,
 `--blank-yaw-deg`, `--part-yaw-deg`, `--part-x`/`--part-y`, `--base-z` (cota
 piedestalului brațelor, pentru măsurători), `--demo-settle` (câți pași se așteaptă la fiecare
 oprire), `--shots [DIR]`,
-`--width`, `--height`, iar pentru viewer `--belts`/`--no-belts` și `--speed`. La pozițiile cerute
-explicit, cota care lipsește rămâne cea din plan: `--blank-x 0.6` mută piesa pe banda 1, fără să
-ceară și `--blank-y`.
+`--width`, `--height`, iar pentru viewer `--belts`/`--no-belts`, `--speed`, `--route` (`rack`,
+`scrap`, `vision`), `--iot` și `--hold`. La pozițiile cerute explicit, cota care lipsește rămâne cea
+din plan: `--blank-x 0.6` mută piesa pe banda 1, fără să ceară și `--blank-y`.
 
 Viewer-ul rulează în ritm real și tipărește în terminal, la fiecare secundă simulată, ce piesă e pe
 ce bandă, cu ce viteză și cât mai are până la linia de oprire. `--speed 0` scoate ritmul real, ca
@@ -156,6 +170,13 @@ Pe macOS, Python-ul din venv-ul geamănului nu are Tkinter, deci `view.py` porne
 fereastră și scrie motivul în terminal. Panoul este o unealtă de dezvoltare: aceleași comenzi
 ajung în producție prin schema de control, fără Tkinter.
 
+Cu `--iot`, eșantioanele viewer-ului pleacă în IoT Core din exact `WearModel` pe care îl repară
+panoul, la 10 Hz. Viewer-ul rămîne deschis după ciclu (`--hold`, implicit când `--iot` este
+pornit), ca să poți injecta uzură, vedea `DegradationIndex` în CloudWatch și apoi apăsa „Repară
+tot”; eșantioanele următoare coboară indicele, iar alarma se stinge la evaluarea următoare. Prima
+fereastră Firehose apare în circa un minut. Fără certificatele din `simulation/secrets/`, `--iot`
+se oprește cu mesajul care trimite la `simulation/scripts/gen-iot-certs.sh`.
+
 Suita proiectului (`make test`) rulează fără `mujoco` și include partea pură a testelor
 geamănului, `tests/unit/test_mujoco_scene.py`, plus contractele colectării
 (`tests/unit/test_mj_telemetry.py`), motorul de uzură (`tests/unit/test_mj_wear.py`) și corpusul
@@ -187,9 +208,9 @@ atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care a
 | `cncdt_mj/sensors.py` | Din starea motorului în mărimi de proces: efortul articulațiilor, forța falcilor, poziția și viteza pieselor, sarcina de contact. Importă `mujoco`. |
 | `cncdt_mj/camera.py` | Randarea offscreen: scrierea PNG fără dependențe externe, cadrele știute ale camerei libere și ținerea minte a randatoarelor. Importă `mujoco`. |
 | `scene/cell.xml` | Șablonul celulei. Cifrele nu stau în el: se pun prin substituție, din `layout.scene_geometry()`. |
-| `view.py` | Cele patru moduri: `--check`, `--render`, `--demo`, `--view`. |
+| `view.py` | Cele patru moduri: `--check`, `--render`, `--demo`, `--view`. În viewer, `--route vision` trimite cadrul de sortare endpoint-ului, iar `--iot` publică eșantioanele din modelul de uzură al panoului. |
 | `panel.py` | Panoul Tkinter de uzură și reparații, pornit de `view.py --view`; vorbește cu viewer-ul prin linii JSON. |
-| `run.py` | Sesiunea de colectare: cicluri întregi, uzura care se acumulează peste ele, telemetrie, cadre, fișierele sesiunii și verificarea lor la sfârșit. `--only-frames` scrie doar cadrele și indexul lor. |
+| `run.py` | Sesiunea de colectare: cicluri întregi, uzura care se acumulează peste ele, telemetrie, cadre, fișierele sesiunii și verificarea lor la sfârșit. `--only-frames` scrie doar cadrele și indexul lor, iar `--route` alege ruta piesei de pe banda 2 (`rack`, `scrap` ori verdictul endpoint-ului, `vision`). |
 | `render_parts.py` | CLI-ul imaginilor de calitate: citește manifestul, reconstruiește fiecare variantă și randează cadrele, cu felii pentru containere paralele. |
 | `publish.py` | Urcarea corpusului în bucketul data lake, cu AWS CLI: plan fără `--upload`, credențiale de operator, manifest scris la rădăcina rulării. Doar biblioteca standard. |
 | `publish_frames.py` | Urcarea doar a cadrelor (`training-data/grasp/`): verifică fiecare rînd al indexului, scrie manifestul rulării. Doar biblioteca standard. |
@@ -597,9 +618,15 @@ Codurile citite de pe raft sunt amânate deliberat (`docs/10-dataset-piese.md`).
 
 ![Dulapul pe familii, văzut din față: trei rafturi verzi și despărțitorul central](renders/rack_front.png)
 
-Lada de rebut are marginea la 0,62 m, sub nivelul benzii, și **fără perete la est**, chiar sub
-capătul de vest al benzii: piesa neconformă nu are punct de lucru, rămâne pe bandă până la capătul
-ei și cade în ladă. Un perete chiar acolo ar prinde-o și ar ține-o afară.
+Lada de rebut are marginea la 0,62 m, sub nivelul benzii, și **fără perete la est**, iar gura ei
+acoperă capătul de vest al benzii: piesa neconformă nu are punct de lucru, rămâne pe bandă până la
+capătul ei și cade în ladă. Gura trece dincolo de capătul benzii fiindcă piesa nu cade vertical:
+pleacă de pe platformă cu viteza benzii și ajunge la 10–15 cm înăuntru.
+
+Contactul lăzii este mai tare decât implicitul lui MuJoCo (`solref="0.004 1"`): piesa cade 0,8 m
+și lovește tabla cu ~4 m/s, iar la valoarea implicită (0,02 s) ar intra ~8 cm în ea și ar trece
+prin fund. Verificarea finală a ciclului (`_check_scrap`) cere de aceea și cota dintre podea și
+margine, nu doar amprenta în plan.
 
 ### Cele șase familii, în imagini
 

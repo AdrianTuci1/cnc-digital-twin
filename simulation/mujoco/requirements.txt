@@ -18,6 +18,9 @@ mujoco-menagerie==2026.10.1
 numpy==2.5.4
 mapbox_earcut==2.1.0
 
+# Publicarea telemetriei în AWS IoT Core, din `run.py --iot` (mTLS, certificat de dispozitiv).
+paho-mqtt==2.1.0
+
 # Doar pentru `make mj-test`: testele geamănului care ating motorul se rulează din acest venv,
 # fiindcă în `.venv`-ul proiectului `mujoco` nu există. Restul suitei (`make test`) nu îl cere.
 pytest==9.0.1

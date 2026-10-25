@@ -6,6 +6,9 @@
 *.ppk
 !infra/terraform/**/*.pub
 .secrets/
+# Certificatele mTLS ale thing-ului IoT, scrise de `simulation/scripts/gen-iot-certs.sh`
+# din ieșirile Terraform (cheia privată și certificatul dispozitivului).
+simulation/secrets/
 
 # --- terraform ---
 **/.terraform/*
@@ -100,3 +103,6 @@ MUJOCO_LOG.TXT
 # tfvars generate local de twinctl
 *.auto.tfvars
 infra/terraform/stacks/*/envs/*.backend.hcl
+
+# Arhivele Lambda generate de Terraform (archive_file)
+infra/terraform/modules/lambda-function/.build/

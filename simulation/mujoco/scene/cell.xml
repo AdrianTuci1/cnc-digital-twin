@@ -186,19 +186,27 @@
 
     <!-- Lada de rebut, sub capătul de vest al benzii 2: podea și trei pereți, cu latura de est
          deschisă. Piesa neconformă rămâne pe bandă, trece de linia de oprire a brațului 2 și cade
-         de la capătul benzii în ladă; un perete chiar sub capătul benzii ar prinde-o. -->
+         de la capătul benzii în ladă; un perete chiar sub capătul benzii ar prinde-o.
+
+         Contactul lăzii este mai tare decât implicitul lui MuJoCo: piesa cade 0,8 m și lovește
+         podeaua cu ~4 m/s, iar la `solref` implicit (0,02 s) ar intra 8 cm în tablă și ar trece
+         prin ea. La 0,004 s — limita stabilă pentru pasul de 2 ms — penetrarea la impact este de
+         ordinul milimetrilor. -->
     <body name="scrap_bin" pos="{scrap_bin_cx} {scrap_bin_cy} 0">
       <geom name="scrap_bin_floor" type="box" size="{scrap_bin_hx} {scrap_bin_hy} {scrap_bin_floor_hz}"
-            pos="0 0 {scrap_bin_floor_z}" material="scrap_mat"/>
+            pos="0 0 {scrap_bin_floor_z}" material="scrap_mat" solref="0.004 1"/>
       <geom name="scrap_bin_wall_north" type="box"
             size="{scrap_bin_wall_hx_long} {scrap_bin_wall_hxy} {scrap_bin_wall_hz}"
-            pos="0 {scrap_bin_wall_dy} {scrap_bin_wall_z}" material="scrap_mat"/>
+            pos="0 {scrap_bin_wall_dy} {scrap_bin_wall_z}" material="scrap_mat"
+            solref="0.004 1"/>
       <geom name="scrap_bin_wall_south" type="box"
             size="{scrap_bin_wall_hx_long} {scrap_bin_wall_hxy} {scrap_bin_wall_hz}"
-            pos="0 {neg_scrap_bin_wall_dy} {scrap_bin_wall_z}" material="scrap_mat"/>
+            pos="0 {neg_scrap_bin_wall_dy} {scrap_bin_wall_z}" material="scrap_mat"
+            solref="0.004 1"/>
       <geom name="scrap_bin_wall_west" type="box"
             size="{scrap_bin_wall_hxy} {scrap_bin_wall_hy_long} {scrap_bin_wall_hz}"
-            pos="{neg_scrap_bin_wall_dx} 0 {scrap_bin_wall_z}" material="scrap_mat"/>
+            pos="{neg_scrap_bin_wall_dx} 0 {scrap_bin_wall_z}" material="scrap_mat"
+            solref="0.004 1"/>
     </body>
 
     <!-- Piedestalurile brațelor. Brațele înseși se atașează programatic la aceste cadre. -->
