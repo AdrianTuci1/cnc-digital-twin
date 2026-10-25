@@ -12,6 +12,11 @@ locals {
   domain_name     = var.domain_name == "" ? "${var.project_name}-${var.environment}" : var.domain_name
   use_default_vpc = var.vpc_id == ""
 
+  # Imaginea publică SageMaker Distribution; API-ul cere un ARN explicit pentru JupyterLab.
+  jupyter_lab_image_arn = var.jupyter_lab_image_arn == "" ? (
+    "arn:aws:sagemaker:${var.region}:885854791233:image/sagemaker-distribution-cpu"
+  ) : var.jupyter_lab_image_arn
+
   # Aplicațiile Studio se închid singure după inactivitate.
   # Aceasta este funcția nativă a serviciului, nu un script de lifecycle.
   idle_settings = {
@@ -47,7 +52,8 @@ locals {
 # Domeniul Studio montează EFS prin NFS. Traficul rămâne în interiorul grupului.
 resource "aws_security_group" "studio" {
   name_prefix = "${local.domain_name}-studio-"
-  description = "SageMaker Studio: acces NFS către EFS și trafic de ieșire."
+  # EC2 acceptă doar ASCII în descrierea grupului de securitate.
+  description = "SageMaker Studio: acces NFS catre EFS si trafic de iesire."
   vpc_id      = local.vpc_id
 
   tags = merge(local.tags, { Name = "${local.domain_name}-studio-sg" })
@@ -127,6 +133,25 @@ data "aws_iam_policy_document" "studio_inline" {
     ])
   }
 
+  # Corpusul de antrenament stă în alt stack și se citește doar; scrierea rămâne la colector.
+  dynamic "statement" {
+    for_each = length(var.read_only_bucket_arns) > 0 ? [1] : []
+
+    content {
+      sid    = "ReadTrainingData"
+      effect = "Allow"
+
+      actions = [
+        "s3:GetObject",
+        "s3:ListBucket",
+      ]
+
+      resources = flatten([
+        for arn in var.read_only_bucket_arns : [arn, "${arn}/*"]
+      ])
+    }
+  }
+
   # Doar citire: catalogul Glue este registru de schemă, nu motor de transformare.
   statement {
     sid    = "ReadCatalogAndQuery"
@@ -193,13 +218,18 @@ resource "aws_sagemaker_domain" "this" {
     # Interfața principală Studio: JupyterLab, cu oprire automată pe inactivitate.
     jupyter_lab_app_settings {
       default_resource_spec {
-        instance_type = "system"
+        # API-ul curent nu mai acceptă „system” pentru JupyterLab; aplicația rulează pe
+        # același tip mic ca kernelul și se oprește pe inactivitate.
+        instance_type       = var.default_kernel_instance_type
+        sagemaker_image_arn = local.jupyter_lab_image_arn
       }
 
       app_lifecycle_management {
         idle_settings {
-          lifecycle_management    = local.idle_settings.lifecycle_management
-          idle_timeout_in_minutes = local.idle_settings.idle_timeout_in_minutes
+          lifecycle_management        = local.idle_settings.lifecycle_management
+          idle_timeout_in_minutes     = local.idle_settings.idle_timeout_in_minutes
+          min_idle_timeout_in_minutes = var.idle_timeout_minutes
+          max_idle_timeout_in_minutes = var.idle_timeout_minutes
         }
       }
     }
@@ -233,6 +263,48 @@ resource "aws_sagemaker_domain" "this" {
   tags = local.tags
 }
 
+# JupyterLab rulează doar într-un spațiu privat; profilul de utilizator singur nu mai este
+# suficient pentru API-ul curent. Spațiul poartă numele profilului și îi aparține.
+resource "aws_sagemaker_space" "users" {
+  for_each = toset(var.user_profiles)
+
+  domain_id = aws_sagemaker_domain.this.id
+
+  # Numele spațiului trebuie să fie unic în domeniu și diferit de profilul de utilizator.
+  space_name         = "${each.value}-space"
+  space_display_name = each.value
+
+  space_settings {
+    app_type = "JupyterLab"
+
+    jupyter_lab_app_settings {
+      default_resource_spec {
+        instance_type       = var.default_kernel_instance_type
+        sagemaker_image_arn = local.jupyter_lab_image_arn
+      }
+
+      app_lifecycle_management {
+        idle_settings {
+          idle_timeout_in_minutes = var.idle_timeout_minutes
+        }
+      }
+    }
+
+  }
+
+  space_sharing_settings {
+    sharing_type = "Private"
+  }
+
+  ownership_settings {
+    owner_user_profile_name = each.value
+  }
+
+  tags = local.tags
+
+  depends_on = [aws_sagemaker_user_profile.users]
+}
+
 resource "aws_sagemaker_user_profile" "users" {
   for_each = toset(var.user_profiles)
 
@@ -245,13 +317,18 @@ resource "aws_sagemaker_user_profile" "users" {
 
     jupyter_lab_app_settings {
       default_resource_spec {
-        instance_type = "system"
+        # API-ul curent nu mai acceptă „system” pentru JupyterLab; aplicația rulează pe
+        # același tip mic ca kernelul și se oprește pe inactivitate.
+        instance_type       = var.default_kernel_instance_type
+        sagemaker_image_arn = local.jupyter_lab_image_arn
       }
 
       app_lifecycle_management {
         idle_settings {
-          lifecycle_management    = local.idle_settings.lifecycle_management
-          idle_timeout_in_minutes = local.idle_settings.idle_timeout_in_minutes
+          lifecycle_management        = local.idle_settings.lifecycle_management
+          idle_timeout_in_minutes     = local.idle_settings.idle_timeout_in_minutes
+          min_idle_timeout_in_minutes = var.idle_timeout_minutes
+          max_idle_timeout_in_minutes = var.idle_timeout_minutes
         }
       }
     }

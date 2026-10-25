@@ -9,23 +9,27 @@ locals {
     var.tags,
   )
 
-  excludes = ["__pycache__", "*.pyc", ".pytest_cache", "tests", "requirements*.txt", "*.md", ".DS_Store"]
-
-  # Al doilea director și cele următoare sunt straturi comune (de exemplu `lambdas/_shared`
-  # sau `ml/src/cncdt_ml`). `archive_file` acceptă un singur `source_dir`, deci fișierele
-  # suplimentare intră ca blocuri `source`, păstrându-și numele directorului ca prefix:
-  # `lambdas/_shared/logging.py` ajunge în arhivă ca `_shared/logging.py`, deci se importă
-  # drept `from _shared import logging`. Două straturi cu același nume de director ar intra
-  # în conflict; numele trebuie să fie unic.
-  extra_dirs = length(var.source_dirs) > 1 ? slice(var.source_dirs, 1, length(var.source_dirs)) : []
-
-  extra_files = length(local.extra_dirs) > 0 ? merge([
-    for dir in local.extra_dirs : {
+  # `archive_file` nu acceptă `source_dir` împreună cu blocuri `source`, iar Lambda-urile au
+  # nevoie de straturi comune (`_shared`, `cncdt_ml`). De aceea toate fișierele intră ca
+  # blocuri `source`: primul director păstrează căile relative, iar directoarele suplimentare
+  # primesc numele directorului ca prefix (`_shared/logging_utils.py`). Numele directoarelor
+  # trebuie să fie unic; altfel două straturi ar intra în conflict.
+  dir_files = merge([
+    for index, dir in var.source_dirs : {
       for f in fileset(dir, "**") :
-      "${basename(dir)}/${f}" => "${dir}/${f}"
+      (index == 0 ? f : "${basename(dir)}/${f}") => "${dir}/${f}"
       if can(regex("\\.(py|json|txt|cfg|toml)$", f))
+      && !can(regex("(^|/)(__pycache__|tests|\\.pytest_cache)(/|$)", f))
+      && !can(regex("\\.pyc$", f))
+      && !can(regex("(^|/)requirements[^/]*\\.txt$", f))
+      && !can(regex("\\.md$", f))
+      && !can(regex("(^|/)\\.DS_Store$", f))
     }
-  ]...) : {}
+  ]...)
+
+  explicit_files = { for local_path, archive_name in var.source_files : archive_name => local_path }
+
+  archive_files = merge(local.dir_files, local.explicit_files)
 }
 
 # ---------------------------------------------------------------- pachet
@@ -33,24 +37,12 @@ data "archive_file" "this" {
   type        = "zip"
   output_path = "${path.module}/.build/${local.name}.zip"
 
-  source_dir = var.source_dirs[0]
-  excludes   = local.excludes
-
   dynamic "source" {
-    for_each = local.extra_files
+    for_each = local.archive_files
 
     content {
       content  = file(source.value)
       filename = source.key
-    }
-  }
-
-  dynamic "source" {
-    for_each = var.source_files
-
-    content {
-      content  = file(source.key)
-      filename = source.value
     }
   }
 }
@@ -89,11 +81,11 @@ resource "aws_iam_role_policy_attachment" "xray" {
 }
 
 resource "aws_iam_role_policy" "inline" {
-  count = var.policy_json == "" ? 0 : 1
-
+  # Politica poate fi cunoscută abia la apply (depinde de ieșirile altor module), iar `count`
+  # trebuie să fie cunoscut la plan. Resursa se creează mereu; fără politică, rămâne goală.
   name   = "${local.name}-inline"
   role   = aws_iam_role.this.id
-  policy = var.policy_json
+  policy = var.policy_json == "" ? jsonencode({ Version = "2012-10-17", Statement = [] }) : var.policy_json
 }
 
 # ---------------------------------------------------------------- funcția

@@ -228,6 +228,66 @@ nb-strip: ## Golește output-urile notebook-urilor din ml/experiments/notebooks 
 nb-check: ## Verifică dacă vreun notebook din repo a rămas cu output-uri (cod 1 dacă da)
 	$(PY) $(ROOT)/scripts/nb-strip.py --check $(NB_DIR)
 
+# ---------------------------------------------------------------- SageMaker Studio
+# Domeniul are oprire automată după 60 de minute de inactivitate. `studio-stop` închide acum
+# aplicațiile (JupyterLab + kernel), ca să nu rămână compute pornit după o sesiune.
+STUDIO_DOMAIN_ID ?= $(SAGEMAKER_DOMAIN_ID)
+STUDIO_USER      ?= engineer
+STUDIO_SPACE     ?= $(STUDIO_USER)-space
+STUDIO_IMAGE_ARN ?= arn:aws:sagemaker:$(AWS_REGION):885854791233:image/sagemaker-distribution-cpu
+STUDIO_CODE_TGZ  := /tmp/cncdt-studio-code.tgz
+
+.PHONY: studio-start studio-status studio-url studio-stop studio-code
+studio-start: ## Pornește JupyterLab în spațiul privat (idempotent)
+	@test -n "$(STUDIO_DOMAIN_ID)" || { echo "lipsește SAGEMAKER_DOMAIN_ID: pune-l în .env"; exit 1; }
+	@status=$$(aws sagemaker describe-app --domain-id "$(STUDIO_DOMAIN_ID)" \
+		--space-name "$(STUDIO_SPACE)" --app-type JupyterLab --app-name default \
+		--query Status --output text 2>/dev/null || true); \
+	if [ "$$status" = "InService" ] || [ "$$status" = "Pending" ]; then \
+		echo "Studio este deja $$status"; \
+	else \
+		aws sagemaker create-app --domain-id "$(STUDIO_DOMAIN_ID)" \
+			--space-name "$(STUDIO_SPACE)" --app-type JupyterLab --app-name default \
+			--resource-spec "InstanceType=ml.t3.medium,SageMakerImageArn=$(STUDIO_IMAGE_ARN)"; \
+	fi
+
+studio-status: ## Aplicațiile Studio ale domeniului și starea lor
+	@test -n "$(STUDIO_DOMAIN_ID)" || { echo "lipsește SAGEMAKER_DOMAIN_ID: pune-l în .env"; exit 1; }
+	aws sagemaker list-apps \
+		--query "Apps[?DomainId=='$(STUDIO_DOMAIN_ID)'].{Spatiu:SpaceName,Utilizator:UserProfileName,Tip:AppType,Nume:AppName,Status:Status}" \
+		--output table
+
+studio-url: ## Link către JupyterLab, valid 12 ore
+	@test -n "$(STUDIO_DOMAIN_ID)" || { echo "lipsește SAGEMAKER_DOMAIN_ID: pune-l în .env"; exit 1; }
+	aws sagemaker create-presigned-domain-url \
+		--domain-id "$(STUDIO_DOMAIN_ID)" --space-name "$(STUDIO_SPACE)" \
+		--user-profile-name "$(STUDIO_USER)" \
+		--session-expiration-duration-in-seconds 43200 \
+		--query AuthorizedUrl --output text
+
+studio-stop: ## Oprește toate aplicațiile Studio (JupyterLab și kernel)
+	@test -n "$(STUDIO_DOMAIN_ID)" || { echo "lipsește SAGEMAKER_DOMAIN_ID: pune-l în .env"; exit 1; }
+	@aws sagemaker list-apps \
+		--query "Apps[?DomainId=='$(STUDIO_DOMAIN_ID)' && Status=='InService'].[DomainId,SpaceName,UserProfileName,AppType,AppName]" \
+		--output text | while read -r domain space user type name; do \
+			[ -n "$$domain" ] || continue; \
+			echo "opresc $$type/$$name ($${space:-$$user})"; \
+			if [ -n "$$space" ]; then \
+				aws sagemaker delete-app --domain-id "$$domain" --space-name "$$space" \
+					--app-type "$$type" --app-name "$$name"; \
+			else \
+				aws sagemaker delete-app --domain-id "$$domain" --user-profile-name "$$user" \
+					--app-type "$$type" --app-name "$$name"; \
+			fi; \
+		done
+
+studio-code: ## Urcă în S3 codul de care au nevoie notebook-urile din Studio
+	@test -n "$(NB_BUCKET)" || { echo "lipsește NOTEBOOKS_BUCKET: pune-l în .env"; exit 1; }
+	tar --exclude=.git --exclude=.venv --exclude=__pycache__ --exclude='*.pyc' \
+		-czf $(STUDIO_CODE_TGZ) -C $(ROOT) \
+		ml tests/data simulation/mujoco/cncdt_mj
+	aws s3 cp $(STUDIO_CODE_TGZ) "s3://$(NB_BUCKET)/$(NB_PREFIX)/code/cncdt-code.tgz"
+
 # ---------------------------------------------------------------- documentație
 # Diagramele sunt generate din cod (`docs/diagrams/architecture.py`), nu desenate manual.
 # Cer `graphviz` instalat (`brew install graphviz`) și pachetul `diagrams` în mediul virtual:

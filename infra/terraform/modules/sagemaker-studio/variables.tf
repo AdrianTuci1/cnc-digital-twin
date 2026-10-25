@@ -43,6 +43,12 @@ variable "default_kernel_instance_type" {
   default     = "ml.t3.medium"
 }
 
+variable "jupyter_lab_image_arn" {
+  description = "Imaginea JupyterLab pentru spațiile private. Gol folosește SageMaker Distribution CPU."
+  type        = string
+  default     = ""
+}
+
 variable "default_kernel_volume_gb" {
   description = "Dimensiunea volumului EBS al kernel-ului, în GB."
   type        = number
@@ -66,6 +72,12 @@ variable "assets_bucket_arn" {
   default     = ""
 }
 
+variable "read_only_bucket_arns" {
+  description = "Bucketuri din care rolul de execuție poate citi, fără drept de scriere (corpusul de antrenament)."
+  type        = list(string)
+  default     = []
+}
+
 variable "kms_key_arn" {
   description = "Cheia KMS pentru EFS-ul domeniului. Gol folosește cheia implicită."
   type        = string
@@ -82,6 +94,12 @@ variable "idle_timeout_minutes" {
   description = "Minutele de inactivitate după care se închide aplicația."
   type        = number
   default     = 60
+
+  # SageMaker cere cel puțin 60 de minute pentru fereastra de inactivitate.
+  validation {
+    condition     = var.idle_timeout_minutes >= 60
+    error_message = "idle_timeout_minutes trebuie să fie cel puțin 60."
+  }
 }
 
 variable "tags" {

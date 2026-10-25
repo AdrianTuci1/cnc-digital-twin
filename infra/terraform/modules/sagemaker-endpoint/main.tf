@@ -15,6 +15,18 @@ locals {
   use_prebuilt_image = var.image_uri == ""
   kms_key_id         = var.kms_key_id == "" ? null : var.kms_key_id
   is_serverless      = var.deployment_mode == "serverless"
+
+  # Modelul și configurația poartă o revizie derivată din artefact, imagine și mediu. Astfel o
+  # versiune nouă se creează înainte ca endpoint-ul să treacă pe ea, iar Terraform nu încearcă
+  # să șteargă un model aflat încă în uz. Numele endpoint-ului rămâne stabil: Lambda-ul și
+  # geamănul îl cheamă pe el.
+  revision = substr(sha1(jsonencode({
+    model_data_url = var.model_data_url
+    environment    = var.container_environment
+    image          = local.container_image
+  })), 0, 8)
+  model_name  = "${local.name}-${local.revision}"
+  config_name = "${local.name}-${local.revision}"
 }
 
 data "aws_region" "current" {}
@@ -147,7 +159,7 @@ resource "aws_iam_role_policy" "endpoint_inline" {
 
 # ---------------------------------------------------------------- model
 resource "aws_sagemaker_model" "this" {
-  name                     = local.name
+  name                     = local.model_name
   execution_role_arn       = local.execution_role_arn
   enable_network_isolation = false
 
@@ -165,11 +177,15 @@ resource "aws_sagemaker_model" "this" {
   }
 
   tags = local.tags
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # ---------------------------------------------------------------- configurația endpoint-ului
 resource "aws_sagemaker_endpoint_configuration" "this" {
-  name = local.name
+  name = local.config_name
 
   production_variants {
     variant_name           = "AllTraffic"
@@ -213,9 +229,18 @@ resource "aws_sagemaker_endpoint_configuration" "this" {
   tags = local.tags
 
   lifecycle {
+    create_before_destroy = true
+
     precondition {
       condition     = !var.enable_data_capture || var.data_capture_bucket_name != ""
       error_message = "Captura de date este activă, dar data_capture_bucket_name este gol. Completați numele bucket-ului sau dezactivați captura."
+    }
+
+    # Serverless Inference exclude explicit data capture (docs AWS: „Feature exclusions”), deci
+    # combinația ar fi refuzată de API. Oprim planul înainte, cu mesajul care spune ce se schimbă.
+    precondition {
+      condition     = !local.is_serverless || !var.enable_data_capture
+      error_message = "Serverless Inference nu acceptă data capture; folosiți deployment_mode = \"provisioned\" ori dezactivați captura."
     }
 
     precondition {

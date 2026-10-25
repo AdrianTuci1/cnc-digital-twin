@@ -168,7 +168,9 @@ module "lambda_feature_engineering" {
     TELEMETRY_NAMESPACE     = local.telemetry_namespace
     SAGEMAKER_ENDPOINT_NAME = var.enable_predictive_maintenance_endpoint ? local.pm_endpoint_name : ""
     MODEL_VERSION           = lookup(var.model_versions, "predictive_maintenance", "unversioned")
-    ANOMALY_SCORE_THRESHOLD = "0.65"
+    # Scorul RCF nu este o probabilitate: valoarea este percentila 99 din `metrics.json`,
+    # scrisă de `pm-02-rcf.ipynb`. Un prag de 0,65 ar marca aproape orice fereastră.
+    ANOMALY_SCORE_THRESHOLD = tostring(var.predictive_maintenance_anomaly_threshold)
     DATA_LAKE_BUCKET        = module.storage.data_lake_bucket_name
     # Pantele degradării din simulare, din care se estimează RUL publicat în CloudWatch.
     # Se schimbă în același commit cu `.env` (CNCDT_TOOL_WEAR_RATE, CNCDT_JOINT_FRICTION_RATE).
@@ -246,10 +248,11 @@ module "lambda_qa_vision" {
     "${local.lambdas_dir}/_shared",
   ]
 
-  handler            = "handler.lambda_handler"
-  architecture       = var.lambda_architecture
-  memory_mb          = 1024
-  timeout_seconds    = 60
+  handler      = "handler.lambda_handler"
+  architecture = var.lambda_architecture
+  memory_mb    = 1024
+  # Endpoint-ul serverless are cold start; prima invocare poate lua peste un minut.
+  timeout_seconds    = 120
   log_retention_days = var.lambda_log_retention_days
   policy_json        = data.aws_iam_policy_document.qa_vision_inline.json
 
@@ -258,9 +261,11 @@ module "lambda_qa_vision" {
     SAGEMAKER_ENDPOINT_NAME = var.vision_qa_endpoint_enabled ? local.qa_endpoint_name : ""
     MODEL_VERSION           = lookup(var.model_versions, "vision_qa", "unversioned")
     CONTROL_TOPIC           = local.qa_verdict_topic
-    DEFECT_THRESHOLD        = "0.5"
-    DATA_LAKE_BUCKET        = module.storage.data_lake_bucket_name
-    IOT_DATA_ENDPOINT       = module.iot_ingestion.iot_data_endpoint
+    # Pragul ales de `qa-02-vision.ipynb` (recall pe PASS peste limita operațională),
+    # scris în `deployment.json`; nu este același lucru cu 0,5 implicit.
+    DEFECT_THRESHOLD  = tostring(var.vision_qa_defect_threshold)
+    DATA_LAKE_BUCKET  = module.storage.data_lake_bucket_name
+    IOT_DATA_ENDPOINT = module.iot_ingestion.iot_data_endpoint
     # Fotografia de la zona lamei/piston pleacă spre endpoint. Verdictul vine exclusiv din
     # modelul antrenat: fără endpoint configurat, Lambda-ul numără cadrele (QaModelMissing) și
     # nu publică nimic, iar piesa urmează ruta de rezervă din simulare.
@@ -408,6 +413,7 @@ module "sagemaker_studio" {
   enable_idle_shutdown         = var.enable_studio_idle_shutdown
   data_lake_bucket_arn         = module.storage.data_lake_bucket_arn
   assets_bucket_arn            = module.storage.assets_bucket_arn
+  read_only_bucket_arns        = var.training_data_bucket_arn == "" ? [] : [var.training_data_bucket_arn]
   kms_key_arn                  = var.kms_key_arn
 
   tags = var.tags
@@ -427,17 +433,21 @@ module "endpoint_predictive_maintenance" {
   serverless_memory_mb       = var.ml_serverless_memory_mb
   serverless_max_concurrency = var.ml_serverless_max_concurrency
 
-  prebuilt_image_repository = "sagemaker-scikit-learn"
-  prebuilt_image_tag        = "1.2-1-cpu-py3"
+  # Containerul built-in Random Cut Forest, nu un inference.py propriu: artefactul are
+  # `model_algo-*.model.rcf`, pe care doar acest container îl citește. Lambda-ul trimite
+  # `{"instances": [[...]]}` și citește înapoi `{"scores": [{"score": ...}]}`.
+  prebuilt_image_repository = "randomcutforest"
+  prebuilt_image_tag        = "1"
 
-  enable_data_capture      = true
+  # Serverless Inference nu acceptă data capture; captura se pornește doar pe provisioned.
+  enable_data_capture      = var.ml_endpoint_deployment_mode != "serverless"
   data_capture_bucket_name = module.storage.data_lake_bucket_name
   data_capture_prefix      = "inference-logs/predictive-maintenance"
   model_data_bucket_arn    = module.storage.data_lake_bucket_arn
   kms_key_id               = var.kms_key_arn
 
   container_environment = {
-    ANOMALY_THRESHOLD = "0.65"
+    ANOMALY_THRESHOLD = tostring(var.predictive_maintenance_anomaly_threshold)
     MODEL_VERSION     = lookup(var.model_versions, "predictive_maintenance", "unversioned")
   }
 
@@ -460,14 +470,15 @@ module "endpoint_vision_qa" {
   prebuilt_image_repository = var.vision_qa_prebuilt_image_repository
   prebuilt_image_tag        = var.vision_qa_prebuilt_image_tag
 
-  enable_data_capture      = true
+  # Serverless Inference nu acceptă data capture; captura se pornește doar pe provisioned.
+  enable_data_capture      = var.ml_endpoint_deployment_mode != "serverless"
   data_capture_bucket_name = module.storage.data_lake_bucket_name
   data_capture_prefix      = "inference-logs/vision-qa"
   model_data_bucket_arn    = module.storage.data_lake_bucket_arn
   kms_key_id               = var.kms_key_arn
 
   container_environment = {
-    DEFECT_THRESHOLD = "0.5"
+    DEFECT_THRESHOLD = tostring(var.vision_qa_defect_threshold)
     MODEL_VERSION    = lookup(var.model_versions, "vision_qa", "unversioned")
   }
 

@@ -187,6 +187,12 @@ variable "sagemaker_training_instance_types" {
   default     = ["ml.t3.medium", "ml.m5.large", "ml.g5.xlarge", "ml.g5.2xlarge"]
 }
 
+variable "training_data_bucket_arn" {
+  description = "ARN-ul bucket-ului corpusului de antrenament, citit din Studio. Gol nu acordă acces."
+  type        = string
+  default     = ""
+}
+
 variable "enable_studio_idle_shutdown" {
   description = "Închide aplicațiile Studio inactive pentru a reduce costul."
   type        = bool
@@ -206,6 +212,12 @@ variable "predictive_maintenance_model_data_url" {
   default     = ""
 }
 
+variable "predictive_maintenance_anomaly_threshold" {
+  description = "Pragul scorului RCF; se copiază din metrics.json (percentila 99 pe ferestre sănătoase), nu este o probabilitate."
+  type        = number
+  default     = 0.65
+}
+
 variable "vision_qa_endpoint_enabled" {
   description = "Creează endpoint-ul pentru modelul de inspecție vizuală. Oprit, Lambda-ul de inspecție publică zero verdicte (numara cadrele în QaModelMissing), fiindcă verdictul nu se fabrică din metadate."
   type        = bool
@@ -216,6 +228,12 @@ variable "vision_qa_model_data_url" {
   description = "URL-ul S3 al model.tar.gz pentru modelul de inspecție vizuală."
   type        = string
   default     = ""
+}
+
+variable "vision_qa_defect_threshold" {
+  description = "Pragul probabilității de defect; se copiază din deployment.json (pragul ales la antrenare), nu se lasă la 0,5 din reflex."
+  type        = number
+  default     = 0.5
 }
 
 variable "ml_endpoint_deployment_mode" {
@@ -244,13 +262,13 @@ variable "ml_serverless_max_concurrency" {
 variable "vision_qa_prebuilt_image_repository" {
   description = "Depozitul de imagini preconstruite pentru inferența de viziune."
   type        = string
-  default     = "sagemaker-pytorch-inference"
+  default     = "pytorch-inference"
 }
 
 variable "vision_qa_prebuilt_image_tag" {
-  description = "Eticheta imaginii preconstruite de viziune."
+  description = "Eticheta imaginii preconstruite de viziune. CPU, fiindcă endpoint-ul serverless nu are GPU."
   type        = string
-  default     = "2.1.0-gpu-py310-cu121-ubuntu20.04-sagemaker"
+  default     = "2.4.0-cpu-py311-ubuntu22.04-sagemaker-v1.34"
 }
 
 variable "model_versions" {
