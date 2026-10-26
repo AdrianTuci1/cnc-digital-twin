@@ -67,6 +67,10 @@ după reparație.
   alarma de index și linia de RUL apar singure.
 - Dacă `create_sns_topic` este fals, alarmele rămân fără acțiuni (`alarm_actions = []`), deci
   se pot rula în dev fără să trimită nimic.
+- Subiectul SNS este criptat cu o cheie KMS proprie, cu politică pentru CloudWatch și SNS.
+  `alias/aws/sns` nu poate primi o politică, iar CloudWatch nu poate publica în topicul criptat
+  cu ea: alarma intră în `ALARM`, dar acțiunea eșuează cu „CloudWatch Alarms does not have
+  authorization to access the SNS topic encryption key". Cheia proprie adaugă ≈ 1 USD/lună.
 
 ## Alternative respinse
 

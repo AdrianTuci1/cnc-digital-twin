@@ -35,13 +35,145 @@ locals {
 }
 
 # ---------------------------------------------------------------- notificări
+# Cheia AWS-managed `alias/aws/sns` nu poate primi o politică proprie, iar CloudWatch Alarms
+# are nevoie de `kms:GenerateDataKey*` și `kms:Decrypt` ca să publice într-un topic criptat.
+# Fără ea, alarma intră în ALARM, dar acțiunea SNS eșuează cu „CloudWatch Alarms does not have
+# authorization to access the SNS topic encryption key". De aceea topicul are o cheie proprie.
+data "aws_iam_policy_document" "alarms_key" {
+  count = var.create_sns_topic ? 1 : 0
+
+  statement {
+    sid       = "AllowAccountAdministration"
+    effect    = "Allow"
+    actions   = ["kms:*"]
+    resources = [aws_kms_key.alarms[0].arn]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${var.account_id}:root"]
+    }
+  }
+
+  statement {
+    sid       = "AllowSnsToUseKey"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey*"]
+    resources = [aws_kms_key.alarms[0].arn]
+
+    principals {
+      type        = "Service"
+      identifiers = ["sns.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["sns.${var.region}.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "AllowCloudWatchAlarmsToUseKey"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey*"]
+    resources = [aws_kms_key.alarms[0].arn]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["sns.${var.region}.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_kms_key" "alarms" {
+  count = var.create_sns_topic ? 1 : 0
+
+  description             = "Cheia topicului SNS de alarme ${local.name}"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+
+  tags = local.tags
+}
+
+resource "aws_kms_alias" "alarms" {
+  count = var.create_sns_topic ? 1 : 0
+
+  name          = "alias/${local.name}-alarms"
+  target_key_id = aws_kms_key.alarms[0].id
+}
+
+resource "aws_kms_key_policy" "alarms" {
+  count = var.create_sns_topic ? 1 : 0
+
+  key_id = aws_kms_key.alarms[0].id
+  policy = data.aws_iam_policy_document.alarms_key[0].json
+}
+
 resource "aws_sns_topic" "alarms" {
   count = var.create_sns_topic ? 1 : 0
 
   name              = "${local.name}-alarms"
-  kms_master_key_id = "alias/aws/sns"
+  kms_master_key_id = aws_kms_key.alarms[0].arn
 
   tags = local.tags
+}
+
+# CloudWatch publică în numele alarmelor, nu al contului: fără acest drept explicit, acțiunea
+# alarmei e refuzată chiar dacă utilizatorul care a creat-o are acces la topic.
+data "aws_iam_policy_document" "alarms_topic" {
+  count = var.create_sns_topic ? 1 : 0
+
+  statement {
+    sid    = "AllowAccountAdministration"
+    effect = "Allow"
+    actions = [
+      "sns:GetTopicAttributes",
+      "sns:SetTopicAttributes",
+      "sns:AddPermission",
+      "sns:RemovePermission",
+      "sns:DeleteTopic",
+      "sns:Subscribe",
+      "sns:ListSubscriptionsByTopic",
+      "sns:Publish",
+    ]
+    resources = [aws_sns_topic.alarms[0].arn]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${var.account_id}:root"]
+    }
+  }
+
+  statement {
+    sid       = "AllowCloudWatchAlarmsToPublish"
+    effect    = "Allow"
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.alarms[0].arn]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:cloudwatch:${var.region}:${var.account_id}:alarm:*"]
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "alarms" {
+  count = var.create_sns_topic ? 1 : 0
+
+  arn    = aws_sns_topic.alarms[0].arn
+  policy = data.aws_iam_policy_document.alarms_topic[0].json
 }
 
 resource "aws_sns_topic_subscription" "email" {

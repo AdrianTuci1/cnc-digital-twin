@@ -37,11 +37,17 @@ sursa de adevăr, consola doar pentru investigație.
 ## Alarme și notificări
 
 Alarmele de fabrică (`DegradationIndex`, `RULMinutes`, cu dimensiunea `Element`) intră în
-`ALARM` cu notificare pe SNS și trec singure în `OK` după reparația din panoul Isaac Sim
-(`replace_tool`, `repair_joints`, `repair_all`), care resetează indexul. Subiectul SNS
+`ALARM` cu notificare pe SNS și trec singure în `OK` după reparația din panoul MuJoCo ori Isaac
+Sim (`replace_tool`, `repair_joints`, `repair_all`), care resetează indexul. Subiectul SNS
 `<prefix>-alarms` primește abonamente de e-mail și, opțional, de SMS
 (`alarm_email_endpoints`, `alarm_sms_numbers`). Contul SNS pornește în sandbox, deci până la
 accesul de producție SMS-ul ajunge doar la numere verificate.
+
+Subiectul este criptat cu o cheie KMS proprie (`alias/<prefix>-alarms`), nu cu
+`alias/aws/sns`: cheia AWS-managed nu poate primi o politică, iar CloudWatch Alarms are nevoie
+de `kms:GenerateDataKey*` și `kms:Decrypt` ca să publice. Fără ele, alarma intră în `ALARM`,
+dar notificarea eșuează tăcut cu „CloudWatch Alarms does not have authorization to access the
+SNS topic encryption key"; istoricul alarmei arată `Failed to execute action`.
 
 ## Runbook-uri
 
