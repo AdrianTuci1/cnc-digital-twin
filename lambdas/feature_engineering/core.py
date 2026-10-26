@@ -79,12 +79,13 @@ METRIC_DEGRADATION_INDEX = "DegradationIndex"
 METRIC_RUL_MINUTES = "RULMinutes"
 
 # Elementele urmărite pentru degradare: numele din metrici → câmpul din fereastra agregată.
-# Uzura sculei crește doar în timpul așchierii, frecarea articulațiilor doar cât timp robotul
+# Uzura sculei crește doar în timpul așchierii, frecarea articulațiilor doar cât timp brațul
 # se mișcă, deci RUL este exprimat în minute de operare continuă: o limită de jos, care nu
-# crește când celula stă.
+# crește când celula stă. Brațele au elemente separate, ca fiecare să aibă gauge și alarmă.
 DEGRADATION_ELEMENTS: tuple[tuple[str, str], ...] = (
     ("cnc", "tool_wear_index"),
-    ("robot", "joint_friction_index"),
+    ("arm1", "joint_friction_index_arm1"),
+    ("arm2", "joint_friction_index_arm2"),
 )
 
 
@@ -502,7 +503,7 @@ def degradation_metrics(
 ) -> list[dict[str, Any]]:
     """Metricile de degradare ale unei ferestre: indicele și RUL, pe element.
 
-    Dimensiunea ``Element`` separă mașina CNC de brațul robotic, ca alarmele și panourile să
+    Dimensiunea ``Element`` separă mașina CNC de fiecare braț, ca alarmele și panourile să
     poată urmări fiecare element în parte.
     """
     if not rates:

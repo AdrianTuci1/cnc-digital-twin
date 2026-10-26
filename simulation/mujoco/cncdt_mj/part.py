@@ -133,6 +133,22 @@ def narrow_axes_deg(family_name: str | None = None) -> tuple[float, ...]:
     return tuple(sorted(set(axes)))
 
 
+@lru_cache(maxsize=None)
+def narrow_width_m(family_name: str | None = None) -> float:
+    """Cea mai mică lățime a piesei, în metri: deschiderea de care are nevoie griperul.
+
+    Este chiar minimul pe care îl caută :func:`narrow_axes_deg`, dar în metri: la roată este
+    diametrul, la triunghi înălțimea, la placă latura scurtă. Se folosește ca să se știe dacă
+    falcile pot închide pe laturile piesei ori doar pe fața de sus.
+    """
+    variant = build_variant(DEFAULT_SEED, "PASS", family_name)
+    points = np.asarray(variant.vertices, dtype=float)[:, :2] * MESH_SCALE
+    angles = np.arange(0.0, 180.0, 0.25)
+    directions = np.column_stack((np.cos(np.radians(angles)), np.sin(np.radians(angles))))
+    projections = points @ directions.T
+    return float((projections.max(axis=0) - projections.min(axis=0)).min())
+
+
 @dataclass(frozen=True)
 class BlankStock:
     """Blocul brut: amprentă rotundă ori pătrată, aceeași înălțime."""

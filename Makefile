@@ -308,12 +308,13 @@ cell-layout: ## Regenerează planul celulei, văzut de sus (docs/diagrams/cnc-ce
 # creează o singură dată, iar `make mj-check` este poarta: iese cu cod 1 dacă vreo verificare a
 # scenei cade. `make test` nu depinde de el, fiindcă suita proiectului rulează fără `mujoco`;
 # `make mj-test` rulează, din venv-ul geamănului, testele care au nevoie de motor. `make mj-demo`
-# rulează ciclul brațelor offscreen și tipărește cifrele fiecărei opriri; ca să vezi brațele
-# mișcându-se, viewer-ul cere `mjpython` și ține fereastra deschisă, deci nu are țintă Makefile:
-#   simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo
+# rulează ciclul brațelor offscreen și tipărește cifrele fiecărei opriri. `make mj-view` deschide
+# viewer-ul cu ciclul celulei, ca brațele să se vadă mișcându-se; `MJ_VIEW_ARGS` adaugă steaguri,
+# de pildă `MJ_VIEW_ARGS=--iot` pentru trimiterea eșantioanelor în IoT Core.
 MJ_DIR     := simulation/mujoco
 MJ_PY      := $(ROOT)/$(MJ_DIR)/.venv/bin/python
 MJ_MJPYTHON := $(ROOT)/$(MJ_DIR)/.venv/bin/mjpython
+MJ_VIEW_ARGS ?= --demo
 # Familiile de piese pe care le parcurge `make mj-demo`. Ciclul atinge locul familiei în raft, deci
 # fiecare familie este o probă separată; `make mj-demo MJ_FAMILIES=wheel_100` scurtează proba.
 MJ_FAMILIES ?= wheel_100 gusset_72 hex_68 link_68 pinion_56 plate_84
@@ -411,9 +412,9 @@ mj-demo: ## Rulează ciclul brațelor (offscreen), familie cu familie, și rapor
 		cd $(ROOT) && $(MJ_PY) $(MJ_DIR)/view.py --demo --family $$family || exit 1; \
 	done
 
-mj-view: ## Deschide viewer-ul MuJoCo și panoul de uzură/reparații
+mj-view: ## Deschide viewer-ul cu ciclul celulei și panoul de uzură/reparații
 	@test -x $(MJ_MJPYTHON) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }
-	cd $(ROOT) && $(MJ_MJPYTHON) $(MJ_DIR)/view.py --view
+	cd $(ROOT) && $(MJ_MJPYTHON) $(MJ_DIR)/view.py --view $(MJ_VIEW_ARGS)
 
 mj-test: ## Testele geamănului care ating motorul; rulează din venv-ul lui (pytest e acolo)
 	@test -x $(MJ_PY) || { echo "lipsește $(MJ_DIR)/.venv: rulează 'make mj-venv'"; exit 1; }

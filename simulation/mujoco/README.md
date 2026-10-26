@@ -31,7 +31,7 @@ make mj-check    # poarta: compilează scena, măsoară, raportează; iese cu 1 
 make mj-test     # testele geamănului care ating motorul, din venv-ul lui
 make mj-render   # scrie renders/cell.png și renders/arm2_wrist_camera.png
 make mj-demo     # rulează ciclul celulei, cu prindere fizică, și tipărește cifrele fiecărei opriri
-make mj-view     # deschide viewer-ul și panoul de uzură/reparații
+make mj-view     # deschide viewer-ul cu ciclul celulei și panoul de uzură/reparații
 make mj-record   # colectează sesiuni de antrenare, câte una pe familie, în runs/
 make mj-collect  # colectează (MJ_COLLECT_CYCLES cicluri pe familie) și urcă în bucketul data lake
 make mj-collect-plan   # tipărește ce ar urca `make mj-collect`, fără să atingă bucketul
@@ -117,6 +117,7 @@ simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo --r
 # care îl repară panoul și rămîne deschis după ciclu, ca uzura injectată și reparația să ajungă
 # în ferestrele următoare.
 simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo --iot
+make mj-view MJ_VIEW_ARGS="--demo --iot"   # aceeași comandă, prin Makefile
 
 # Cu blocul brut lăsat mai în amonte și în reluare lentă, ca transportul până la linia de oprire să
 # se vadă (altfel pornește chiar la linia benzii 1). Piesa mașinată stă pe masa de descărcare a
@@ -134,7 +135,8 @@ piesa, blocul brut, compartimentul din raft și cota de lucru), `--blank-shape`,
 piedestalului brațelor, pentru măsurători), `--demo-settle` (câți pași se așteaptă la fiecare
 oprire), `--shots [DIR]`,
 `--width`, `--height`, iar pentru viewer `--belts`/`--no-belts`, `--speed`, `--route` (`rack`,
-`scrap`, `vision`), `--iot` și `--hold`. La pozițiile cerute explicit, cota care lipsește rămâne cea
+`scrap`, `vision`), `--iot`, `--hold`, `--loop`/`--no-loop`, `--view-fps` și
+`--panel`/`--no-panel`. La pozițiile cerute explicit, cota care lipsește rămâne cea
 din plan: `--blank-x 0.6` mută piesa pe banda 1, fără să ceară și `--blank-y`.
 
 Viewer-ul rulează în ritm real și tipărește în terminal, la fiecare secundă simulată, ce piesă e pe
@@ -148,16 +150,17 @@ vorbește cu `view.py` prin linii JSON: comenzile ies pe stdout, iar starea intr
 
 | Buton | Comandă | Efect |
 | --- | --- | --- |
-| Uzură +0.1 / Uzură +0.25 | `inject_tool_wear` | adaugă la uzura sculei |
-| Frecare +0.25 | `inject_joint_friction` | adaugă la frecarea ambelor brațe |
-| Sculă nouă | `replace_tool` | readuce scula la sănătate deplină |
-| Repară articulații | `repair_joints` | readuce ambele brațe |
-| Repară tot | `repair_all` | scula și brațele, fără benzi |
-| Reset degradare | `reset_wear` | toate cele șapte componente și rata de uzură |
+| CNC wear +0.1 / +0.25 | `inject_tool_wear` | adaugă la uzura sculei |
+| New CNC tool | `replace_tool` | readuce scula la sănătate deplină |
+| Arm 1/2 inject +0.25 | `inject_wear` (`arm1`, `arm2`) | adaugă la frecarea unui singur braț |
+| Arm 1/2 repair | `repair` (`arm1`, `arm2`) | readuce un singur braț |
+| Repair all | `repair_all` | scula și brațele, fără benzi |
+| Reset wear | `reset_wear` | toate cele șapte componente și rata de uzură |
 
-Fereastra arată uzura sculei, frecarea articulațiilor, calitatea suprafeței, eșecurile active și
+Fereastra arată uzura sculei, frecarea fiecărui braț, calitatea suprafeței, eșecurile active și
 ultima acțiune. Uzura brațelor și a benzilor curge în timpul simulării; scula se uzează la
-așchiere, iar în viewer se injectează din butoane.
+așchiere, iar în viewer se injectează din butoane. Fiecare braț se injectează și se repară
+separat, iar indicii lui ajung în CloudWatch pe elementele `arm1` și `arm2` (ADR 0026).
 
 ```bash
 # Panoul pornește implicit. `--no-panel` lasă doar viewer-ul.
@@ -171,11 +174,16 @@ fereastră și scrie motivul în terminal. Panoul este o unealtă de dezvoltare:
 ajung în producție prin schema de control, fără Tkinter.
 
 Cu `--iot`, eșantioanele viewer-ului pleacă în IoT Core din exact `WearModel` pe care îl repară
-panoul, la 10 Hz. Viewer-ul rămîne deschis după ciclu (`--hold`, implicit când `--iot` este
+panoul, la 10 Hz, cu `machine_state` din faza ciclului și `is_synthetic_defect` din familia și
+defectul piesei. `cncdt_mj/iot.py` numără PUBACK-urile, nu doar apelurile paho: jurnalul scrie
+`sent`, `acked`, `failed`, `rejected`, starea conexiunii și prima eroare, iar la închidere așteaptă
+pînă la 3 s confirmările. Viewer-ul rămîne deschis după ciclu (`--hold`, implicit când `--iot` este
 pornit), ca să poți injecta uzură, vedea `DegradationIndex` în CloudWatch și apoi apăsa „Repară
 tot”; eșantioanele următoare coboară indicele, iar alarma se stinge la evaluarea următoare. Prima
 fereastră Firehose apare în circa un minut. Fără certificatele din `simulation/secrets/`, `--iot`
-se oprește cu mesajul care trimite la `simulation/scripts/gen-iot-certs.sh`.
+se oprește cu mesajul care trimite la `simulation/scripts/gen-iot-certs.sh`. La finalul unei
+sesiuni `run.py --iot`, clientul se închide întîi, apoi raportează `confirmate/total`, ca cifra să
+vină din PUBACK-uri.
 
 Suita proiectului (`make test`) rulează fără `mujoco` și include partea pură a testelor
 geamănului, `tests/unit/test_mujoco_scene.py`, plus contractele colectării
@@ -199,12 +207,14 @@ atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care a
 | `cncdt_mj/telemetry.py` | Contractele: eșantionul brut cu exact câmpurile din `cnc.telemetry.v1.json`, metadatele cadrului de inspecție, etichetele sesiunii, plus un validator mic peste fișierele de schemă (fără dependența `jsonschema`). **Fără MuJoCo.** |
 | `cncdt_mj/wear.py` | Motorul de uzură: sănătatea celor șapte componente pe timpul lor de lucru, efectele în mărimile din contract, eșecurile discrete cu hazard crescător și acțiunile de operator, cu etichetele lor. **Fără MuJoCo.** |
 | `cncdt_mj/control.py` | Comenzile panoului și ale viewer-ului: aceleași nume ca schema de control, plus `reset_wear`; ține `ControlSession` peste motorul de uzură. **Fără MuJoCo.** |
+| `cncdt_mj/journal.py` | Inelul de evenimente afișat în viewer și în panou: conexiunea IoT, confirmările brokerului, verdictul endpoint-ului, comenzile operatorului, starea ciclului. **Fără MuJoCo.** |
+| `cncdt_mj/pacing.py` | Ritmul de redesenare: pașii de simulare rămîn 500/s, dar viewer-ul desenează `--view-fps` cadre pe secundă, ca GPU-ul să nu țină laptopul fierbinte degeaba. **Fără MuJoCo.** |
 | `cncdt_mj/export.py` | Corpusul de antrenare: așezarea cheilor în bucket, manifestul și verificările care opresc urcarea unui corpus cu găuri. **Fără MuJoCo.** |
 | `cncdt_mj/scene.py` | Compunerea scenei: `scene/cell.xml` plus cele două brațe atașate programatic, cu camerele de pe flanșe. Unul dintre modulele care importă `mujoco`. |
 | `cncdt_mj/cell.py` | Celula în mișcare: cine e în contact cu banda, ce viteză are piesa, ce forță se scrie în `data.xfrc_applied`. Al doilea modul care importă `mujoco`. |
-| `cncdt_mj/arms.py` | Brațele: numele articulațiilor și ale actuatoarelor, lungimea sculei măsurată în scenă, cinematica inversă, urmărirea liniei dintre două puncte și strângerea. Importă `mujoco`. |
+| `cncdt_mj/arms.py` | Brațele: numele articulațiilor și ale actuatoarelor, lungimea sculei măsurată în scenă, cinematica inversă, urmărirea liniei cu orientare interpolată și comenzi rampate, plus strângerea. Importă `mujoco`. |
 | `cncdt_mj/grasp.py` | Falcile pe piesă: închidere comandată, contact, legătură `weld` activată la prindere și clema de suprafață, plus raportul fiecărei prinderi. Importă `mujoco`. |
-| `cncdt_mj/grasp_cycle.py` | Ciclul complet: transport, preluare, universal, schimb de material, bandă, raft, variație de poziție din sămânță și verificările de la sfîrșit. Importă `mujoco`. |
+| `cncdt_mj/grasp_cycle.py` | Ciclul complet: transport, preluare, universal, schimb de material, bandă, raft, variație de poziție din sămânță și verificările de la sfîrșit. În flux continuu, încărcarea următorului bloc se înregistrează pe o copie a stării și se redă cît brațul 2 sortează. Importă `mujoco`. |
 | `cncdt_mj/sensors.py` | Din starea motorului în mărimi de proces: efortul articulațiilor, forța falcilor, poziția și viteza pieselor, sarcina de contact. Importă `mujoco`. |
 | `cncdt_mj/camera.py` | Randarea offscreen: scrierea PNG fără dependențe externe, cadrele știute ale camerei libere și ținerea minte a randatoarelor. Importă `mujoco`. |
 | `scene/cell.xml` | Șablonul celulei. Cifrele nu stau în el: se pun prin substituție, din `layout.scene_geometry()`. |
@@ -218,7 +228,7 @@ atinge scena se sare acolo și se rulează cu `make mj-test`, din venv-ul care a
 | `modal_collect.py` | Aplicația Modal: sesiuni pe CPU sau GPU T4, datasetul de piese pe GPU-uri, identitate federată și urcare directă în bucket. |
 
 Consecința practică a împărțirii: `layout`, `part`, `belt`, `checks`, `moves`, `povs`, `telemetry`,
-`textures`, `wear`, `control`, `export` și `part_images` se importă din
+`textures`, `wear`, `control`, `export`, `journal`, `pacing` și `part_images` se importă din
 `.venv`-ul proiectului, unde `mujoco` nu există (ADR 0012), iar tot ce atinge motorul se validează
 rulând `view.py --check`. Lista modulelor de motor (`scene.py`, `cell.py`, `arms.py`, `grasp.py`,
 `grasp_cycle.py`, `camera.py`, `sensors.py`, `part_render.py`) este scrisă
@@ -262,7 +272,12 @@ faptul că niciun braț nu atinge un element al celulei la poziția nominală. A
 brațul 1 prinde blocul de pe banda 1, îl lasă în universal, mașina are fereastra ei de așchiere,
 schimbul de material scoate piesa mașinată pe masa de descărcare, brațul 1 o duce pe banda 2, banda
 o aduce la linia de preluare, iar brațul 2 o așază în compartimentul familiei ei (`--family` alege
-familia, deci și compartimentul). La fiecare oprire se tipăresc eroarea
+familia, deci și compartimentul). Cu `--loop`, imediat după verdict brațul 1 începe încărcarea
+următorului bloc, cît brațul 2 își duce piesa la raft; ciclul următor pornește direct la așchiere.
+Fără `--family`, `--loop` rotește cele șase familii în ordinea compartimentelor, deci fiecare ciclu
+mașinează altă variantă de piesă și o lasă în compartimentul ei: după șase cicluri, raftul arată
+toate cele șase forme.
+La fiecare oprire se tipăresc eroarea
 rămasă (poziție și rotire a sculei), cea mai mare abatere de pe drum, câți pași a durat și
 contactele; la fiecare prindere, dacă falcile au atins piesa, deschiderea măsurată și reușita.
 Iese cu cod 1 dacă o oprire nu ajunge la punct, dacă o **verigă** a brațului atinge celula ori dacă
@@ -273,9 +288,10 @@ Un punct se atinge așa: `arms.solve_point` caută configurația prin cinematica
 jacobianul corpului mâinii, pornind din două sămânțe — comanda curentă și poziția nominală — și
 tăind soluția la capetele actuatoarelor; dacă rotirea cerută de plan nu prinde ținta la 2 mm,
 rotirea se caută din 45° în 45°. Apoi `arms.follow_line` merge în linie dreaptă în spațiul sculei,
-din 10 mm în 10 mm, la 0,15 m/s, fiecare punct rezolvat din cel dinainte. În timpul drumului falcile
-rămîn deschise; la punctul de preluare, `grasp.py` comandă actuatorul lor spre închis și așteaptă
-contactul.
+la 0,15 m/s, cu orientarea interpolată cu `slerp` pe tot drumul și cu comenzile rampate la
+`JOINT_SPEED_RAD_S`; unghiurile mari primesc puncte în plus, ca încheietura să nu se răsucească
+într-un singur pas. În timpul drumului falcile rămîn deschise; la punctul de preluare, `grasp.py`
+comandă actuatorul lor spre închis și așteaptă contactul.
 
 Lungimea sculei nu se presupune: se măsoară în scenă, de la flanșă la punctul de strângere, și iese
 **102,9 mm** pe amândouă brațele. Ea intră în retragerea de deasupra punctului
@@ -290,32 +306,32 @@ Trei lecții de drum, toate măsurate:
 2. **Punctul de trecere pe la vest de mașină** (`moves.VIA`). Dreapta dintre universal și așezarea
    pe banda 2 iese din mașină exact prin colțul ei sud-vestic; brațul nu are planificator de
    traiectorie, deci intră în carcasă. Măsurat: fără punctul de trecere scula rămânea cu 880 mm de
-   țintă și mâna pe mașină, cu el eroarea maximă a ciclului este 21,2 mm, la compartimentul cel mai
-   jos al raftului.
+   țintă și mâna pe mașină, cu el eroarea maximă a ciclului este 7,7 mm, în compartimentul sudic
+   al raftului.
 3. **Punctul de trecere din fața dulapului** (`moves.RACK_VIA_X`, `moves.RACK_VIA_LIFT_M`).
    Dreapta de la preluarea de pe banda 2 până la un compartiment taie colțul dulapului la cota de
-   lucru. Trecerea stă la x = 2,92 m în dreptul compartimentului sudic și la 3,05 m în dreptul
-   celui nordic, la 5 cm peste punctul de lucru, iar apropierea propriu-zisă se face înclinat, la
-   50° în sud și 30° în nord (`moves.RACK_APPROACH_DEG`, `moves.RACK_APPROACH_NORTH_DEG`). La 45°
+   lucru. Dulapul stă la vest de braț, cu fața estică deschisă la x = 2,22 m, iar trecerea stă la
+   x = 2,48 m, la 5 cm peste punctul de lucru și la cel puțin 0,35 m de axul brațului. Apropierea
+   propriu-zisă se face înclinat, la 50° în sud și 30° în nord (`moves.RACK_APPROACH_DEG`,
+   `moves.RACK_APPROACH_NORTH_DEG`). La 45°
    în compartimentul nordic încheietura se răsucește până la limită (85,7° eroare); la 30° intră
    drept. Raftul de sus se atinge direct, fără trecere, fiindcă un punct în fața lui lasă brațul
    într-o ramură din care nu mai coboară (95 mm eroare), iar retragerea păstrează 4 cm până la
    limita de atingere. Toate cele șase familii ajung în compartimente, cu eroarea maximă de
-   23 mm — la compartimentul cel mai jos și cel mai apropiat de bază, unde brațul stă îndoit la
-   limită.
+   7,7 mm în compartimentul sudic și 4,0 mm în cel nordic.
 
 Piedestalul brațelor este cota care nu se poate decide din plan. La 0,55 m ciclul **cade**: ca să
 ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar acolo
 platforma este deasupra lui (`arm2_link3↔belt_out`, 106 mm eroare la punctul de deasupra), iar
 compartimentele dulapului devin de neatins (`arm2_link3↔rack`, peste 1 m eroare). La 0,95 m, cota
-documentată acum, `make mj-demo` încheie ciclul pentru toate cele șase familii: 23 mm eroare
-maximă pe cele 118 opriri — 21–23 mm la compartimentul cel mai jos, 6,8 mm în restul —, 6/6
-prinderi pe ciclu, nicio verigă atinsă, ~70 s simulați pe familie.
+documentată acum, `make mj-demo` încheie ciclul pentru toate cele șase familii: 7,7 mm eroare
+maximă în compartimentul sudic și 4,0 mm în cel nordic, 6/6
+prinderi pe ciclu, nicio verigă atinsă, ~82 s simulați pe familie în regim, după primul ciclu.
 Alegerea este scrisă în `docs/11-geaman-mujoco.md` §2 și §10. `view.py --base-z` coboară cota
 pentru măsurători.
 
 Dulapul, pe rând: la 0,95 m, toate cele șase compartimente se ating, cu eroare maximă
-de 23 mm, la cel mai jos; la 0,55 m, compartimentele devin de neatins. Deci
+de 7,7 mm, în cel sudic; la 0,55 m, compartimentele devin de neatins. Deci
 dulapul a scos piedica pe care o puneau cutiile adânci; ce a rămas la 0,55 m este banda 2 în sine,
 nu sortarea.
 
@@ -599,21 +615,22 @@ de vest al benzii 2. Motivul nu este estetic: cutiile aveau pereți până la ni
 antebrațul brațului 2 trecea prin ei.
 
 Dulapul are 0,30 × 1,00 m, cu podelele la 0,85 / 1,16 / 1,41 m și fața de sus la 1,69 m. Stă la
-est de brațul 2, cu lungimea pe direcția nord-sud: fața vestică, spre braț, e deschisă la
-x = 3,18 m, iar lateralele de nord și sud, spatele de est, fundul și capacul formează carcasa.
-Cei 0,30 m de adâncime se întind spre est, în afara anvelopei brațului; punctele de așezare sunt
-la x = 3,20 m. Astfel brațul se rotește aproximativ 90° între preluarea de pe bandă și raft
-(măsurat 85–89° la raftul 1), față de aproximativ 130° în așezarea anterioară. Apropierea
+vest de brațul 2, cu lungimea pe direcția nord-sud: fața estică, spre braț, e deschisă la
+x = 2,22 m, iar lateralele de nord și sud, spatele de vest, fundul și capacul formează carcasa.
+Cei 0,30 m de adâncime se întind spre vest, în afara anvelopei brațului; punctele de așezare sunt
+la x = 2,20 m. Astfel brațul se rotește aproximativ 90° între preluarea de pe bandă și raft.
+Apropierea
 înclinată are două unghiuri măsurate: 50° în compartimentul sudic, unde
 raftul 3 stă aproape de limita de atingere, și 30° în cel nordic, unde 45° răsucește încheietura
-până la limită. Toate cele șase familii ajung în compartimente; la cele două semințe de probă,
-abaterea piesei față de centrul compartimentului a fost de cel mult 52 mm, sub toleranța de 60 mm.
-Un dulap cu fața mutată spre braț ar aduce raftul de deasupra peste antebraț.
+până la limită. Toate cele șase familii ajung în compartimente, iar abaterea piesei rămîne sub
+toleranța de 60 mm. Un dulap cu fața mutată spre braț ar aduce raftul de deasupra peste antebraț.
 
 Ordinea compartimentelor este ordinea familiilor din generator — raftul 1: `wheel_100`,
 `gusset_72`; raftul 2: `hex_68`, `link_68`; raftul 3: `pinion_56`, `plate_84` —, iar un test o
 verifică, ca planul, scena și clasificatorul să nu se despartă. Fiecare piesă se
 lasă la 2 cm în spatele feței deschise; cea mai mare (Ø104) are loc de falci înainte și după ea.
+Un compartiment ține trei piese, la 0,10 m una de alta pe lungime: cea mai lată piesă are 99 mm,
+iar la 0,13 m scula care coboară spre locul dinspre margine atingea peretele compartimentului.
 Codurile citite de pe raft sunt amânate deliberat (`docs/10-dataset-piese.md`).
 
 ![Dulapul pe familii, văzut din față: trei rafturi verzi și despărțitorul central](renders/rack_front.png)
@@ -665,11 +682,18 @@ La sămânța 7, `view.py --check` este **verde**: scena se compilează fără a
 pragul de pixeli. Transportul pe benzi merge: amândouă piesele
 ajung la linia de oprire a benzii și se opresc 13 mm peste ea, fără să cadă din geometrie.
 
-`view.py --demo` este **verde** (`make mj-demo`), la cota documentată a piedestalului: 23 mm
-eroare maximă pe cele 118 opriri — 19–20 pe fiecare dintre cele șase familii —, 6/6 prinderi pe
-ciclu, nicio verigă a brațelor atinsă, ~70 s simulate, iar piesa ajunge în compartimentul familiei
-și blocul pe masa de descărcare. Cifrele ciclului și calea lui sunt în secțiunea „Brațele" de mai
-sus.
+`view.py --demo` este **verde** (`make mj-demo`), la cota documentată a piedestalului: 7,7 mm
+eroare maximă în compartimentul sudic și 4,0 mm în cel nordic, 6/6 prinderi pe
+ciclu, nicio verigă a brațelor atinsă, ~82 s simulați pe ciclu în regim, iar piesa ajunge în
+compartimentul familiei și următorul bloc în universal. Cifrele ciclului și calea lui sunt în
+secțiunea „Brațele" de mai sus.
+
+Rotația demonstrativă (`--view --demo`, fără `--family`) este **verde** pe două ture complete —
+12 cicluri într-o singură scenă: fiecare dintre cele șase familii ajunge în compartimentul ei, iar
+o piesă rămasă în raft se copiază pe un corp `mocap` înainte ca piesa reală să plece la ciclul
+următor, deci raftul nu se golește. Piesele din rezerva de sub podea stau pe alt canal de ciocnire
+(`scene.STORED_CONTYPE`), iar la intrarea în ciclu se schimbă canalul pe geomă **și** pe corp:
+fără a doua schimbare, piesa ar trece prin falci și prin universal fără niciun contact.
 
 `make mj-record` este **verde** pe toate cele șase familii, cu un ciclu fiecare: zece cadre pe
 ciclu, dintre care șase de prindere, 790–824 eșantioane în contract pe sesiune, 79–82 s simulați

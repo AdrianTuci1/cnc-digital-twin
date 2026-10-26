@@ -19,15 +19,18 @@ from typing import Any, Mapping
 from . import wear
 
 
-#: Butoanele panoului: eticheta din fereastră, comanda și cantitatea (unde există).
-BUTTONS: tuple[tuple[str, str, float | None], ...] = (
-    ("Uzură +0.1", "inject_tool_wear", 0.1),
-    ("Uzură +0.25", "inject_tool_wear", 0.25),
-    ("Frecare +0.25", "inject_joint_friction", 0.25),
-    ("Sculă nouă", "replace_tool", None),
-    ("Repară articulații", "repair_joints", None),
-    ("Repară tot", "repair_all", None),
-    ("Reset degradare", "reset_wear", None),
+#: Butoanele panoului: eticheta din fereastră, comanda, cantitatea și componenta (unde există).
+#: Brațele se injectează și se repară separat, cu comenzile locale `inject_wear` și `repair`.
+BUTTONS: tuple[tuple[str, str, float | None, str | None], ...] = (
+    ("CNC wear +0.1", "inject_tool_wear", 0.1, None),
+    ("CNC wear +0.25", "inject_tool_wear", 0.25, None),
+    ("Arm 1 inject +0.25", "inject_wear", 0.25, "arm1"),
+    ("Arm 2 inject +0.25", "inject_wear", 0.25, "arm2"),
+    ("Arm 1 repair", "repair", None, "arm1"),
+    ("Arm 2 repair", "repair", None, "arm2"),
+    ("New CNC tool", "replace_tool", None, None),
+    ("Repair all", "repair_all", None, None),
+    ("Reset wear", "reset_wear", None, None),
 )
 
 
@@ -71,7 +74,7 @@ def apply_message(model: wear.WearModel, message: Mapping[str, Any]) -> str:
     if command == "repair_all":
         model.apply_action("replace_tool")
         model.apply_action("repair_joints")
-        return "sculă și articulații reparate"
+        return "tool and joints repaired"
 
     action = model.apply_action(
         command,
@@ -84,11 +87,19 @@ def apply_message(model: wear.WearModel, message: Mapping[str, Any]) -> str:
 
 
 def status_message(model: wear.WearModel, last_action: str = "—") -> dict[str, Any]:
-    """Starea pe care panoul o afișează, cu indicii din contract și sănătatea brațelor."""
+    """Starea pe care panoul o afișează, cu indicii din contract și sănătatea brațelor.
+
+    Fiecare braț are indicele lui: panoul arată două bare, iar metricile din CloudWatch au
+    elementele `arm1` și `arm2` separate (ADR 0026).
+    """
     joint_health = min(model.health_of(name) for name in wear.ARM_COMPONENTS)
     return {
         "tool_wear_index": model.tool_wear_index(),
         "joint_friction_index": model.joint_friction_index(),
+        "arm1_friction_index": model.wear_index("arm1"),
+        "arm2_friction_index": model.wear_index("arm2"),
+        "arm1_health": round(model.health_of("arm1"), 6),
+        "arm2_health": round(model.health_of("arm2"), 6),
         "surface_quality": model.surface_quality(),
         "tool_health": model.health_of("cnc_tool"),
         "joint_health": round(joint_health, 6),

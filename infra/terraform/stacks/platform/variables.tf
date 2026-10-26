@@ -115,7 +115,7 @@ variable "alarm_sms_numbers" {
 }
 
 variable "degradation_elements" {
-  description = "Elementele urmărite pentru degradare: cheie → etichetă, pragul indicelui și pragul de RUL în minute. Cheia devine dimensiunea Element a metricilor."
+  description = "Elementele urmărite pentru degradare: cheie → etichetă, pragul indicelui și pragul de RUL în minute. Cheia devine dimensiunea Element a metricilor. Pragul de RUL trebuie să fie sub plafonul 1 / (rată × 60): 11,1 minute la CNC și 20,8 la fiecare braț."
   type = map(object({
     label            = string
     warn_threshold   = number
@@ -125,12 +125,17 @@ variable "degradation_elements" {
     cnc = {
       label            = "CNC machine (tool wear)"
       warn_threshold   = 0.7
-      warn_rul_minutes = 15
+      warn_rul_minutes = 6
     }
-    robot = {
-      label            = "Robot arms (joint friction)"
+    arm1 = {
+      label            = "Arm 1 (joint friction)"
       warn_threshold   = 0.7
-      warn_rul_minutes = 15
+      warn_rul_minutes = 6
+    }
+    arm2 = {
+      label            = "Arm 2 (joint friction)"
+      warn_threshold   = 0.7
+      warn_rul_minutes = 6
     }
   }
 }
@@ -139,9 +144,26 @@ variable "degradation_rates" {
   description = "Pantele degradării, în unități pe secundă, aceleași valori ca în simulare. Din ele se estimează RUL publicat în CloudWatch; zero oprește metrica de RUL."
   type        = map(number)
   default = {
-    cnc   = 0.0015
-    robot = 0.0008
+    cnc  = 0.0015
+    arm1 = 0.0008
+    arm2 = 0.0008
   }
+}
+
+# Identitatea cu care geamănul publică metricele. DeviceId și CellId fac parte din identitatea
+# metricei în CloudWatch, deci dashboard-urile și alarmele trebuie să folosească exact aceste
+# valori; altfel caută serii care nu există. Sunt aceleași valori ca CNCDT_DEVICE_ID și
+# CNCDT_CELL_ID din `simulation/mujoco/cncdt_mj/telemetry.py`.
+variable "telemetry_device_id" {
+  description = "DeviceId publicat de geamăn; trebuie să coincidă cu CNCDT_DEVICE_ID."
+  type        = string
+  default     = "cnc-cell-01"
+}
+
+variable "telemetry_cell_id" {
+  description = "CellId publicat de geamăn; trebuie să coincidă cu CNCDT_CELL_ID."
+  type        = string
+  default     = "cell-a"
 }
 
 variable "dashboard_anomaly_widget_link" {

@@ -31,7 +31,8 @@ Componentă           Ce se vede în date
 ``belt_in``          viteza de suprafață scade până la 8% (driftul din §3b), deci
 ``belt_out``         timpul de ciclu crește; ``belt_speed_mps`` în diagnostic
 ``arm1``             ``joint_effort`` măsurat în scenă, scalat de frecare; timpul
-``arm2``             ciclului crește; ``joint_friction_index`` = brațul mai rău
+``arm2``             ciclului crește; ``joint_friction_index`` = brațul mai rău,
+                     ``joint_friction_index_arm1/2`` = fiecare braț
 ``cnc_tool``         ``tool_wear_index``, ``surface_quality``, ``spindle_load``,
                      ``axis_feed``
 ``cnc_spindle``      ``vibration``, ``temp_c`` (rulmenții încălzesc și tremură)
@@ -188,6 +189,16 @@ COMPONENTS: tuple[Component, ...] = (
 BELT_COMPONENTS = tuple(item.name for item in COMPONENTS if item.kind == "belt")
 ARM_COMPONENTS = tuple(item.name for item in COMPONENTS if item.kind == "arm")
 CNC_COMPONENTS = tuple(item.name for item in COMPONENTS if item.kind == "cnc")
+
+
+def demo_work(cutting: bool) -> Work:
+    """Ce lucrează într-un pas al demonstrației: benzile și brațele, plus scula cât taie.
+
+    În viewer, uzura se avansează din bucla de desenare, nu din ciclu, deci munca trebuie
+    reconstruită aici. Fără `cutting`, scula, axul și răcirea nu se uzează niciodată, iar
+    gauge-ul CNC rămîne la zero deși mașina taie.
+    """
+    return Work(belts=BELT_COMPONENTS, arms=ARM_COMPONENTS, cutting=bool(cutting))
 
 
 @dataclass(frozen=True)
@@ -466,6 +477,8 @@ class WearModel:
             axis_feed=round(axis_feed, 6),
             tool_wear_index=self.tool_wear_index(),
             joint_friction_index=self.joint_friction_index(),
+            joint_friction_index_arm1=self.wear_index("arm1"),
+            joint_friction_index_arm2=self.wear_index("arm2"),
             surface_quality=self.surface_quality(),
             coolant_fault=bool(fault),
         )
@@ -544,45 +557,45 @@ class WearModel:
         """
         if command == "inject_tool_wear":
             return self._record(command, "cnc_tool", amount or 0.25,
-                                f"sănătate {self.inject('cnc_tool', amount or 0.25):.3f}")
+                                f"health {self.inject('cnc_tool', amount or 0.25):.3f}")
         if command == "inject_joint_friction":
             share = amount or 0.25
             for arm in ARM_COMPONENTS:
                 self.inject(arm, share)
             return self._record(command, ",".join(ARM_COMPONENTS), share,
-                                f"sănătate {min(self.health[a] for a in ARM_COMPONENTS):.3f}")
+                                f"health {min(self.health[a] for a in ARM_COMPONENTS):.3f}")
         if command == "replace_tool":
             self.repair("cnc_tool")
-            return self._record(command, "cnc_tool", 0.0, "sculă nouă")
+            return self._record(command, "cnc_tool", 0.0, "new tool")
         if command == "repair_joints":
             for arm in ARM_COMPONENTS:
                 self.repair(arm)
-            return self._record(command, ",".join(ARM_COMPONENTS), 0.0, "articulații reparate")
+            return self._record(command, ",".join(ARM_COMPONENTS), 0.0, "joints repaired")
         if command == "inject_wear":
             if name is None:
                 raise ValueError("inject_wear cere o componentă")
             health = self.inject(name, amount or 0.25)
-            return self._record(command, name, amount or 0.25, f"sănătate {health:.3f}")
+            return self._record(command, name, amount or 0.25, f"health {health:.3f}")
         if command == "repair":
             if name is None:
                 raise ValueError("repair cere o componentă")
             self.repair(name)
-            return self._record(command, name, 0.0, "reparată")
+            return self._record(command, name, 0.0, "repaired")
         if command == "inject_fault_burst":
             if name is None:
                 raise ValueError("inject_fault_burst cere o componentă")
             self.burst(name, amount or 0.25, duration_s if duration_s is not None else 300.0)
             return self._record(command, name, amount or 0.25,
-                                f"accelerare {BURST_FACTOR:g}× pentru "
+                                f"burst {BURST_FACTOR:g}× for "
                                 f"{duration_s if duration_s is not None else 300.0:g} s")
         if command == "set_wear_rate":
             multiplier = self.set_rate(value if value is not None else 1.0)
-            return self._record(command, "*", multiplier, f"rata de uzură {multiplier:g}×")
+            return self._record(command, "*", multiplier, f"wear rate {multiplier:g}×")
         if command == "reset_wear":
             for component in COMPONENTS:
                 self.repair(component.name)
             self.set_rate(1.0)
-            return self._record(command, "*", 0.0, "uzură și rată la valorile de început")
+            return self._record(command, "*", 0.0, "wear and rate reset")
         raise KeyError(f"comandă necunoscută: {command}")
 
     def apply_actions(self, actions: Sequence[Mapping[str, Any]]) -> list[Action]:

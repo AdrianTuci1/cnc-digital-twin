@@ -15,7 +15,7 @@ amândouă piesele parcurg banda la viteza de suprafață și se opresc la 13 mm
 benzii. `view.py --demo` rulează ciclul complet — bandă, brațe, universal, schimb de material,
 bandă, raft — pentru toate cele șase familii (**verde**), cu prindere fizică la fiecare dintre
 cele șase preluări pe ciclu: falcile se închid pe piesă, o leagă de mînă, o ridică și o lasă pe
-suprafața următoare. Eroarea maximă a sculei este 23 mm la compartimentul cel mai jos al raftului,
+suprafața următoare. Eroarea maximă a sculei este 7,7 mm în compartimentul sudic al raftului,
 fără nicio verigă atinsă. Colectarea datelor
 există: `make mj-record` scrie sesiuni întregi — telemetrie pe contract, metadatele cadrelor de
 inspecție, PNG-urile punctelor de vedere de proces și de prindere, plus etichetele pieselor —
@@ -67,7 +67,7 @@ benzii o dă exclusiv forța exterioară.
 | Mașină CNC, 3 axe | un cub simbolic de 1,0 × 0,8 m, cu capacul la 1,90 m: cabinet, masă, universal și capac, fără axe în scenă; stările din contract, iar `CUTTING` este o fereastră de timp | vibrație RMS și vârf, sarcină ax, temperatură, avans | profil de sarcină și vibrație aplicat ca forță pe corpul axului, în funcție de stare și uzură |
 | Braț 2 (sortare) | același model Panda, pe latura sudică a benzii 2, la 0,25 m de șina ei sudică | ca la brațul 1 | ca la brațul 1 |
 | Bandă 2 (evacuare) | ca banda 1, cu un singur sens de mers, spre vest, și linia ei de oprire la ținta de preluare a brațului 2 | viteza, numărul de piese | ca la banda 1 |
-| Dulap pe familii | trei rafturi suprapuse, fiecare despărțit în două compartimente de 0,50 m, în coloana `G2–G4`; podelele la 0,85 / 1,16 / 1,41 m, fața vestică deschisă, iar piesa se lasă înclinat, la 50° în compartimentul sudic și 30° în cel nordic, în compartimentul familiei | numărul de piese pe compartiment | — |
+| Dulap pe familii | trei rafturi suprapuse, fiecare despărțit în două compartimente de 0,50 m, în coloana `D2–E4`; podelele la 0,85 / 1,16 / 1,41 m, fața estică deschisă, iar piesa se lasă înclinat, la 50° în compartimentul sudic și 30° în cel nordic, în compartimentul familiei | numărul de piese pe compartiment | — |
 | Ladă rebut | o ladă pe podea, sub capătul de vest al benzii 2, cu trei pereți scurți și latura de est deschisă; piesa neconformă rămâne pe bandă, trece de linia de oprire a brațului 2 și cade de la capătul benzii | numărul de rebuturi | — |
 | Camere | punctele de vedere de proces: câte o cameră pe flanșa fiecărui braț și camera liberă. Verdictul de calitate îl dă cadrul de pe flanșa brațului 2, care vede piesa ținută în falci — rolul `sorting` din `cnc.qa.snapshot.v1.json`; rolul `inspection` a rămas definit în schemă, dar geamănul nu-l mai produce. Secvența de prindere adaugă cîte trei cadre pe fiecare flanșă | cadru RGB offscreen + scor de calitate | — |
 
@@ -189,7 +189,7 @@ prindere, cîte trei pe fiecare braț: apropiere, piesa între fălci și ridica
 Celula are 6,0 × 4,0 m, cu originea (0, 0) în colțul sud-vest, **+X spre est** și **+Y spre
 nord**. Gridul are celule de 0,5 m: **coloanele A–L** spre est, **rândurile 1–8** spre nord, deci
 fiecare element are o referință scurtă — banda 1 stă în `A7–F7`, brațul 1 în `F6`, mașina ocupă
-`G6–I7`, banda 2 în `B4–J5`, brațul 2 în `F4`, dulapul pe familii în `G2–G4`, lada de rebut în
+`G6–I7`, banda 2 în `B4–J5`, brațul 2 în `F4`, dulapul pe familii în `D2–E4`, lada de rebut în
 `A4–B5`, iar camerele de pe flanșe în `G5` (brațul 1) și `E4` (brațul 2).
 Conversia la lumea MuJoCo este identitatea: planul `(x, y)` devine lumea
 `(x, y)`, cu +Z în sus, deci scena preia cifrele ca atare.
@@ -207,13 +207,13 @@ ca planul și scena să nu se poată contrazice.
 | Bandă 2 (evacuare, un singur sens) | (2,70, 2,00) | 3,8 × 0,4 | B4–J5 |
 | Braț 2 (Panda #2) | (2,70, 1,55) | bază 0,25 Ø | F4 |
 | Cameră pe brațul 2 (flanșă) | (2,45, 1,72) | punct | E4 |
-| Dulap pe familii (3 rafturi × 2 compartimente) | (3,33, 1,29) | 0,30 × 1,0 | G2–G4 |
-| Raftul 1, compartimentul A (wheel_100) — podea 0,85 m | (3,20, 1,04) | 0,30 × 0,50 | G2–G3 |
-| Raftul 1, compartimentul B (gusset_72) — podea 0,85 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
-| Raftul 2, compartimentul A (hex_68) — podea 1,16 m | (3,20, 1,04) | 0,30 × 0,50 | G2–G3 |
-| Raftul 2, compartimentul B (link_68) — podea 1,16 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
-| Raftul 3, compartimentul A (pinion_56) — podea 1,41 m | (3,20, 1,04) | 0,30 × 0,50 | G2–G3 |
-| Raftul 3, compartimentul B (plate_84) — podea 1,41 m | (3,20, 1,54) | 0,30 × 0,50 | G3–G4 |
+| Dulap pe familii (3 rafturi × 2 compartimente) | (2,07, 1,29) | 0,30 × 1,0 | D2–E4 |
+| Raftul 1, compartimentul A (wheel_100) — podea 0,85 m | (2,20, 1,04) | 0,30 × 0,50 | D2–E3 |
+| Raftul 1, compartimentul B (gusset_72) — podea 0,85 m | (2,20, 1,54) | 0,30 × 0,50 | D3–E4 |
+| Raftul 2, compartimentul A (hex_68) — podea 1,16 m | (2,20, 1,04) | 0,30 × 0,50 | D2–E3 |
+| Raftul 2, compartimentul B (link_68) — podea 1,16 m | (2,20, 1,54) | 0,30 × 0,50 | D3–E4 |
+| Raftul 3, compartimentul A (pinion_56) — podea 1,41 m | (2,20, 1,04) | 0,30 × 0,50 | D2–E3 |
+| Raftul 3, compartimentul B (plate_84) — podea 1,41 m | (2,20, 1,54) | 0,30 × 0,50 | D3–E4 |
 | Ladă rebut | (0,59, 2,00) | 0,6 × 0,4 | A4–B5 |
 
 Fiecare țintă de prindere cade în raza de 0,855 m a brațului care o deservește, măsurată în plan:
@@ -239,34 +239,31 @@ iar eticheta iese din același `GearParams` care a produs geometria, deci nu se 
 După ce mașina termină, brațul 1 o descarcă tot el și o așază pe banda 2, în `G5`,
 la o rotație aleatoare. Banda 2 merge într-un singur sens, spre vest. Brațul 2, aflat pe latura
 sudică a benzii, în `F4`, o ridică din `F5` și o lasă în compartimentul familiei ei, în dulapul
-din `G2–G4`, cu podelele rafturilor la 0,85 / 1,16 / 1,41 m, iar podeaua de jos la nivelul
+din `D2–E4`, cu podelele rafturilor la 0,85 / 1,16 / 1,41 m, iar podeaua de jos la nivelul
 suprafeței benzii.
 
 Dulapul pe familii are **trei rafturi suprapuse, fiecare despărțit în două compartimente** de un
 panou vertical la mijloc, deci șase compartimente de 0,50 m lățime. Gabaritul lui este 0,30 × 1,00 m,
-cu centrul în (3,33, 1,29) și colțul sud-vest în (3,18, 0,79), deci acoperă celulele `G2–G4`.
-Dulapul stă la est de brațul 2, cu lungimea pe direcția nord-sud, iar **fața vestică, spre braț,
-este deschisă**; lateralele de nord și sud, spatele de est, fundul și capacul formează carcasa.
-Podelele rafturilor stau la 0,85 / 1,16 / 1,41 m, iar fața de sus a dulapului la 1,69 m. Fața de
-intrare este la x = 3,18 m (0,48 m est de baza brațului 2), punctele de așezare la x = 3,20 m,
-iar cei 0,30 m de adâncime se întind spre est, în afara anvelopei brațului. Astfel brațul se
-rotește aproximativ 90° între preluarea de pe bandă și raft (măsurat 85–89° la raftul 1), în loc
-de aproximativ 130° în așezarea anterioară.
+cu colțul sud-vest în (1,92, 0,79), iar mijlocul la y = 1,29. Dulapul stă la **vest de brațul 2**,
+cu lungimea pe direcția nord-sud, iar **fața estică, spre braț, este deschisă**; lateralele de
+nord și sud, spatele de vest, fundul și capacul formează carcasa. Podelele rafturilor stau la
+0,85 / 1,16 / 1,41 m, iar fața de sus a dulapului la 1,69 m. Fața de intrare este la x = 2,22 m
+(0,48 m vest de baza brațului 2), punctele de așezare la x = 2,20 m, iar cei 0,30 m de adâncime
+se întind spre vest, în afara anvelopei brațului. Astfel brațul se rotește aproximativ 90° între
+preluarea de pe bandă și raft, iar antebrațul rămâne în culoarul dintre dulap și bandă.
 
-Apropierea este înclinată, cu două unghiuri măsurate: **50° în compartimentul sudic** și **30° în
-cel nordic**. Compartimentul sudic are raftul 3 aproape de limita de atingere: la 45° punctul iese
-cu 13 mm din rază, iar la 30° cu 91 mm; la 50° compartimentele sudice ajung,
-cu eroarea maximă de **7,0 mm** și cel mult 0,9° de răsucire. Compartimentul nordic stă aproape
-drept în fața bazei, iar la 45° încheietura se răsucește până la limită (85,7° eroare); la 30°
-intră drept, fără contacte. Punctul de trecere stă la x = 2,92 m în dreptul compartimentului
-sudic și la x = 3,05 m în dreptul celui nordic, la 5 cm peste punctul de lucru, iar raftul de sus
-se atinge direct, fără trecere, fiindcă drumul urcă pe deasupra dulapului. Retragerea de deasupra
-rafturilor păstrează 4 cm până la limita de atingere; fără marjă, punctul chiar pe sferă nu se
-atinge din mers (112 mm eroare).
+Apropierea este înclinată, cu două unghiuri măsurate: **50° în compartimentul sudic**, cu o
+abatere de 30° spre sud, și **30° drept în cel nordic**. Compartimentul sudic are raftul 3 aproape
+de limita de atingere; la 50° cu abatere spre sud intră fără contacte, cu **7,7 mm** la punctul de
+jos și 0,9° de răsucire (măsurat pe `wheel_100`), iar cel nordic cu **4,0 mm** și 0,5° pe
+`gusset_72`. Punctul de trecere stă la x = 2,48 m, adică
+0,26 m est de fața deschisă, la 5 cm peste punctul de lucru și la cel puțin 0,35 m de axul
+brațului; raftul de sus se atinge direct, fără trecere, fiindcă drumul urcă pe deasupra dulapului.
+Retragerea de deasupra rafturilor păstrează 4 cm până la limita de atingere.
 
 De ce un dulap adânc nu merge cu fața spre braț. Rafturile suprapuse cer ca scula să intre înclinat
-pe fața deschisă; dacă fața se mută spre braț, raftul de deasupra ajunge peste antebrațul brațului
-2, care coboară sub încheietură. Cu fața vestică la 0,48 m de bază, antebrațul rămâne în afara
+pe fața deschisă; dacă fața ar fi spre braț, raftul de deasupra ar ajunge peste antebrațul brațului
+2, care coboară sub încheietură. Cu fața estică la 0,48 m de bază, antebrațul rămâne în afara
 carcasei, iar compartimentul de 0,50 m ține discul cel mai mare, Ø104, cu peste 0,2 m de joc.
 
 Fiecare compartiment ține o familie de piese, în ordinea din plan (`docs/diagrams/cell_layout.py`)
@@ -279,8 +276,9 @@ decât le învață clasificatorul. Codurile citite de pe raft sunt amânate del
 
 Dulapul înlocuiește cutiile adânci de dinainte, care aveau pereți până la 0,85 m și opreau
 antebrațul brațului 2 (`arm2_link3↔bin_ng`). Decizia despre rafturi este în ADR 0017; orientarea
-rotită cu 90°, cu fața vestică și două unghiuri de apropiere, este în ADR 0018, iar măsurătorile
-care au dus la ea sunt în ADR 0014. Prinderea fizică și texturile sunt în ADR 0019.
+rotită cu 90°, cu două unghiuri de apropiere, este în ADR 0018, iar mutarea dulapului la vest de
+braț, cu fața estică deschisă, este în ADR 0023. Măsurătorile care au dus la formă sunt în
+ADR 0014. Prinderea fizică și texturile sunt în ADR 0019.
 
 Rebutul are o cale fără braț, ca în plan: piesa neconformă rămâne pe bandă, trece de linia de
 oprire a brațului 2 și cade de la capătul de vest al benzii 2 în lada din `A4–B5`. Marginea lăzii
@@ -320,14 +318,14 @@ traiectorie care trece razant pe deasupra.
 Piedestalul brațelor este cota care nu se poate decide din plan, iar scena o măsoară. Cutiile
 adânci de dinainte dădeau sentința „0,55 m nu se poate": pereții lor urcau până la 0,85 m, iar
 antebrațul trecea prin ei (`arm2_link3↔bin_ng`), cu 41 mm eroare rămasă la cutia de piese bune.
-Dulapul nu mai pune pereți în calea antebrațului: e deschis spre braț, fața vestică stă la 0,48 m
-est de baza brațului 2, iar cei 0,30 m de adâncime se întind spre est, în afara carcasei. Nu
+Dulapul nu mai pune pereți în calea antebrațului: e deschis spre braț, fața estică stă la 0,48 m
+vest de baza brațului 2, iar cei 0,30 m de adâncime se întind spre vest, în afara carcasei. Nu
 scoate însă piedica de la preluare:
 ca să ridice piesa de pe banda 2, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar la
 0,55 m platforma este deasupra lui — măsurat, `arm2_link3↔belt_out` la punctul de deasupra, cu
 106 mm eroare rămasă, iar compartimentele dulapului nu mai pot fi atinse (`arm2_link3↔rack`). La
 0,95 m `view.py --demo` încheie ciclul pentru toate cele șase familii, cu eroarea maximă a sculei
-de 23 mm la compartimentul cel mai jos al raftului (21-23 mm) și 6,8 mm în restul, fără nicio
+de 7,7 mm în compartimentul sudic și 4,0 mm în cel nordic, fără nicio
 verigă atinsă. Cota
 documentată a piedestalului este 0,95 m (secțiunea 10), iar `view.py --base-z` o poate coborî
 pentru măsurători.
@@ -404,6 +402,11 @@ detectorul trebuie să îl prindă —, `set_wear_rate(multiplier)` și `reset_w
 se ajung cu `--rate` (compresia vieții) și `--inject componentă:cât` (pornește sesiunea cu o
 componentă deja uzată), iar în sesiune fiecare acțiune lasă o linie în `events.jsonl`.
 
+În viewer, uzura se avansează pe pas din bucla de desenare, nu din ciclu, deci munca fiecărei
+componente se reconstruiește cu `wear.demo_work`: benzile și brațele lucrează mereu, iar scula,
+axul și răcirea doar cât starea ciclului este `CUTTING`. Fără `cutting`, gauge-ul CNC rămîne la
+zero deși mașina taie.
+
 ## 4. Telemetrie și contracte
 
 Două ieșiri, amândouă pe contracte existente.
@@ -413,7 +416,7 @@ live), cu exact câmpurile din `telemetry/schemas/cnc.telemetry.v1.json`. Nu se 
 schema are `additionalProperties: false`, iar Lambda-ul de feature engineering oricum aruncă
 câmpurile din afara contractului.
 
-**Ferestre de 60 s**, scrise în Parquet (sau CSV pentru inspecție rapidă), cu exact cele 26 de
+**Ferestre de 60 s**, scrise în Parquet (sau CSV pentru inspecție rapidă), cu exact cele 27 de
 coloane din `cncdt_ml.schema.ENRICHED_COLUMNS`, produse de funcțiile existente
 `cncdt_ml/features.py::compute_window_features` și `enriched_record`. Partiționarea pe disc
 respectă `dt_year/dt_month/dt_day/dt_hour`, ca fișierele să poată fi citite cu aceleași
@@ -422,10 +425,12 @@ interogări Athena ca datele din lake.
 Două mărimi nu au coloană în contract: uzura benzii de alimentare și calitatea camerei. Pentru
 bandă se emit eșantioane brute normale, cu `device_id` propriu
 (`cnc-cell-01-conveyor`), pe câmpurile care există deja. Calitatea camerei rămâne deocamdată în
-metadatele locale ale sesiunii, pentru că nu are nicio coloană în contract. Dacă modelul le cere
-în lake, urmează bump `1.0.0 → 1.1.0` simultan în tabelul din Terraform, în
-`telemetry/schemas/` și în `cncdt_ml/schema.py` — cele trei se schimbă împreună, altfel
-Firehose cade la conversia Parquet.
+metadatele locale ale sesiunii, pentru că nu are nicio coloană în contract.
+
+Contractul este la versiunea `1.1.0`: față de `1.0.0` a adăugat `joint_friction_index_arm1` și
+`joint_friction_index_arm2`, ca fiecare braț să aibă element propriu în CloudWatch (ADR 0026).
+Un câmp nou intră simultan în tabelul din Terraform, în `telemetry/schemas/` și în
+`cncdt_ml/schema.py` — cele trei se schimbă împreună, altfel Firehose cade la conversia Parquet.
 
 Fișierele unei sesiuni, așa cum le scrie `make mj-record` în `simulation/mujoco/runs/<familie>-<sămânță>/`:
 
@@ -453,7 +458,8 @@ coloană în contract, ca să nu se strecoare în eșantionul de pe hot path.
 
 `wear.jsonl` și `events.jsonl` sunt perechea pentru antrenarea detectorului: primul dă traiectoria
 sănătății pe fiecare componentă (singurele urme din contract sunt `tool_wear_index`,
-`joint_friction_index` și `surface_quality`), al doilea dă momentele: `event: "failure"` cu
+`joint_friction_index`, `joint_friction_index_arm1`, `joint_friction_index_arm2` și
+`surface_quality`), al doilea dă momentele: `event: "failure"` cu
 `kind`, `health`, `severity` și `duration_s`, respectiv `event: "action"` cu comanda de operator.
 `session.json` scrie și tabelul componentelor cu timpii nominali, rata folosită și sănătatea de la
 sfârșit, ca o sesiune să se poată reproduce fără să ghicească parametrii.
@@ -567,7 +573,8 @@ presupuse.
 **Formatul.** `wear.jsonl` are un rând la fiecare eșantion, aliniat cu `samples.jsonl` pe `ts_ms` și
 pe `cycle_id` (verificat: aliniere exactă pe toată sesiunea), iar rândul conține sănătatea tuturor
 celor șapte componente (`<componentă>_health`) plus indicii derivați din contract
-(`tool_wear_index`, `joint_friction_index`, `surface_quality`), scala de viteză a benzilor
+(`tool_wear_index`, `joint_friction_index`, `joint_friction_index_arm1`,
+`joint_friction_index_arm2`, `surface_quality`), scala de viteză a benzilor
 (`belt_speed_scale`) și temperatura. Eșantionul însuși are exact coloanele din
 `cnc.telemetry.v1.json`, inclusiv cele care se mișcă cu uzura: `spindle_load`, `vibration`,
 `temp_c`, `coolant_flow_lpm`, `axis_feed`, `joint_effort`. Diagnosticul (`readings.jsonl`) adaugă
@@ -617,15 +624,17 @@ cadrelor de cameră — cadrele ies curate, fără blur proporțional cu `1 - h_
 
 ### Cum ajunge același conținut pe calea live
 
-Ce scrie sesiunea local este exact ce s-ar publica: rândurile din `samples.jsonl` sunt sarcinile
+Ce scrie sesiunea local este exact ce se publică: rândurile din `samples.jsonl` sunt sarcinile
 MQTT, cu `topic` inclus, iar metadatele din `snapshots.jsonl` sunt sidecar-ul care declanșează
-inspecția. Geamănul nu are încă publicator — `run.py` scrie fișiere —, iar legarea la IoT Core se
-face din aceleași trei piese ca la extensia Isaac Sim:
+inspecția. `cncdt_mj/iot.py` este publicatorul geamănului: `paho-mqtt` peste mTLS, cu certificatul
+și endpoint-ul din `simulation/secrets/` (scrise de `simulation/scripts/gen-iot-certs.sh`).
+`view.py --iot` trimite eșantioanele viewer-ului, iar `run.py --iot` pe cele ale sesiunii de
+colectare; ambele numără **confirmările** brokerului (`PUBACK`), nu doar punerea în coadă, fiindcă
+o politică IoT greșită se vede abia la confirmare.
 
-- **Eșantioanele** pleacă pe `cncdt/<env>/cnc/<cell>/telemetry`, cu `paho-mqtt` peste mTLS, prin
-  `cnc_cell/telemetry/publisher.py`; aceeași clasă are transportul local în JSONL, deci o sesiune
-  fără rețea arată exact ca una live. Regula IoT Core selectează mesajul întreg, adaugă topicul și
-  marcajul de timp MQTT, iar Firehose îl convertește în Parquet (Snappy), partiționat pe oră, sub
+- **Eșantioanele** pleacă pe `cncdt/<env>/cnc/<cell>/telemetry`, iar regula IoT Core selectează
+  mesajul întreg, adaugă topicul și marcajul de timp MQTT. Firehose îl convertește în Parquet
+  (Snappy), partiționat pe oră, sub
   `raw/telemetry/dt_year=.../dt_month=.../dt_day=.../dt_hour=.../`, cu microbatch de 60 s și
   Lambda-ul de transformare în zbor (secțiunea 4 din `docs/01-architecture.md`).
 - **Cadrele de inspecție** devin pereche PNG + JSON în bucketul data lake, sub `raw/qa-snapshots/`:
@@ -638,12 +647,11 @@ face din aceleași trei piese ca la extensia Isaac Sim:
   mTLS, politică), iar geamănul citește din mediu aceleași nume ca extensia: `CNCDT_ENVIRONMENT`,
   `CNCDT_DEVICE_ID`, `CNCDT_CELL_ID`, `CNCDT_TELEMETRY_TOPIC`, `CNCDT_QA_PREFIX`.
 
-Două piese lipsesc de pe calea live, amândouă în afara geamănului: urcarea perechii PNG + JSON în
-`raw/qa-snapshots/` și un publicator MQTT pentru eșantioane. Sunt subțiri — fișierul JSON urcat sub
-`raw/qa-snapshots/`, respectiv un client `paho-mqtt` care trimite rândurile existente —, iar
-contractele sunt deja identice, deci fișierele sesiunii nu se schimbă când se scriu. Urcarea
-**offline**, a corpusului de antrenare, există deja și merge pe alt prefix
-(`training-data/mujoco/`): cele două căi au cititori diferiți și rămân separate.
+Pe calea live a inspecției, viewer-ul nu urcă perechea PNG + JSON în `raw/qa-snapshots/`: cu
+`--route vision` trimite direct cadrul de sortare endpoint-ului, iar verdictul decide ruta în
+aceeași rulare. Urcarea perechii în bucket rămâne calea sesiunii de colectare. Urcarea
+**offline**, a corpusului de antrenare, merge pe alt prefix (`training-data/mujoco/`): cele două
+căi au cititori diferiți și rămân separate.
 
 ## 5. Detecția anomaliilor și timpul de anticipare
 
@@ -652,8 +660,9 @@ pentru experiment: `spindle_load_mean/p95/std`, `vibration_rms/peak/std`, `coola
 `temp_c_mean`, `axis_feed_mean`, `joint_effort_mean/max`, `sample_count`, `machine_state`,
 plus `cycle_time_s` și `belt_speed_std`, care există în simulare și nu în schema publicată.
 
-`tool_wear_index` și `joint_friction_index` **nu** intră în vector, deși rămân în contract și
-în dashboard-ul de degradare: sunt `1 - h`, adică starea internă a motorului de uzură, nu o
+`tool_wear_index`, `joint_friction_index` și cele două coloane per braț **nu** intră în vector,
+deși rămân în contract și în dashboard-ul de degradare: sunt `1 - h`, adică starea internă a
+motorului de uzură, nu o
 citire de senzor. Un detector care le primește are răspunsul în intrare, iar pe linia reală
 coloanele nu există (ADR 0013). `MODEL_FEATURE_ORDER` din `lambdas/feature_engineering/core.py`
 este lista care decide.
@@ -734,9 +743,10 @@ Trei intrări, toate locale:
 1. **Consolă (REPL)** — merge headless, în CI, în rulări de noapte: `fault grip cnc 0.4`,
    `repair all`, `rate 20`, `status`. Este încă pe listă; comenzile pure există în `control.py`.
 2. **Viewer MuJoCo** — când există display (macOS de dezvoltare, sesiunea DCV a instanței):
-   `make mj-view` (ori `view.py --view`) deschide viewer-ul și panoul Tkinter din `panel.py`, cu butoane pentru
-   `Uzură +0.1`, `Uzură +0.25`, `Frecare +0.25`, `Sculă nouă`, `Repară articulații`, `Repară tot`
-   și `Reset degradare`. Panoul citește starea și trimite comenzile prin linii JSON; `--no-panel`
+   `make mj-view` (ori `view.py --view --demo`) deschide viewer-ul și panoul Tkinter din `panel.py`, cu butoane pentru
+   `CNC wear +0.1`, `CNC wear +0.25`, `New CNC tool`, `Repair all` și `Reset wear`, plus
+   `Inject +0.25` și `Repair arm` pentru fiecare braț. Panoul citește starea și trimite comenzile
+   prin linii JSON; `--no-panel`
    îl oprește, iar `view.py` continuă dacă mediul nu are Tkinter. Necesită fereastră, deci nu
    rulează în CI.
 3. **Endpoint HTTP local** (`127.0.0.1`), pentru scenarii scriptate: aceleași comenzi ca în
@@ -854,13 +864,14 @@ rulare propriu și le urcă sub `training-data/mujoco/dt=<zi>/run-<UTC>/`, cu ma
 lângă ele; `cncdt_mj/export.py` verifică sesiunile înainte, iar `publish.py` urcă prin AWS CLI
 (secțiunea 4, „Colectarea și urcarea în bucket").
 
-Criteriul fazei 2 este **atins în simulare**: un ciclu complet ține ~70 s simulați, deci
-`--cycles 10` acoperă cele zece minute, iar douăsprezece rulări de probă (șase familii × două
+Criteriul fazei 2 este **atins în simulare**: un ciclu complet ține ~82 s simulați în regim, după
+primul ciclu care încarcă blocul de pe bandă, deci `--cycles 10` acoperă cele zece minute, iar
+douăsprezece rulări de probă (șase familii × două
 semințe) s-au încheiat cu 6/6 prinderi pe ciclu și fără piese pierdute. Ce rămîne deschis: mașina nu are axe
 (fereastra `CUTTING` este timp, nu mișcare), degradarea camerei nu se aplică încă, iar legătura de
 prindere nu slăbește cu uzura. Toleranțele verificării sînt 25 mm pentru poziția sculei și 60 mm
 pentru locul piesei în raft: compartimentul cel mai jos și cel mai apropiat de bază cere brațul
-îndoit la limită, iar eroarea de regim acolo este 21-23 mm.
+îndoit la limită, iar eroarea de regim acolo este 7,7 mm.
 
 Fiecare fază se poate opri fără să lase ceva rupt: faza 1 nu are dependențe de MuJoCo, faza 2 nu
 atinge contractele publicate.
@@ -900,7 +911,7 @@ atinge contractele publicate.
 4. **Paralelizare pe GPU (MJX sau MuJoCo Warp)** — se decide când timpul de generare devine
    limita reală a antrenării.
 5. **Cota piedestalului brațelor** — închisă la 0,95 m. Dulapul, deschis spre braț, cu fața
-   vestică la 0,48 m est de baza brațului 2 și adânc de 0,30 m spre est, a scos piedica pe care o
+   estică la 0,48 m vest de baza brațului 2 și adânc de 0,30 m spre vest, a scos piedica pe care o
    puneau pereții cutiilor, dar a rămas banda 2: ca să ridice piesa
    de pe ea, brațul 2 trebuie să treacă cu antebrațul peste platformă, iar la 0,55 m platforma este
    deasupra lui (`arm2_link3↔belt_out`, 106 mm eroare), iar compartimentele dulapului devin de
@@ -947,19 +958,44 @@ simulation/mujoco/.venv/bin/mjpython simulation/mujoco/view.py --view --demo --i
 ```
 
 Viewer-ul rulează ciclul, apoi rămîne deschis (`--hold`, implicit cu `--iot`) și publică
-eșantioane din exact `WearModel` pe care îl repară panoul. Butonul „Repară tot” readuce scula și
-articulațiile, iar `DegradationIndex` coboară la eșantioanele următoare; alarma de degradare se
-stinge la evaluarea următoare (fereastră de 5 minute). Traseul cu `AnomalyScore` rămîne cel din
+eșantioane din exact `WearModel` pe care îl repară panoul. Butonul `Repair all` readuce scula și
+articulațiile, iar `Repair arm` doar brațul ales; `DegradationIndex` coboară la eșantioanele
+următoare, pe elementul atins, iar alarma lui se stinge la evaluarea următoare (fereastră de
+5 minute). Traseul cu `AnomalyScore` rămîne cel din
 sesiunea de colectare, fiindcă modelul RCF se antrenează doar pe eșantioane `CUTTING`, iar
 viewer-ul publică în repaus.
+
+### Fluxul continuu
+
+Cu `--loop`, ciclul nu se mai oprește între piese. Imediat după verdict, cît brațul 2 își duce
+piesa la raft, brațul 1 își încearcă următoarea încărcare pe o copie a stării și o redă în pas cu
+mișcarea brațului 2 (ADR 0025). Jurnalul scrie `Arm 1 starts loading the next blank while arm 2
+sorts`, iar ciclul următor sare peste banda 1 și începe direct la așchiere: primul ciclu ține
+~104 s, cele din regim ~82 s. Pe panou și în overlay, `Machine:` arată starea publicată în acel
+moment (`IDLE`, `LOADING`, `CUTTING`, `UNLOADING`, `INSPECTING`). La rebut nu se pregătește nimic:
+piesa pleacă în ladă, iar ciclul următor readuce corpurile în poziția nominală.
+
+Mișcarea brațelor este continuă: orientarea sculei se interpolează pe traseu, iar comenzile se
+rampează la `JOINT_SPEED_RAD_S`, deci saltul maxim măsurat este 0,11°/pas la ambele brațe
+(ADR 0024).
+
+### Livrarea către IoT Core
+
+`cncdt_mj/iot.py` numără confirmările brokerului, nu doar apelurile reușite: `sent` crește cînd
+paho acceptă mesajul în coadă, iar `acked` doar cînd IoT Core trimite PUBACK. Jurnalul viewer-ului
+scrie prima confirmare, prima eroare cu `last_error` și, periodic, `sent … acked … failed …
+rejected …` împreună cu starea mașinii. La închidere, `close()` așteaptă pînă la 3 s ca
+`sent <= acked + rejected`, apoi se deconectează. Un `sent` care nu crește în `acked` înseamnă
+coadă blocată, nu livrare; `rejected` înseamnă că brokerul a refuzat mesajul, de obicei din cauza
+certificatului sau a politicii topicului.
 
 ### Ce se urmărește
 
 | Unde | Ce |
 | --- | --- |
-| `AnomalyScore` (namespace `cncdt/dev/telemetry`) | scorul RCF pe fereastră; prag 1,58 |
+| `AnomalyScore` (namespace `CNCDT/Telemetry`, dimensiunile `DeviceId` și `CellId`) | scorul RCF pe fereastră; prag 1,58 |
 | Alarma `cncdt-dev-process-anomaly` | trei ferestre marcate în 10 minute |
-| `DegradationIndex` (alarmele `cncdt-dev-cnc-degradation` și `cncdt-dev-robot-degradation`, prag 0,7) | uzura sculei și frecarea articulațiilor, independent de model |
+| `DegradationIndex` (alarmele `cncdt-dev-cnc-degradation`, `cncdt-dev-arm1-degradation` și `cncdt-dev-arm2-degradation`, prag 0,7) | uzura sculei și frecarea fiecărui braț, independent de model |
 | `WindowsProcessed`, `EndpointFailures` | sănătatea pipeline-ului |
 
 Modelul este antrenat pe ferestre sănătoase dintr-o celulă pornită curat; pragul de 1,58 și

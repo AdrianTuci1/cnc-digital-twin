@@ -49,7 +49,8 @@ REPLAY_PREFIX = os.environ.get("REPLAY_PREFIX", "replay/manual")
 # RUL publicat în CloudWatch; zero înseamnă că metrica de RUL nu se publică.
 DEGRADATION_RATES = {
     "cnc": float(os.environ.get("TOOL_WEAR_RATE", "0")),
-    "robot": float(os.environ.get("JOINT_FRICTION_RATE", "0")),
+    "arm1": float(os.environ.get("ARM1_FRICTION_RATE", "0")),
+    "arm2": float(os.environ.get("ARM2_FRICTION_RATE", "0")),
 }
 
 _THRESHOLDS = AnomalyThresholds()

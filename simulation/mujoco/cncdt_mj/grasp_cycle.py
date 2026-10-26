@@ -32,15 +32,16 @@ from typing import Any, Callable, Mapping, Protocol
 import mujoco
 import numpy as np
 
-from . import arms, cell, checks, grasp, inspection, layout, moves, part, scene, wear
+from . import (arms, cell, checks, grasp, inspection, layout, moves, part, rack_display,
+               scene, telemetry, wear)
 
 #: Ce se cheamă după fiecare pas de simulare: sesiunea de colectare are nevoie de el pentru
 #: eșantioane, cadre și uzură, viewer-ul pentru desenare.
 StepHook = Callable[[mujoco.MjModel, mujoco.MjData], None]
 
-#: Corpurile celor două stări de material, așa cum le numește scena.
+#: Blocul brut, așa cum îl numește scena. Piesa mașinată are cîte un corp pe familie, ales de
+#: :attr:`Cycle.part_body`.
 BLANK_BODY = "blank_01"
-PART_BODY = "part_01"
 
 
 @dataclass(frozen=True)
@@ -83,16 +84,31 @@ PICK_CLEARANCE_M = 0.003
 #: scufundarea servo-urilor, măsurată în scenă la ~6 mm la întinderea asta.
 CHUCK_PICK_CLEARANCE_M = 0.007
 
+#: Cota la care stă piesa în universal, ca jumătate de grosime. O piesă subțire (cornierul are
+#: 10 mm) ar sta cu fața de sus prea jos: vîrfurile falcilor ar coborî pe postamentul universalului
+#: înainte să închidă pe piesă, iar prinderea ar prinde aer. Se ridică pînă la cota unei piese de
+#: 15 mm, cît are roata de referință — un salt de cel mult 2,5 mm, invizibil la scara celulei.
+CHUCK_SEAT_HALF_M = 0.0075
+
 #: Cît de aproape trebuie să cadă punctul de strângere de centrul piesei înainte de închidere.
 #: Falcile sînt cuplate: dacă una atinge piesa, cealaltă nu mai înaintează. La o piesă îngustă,
 #: o abatere de 2 mm lasă o falcă în aer, deci centrarea se măsoară și se corectează în scenă.
 CENTER_TOLERANCE_M = 0.0008
 CENTER_ATTEMPTS = 2
 
+#: Cît loc rămîne între piesă și vîrful falcii cînd se prinde pe laturi. Sub această marjă,
+#: falcile ar putea atinge piesa înainte să o închidă, iar prinderea ar deveni o împingere.
+JAW_STRADDLE_MARGIN_M = 0.004
+
 #: Cît de mult se poate abate piesa de la locul cerut cînd o lasă brațul. Variația este mică, ca
 #: piesa să rămînă pe suprafață, dar destul ca fiecare ciclu să arate altfel.
 DROP_JITTER_M = 0.02
 RACK_JITTER_M = 0.018
+
+#: Unde se pune următorul bloc brut pe banda 1, ca să ajungă la linia de preluare cît brațul 2
+#: sortează piesa de dinainte. Banda merge de la x = 0,40 m; punctul de aici lasă ~0,7 m de mers,
+#: adică vreo șase secunde de transport vizibil.
+NEXT_BLANK_X = 2.0
 
 #: Toleranța la verificarea finală: piesa trebuie să fie la locul ei, nu doar „pe undeva".
 PLACE_TOLERANCE_M = 0.04
@@ -100,6 +116,12 @@ PLACE_TOLERANCE_M = 0.04
 #: de regim plus variația de așezare. 60 mm o țin în compartimentul ei și prind o așezare
 #: ratată — înainte de corectură, o piesă ajungea la 72-152 mm ori cădea sub raft.
 RACK_TOLERANCE_M = 0.06
+
+#: Cît se ridică punctul de așezare la raft. Scula intră înclinată în dulap, deci piesa ținută
+#: în falci se înclină și ea: la 50° de verticală muchia ei coboară ~0,04 m sub centru. Fără
+#: ridicare, muchia intră în podeaua raftului cu ~17 mm înainte ca scula să ajungă la punct, iar
+#: brațul se oprește 30 mm mai la est. Piesa e lăsată apoi să cadă pe raft și se așază plat.
+RACK_PLACE_LIFT_M = 0.02
 
 #: Cîți pași se lasă piesele să se așeze după ce le lasă brațul, înainte de măsurătoare.
 SETTLE_AFTER_RELEASE = 120
@@ -154,6 +176,10 @@ class CycleResult:
     #: Ruta piesei de pe banda 2, așa cum a ieșit din verdict; ``None`` pînă la pasul de sortare.
     routing: Routing | None = None
 
+    #: Adevărat cînd brațul 1 a lăsat deja următorul bloc în universal, cît brațul 2 sorta.
+    #: Ciclul următor începe direct cu așchierea, fără să mai aștepte banda 1.
+    preloaded: bool = False
+
     @property
     def success(self) -> bool:
         """Adevărat cînd nicio verificare a ciclului nu a căzut."""
@@ -171,9 +197,61 @@ class CycleResult:
             "grasp_success": self.grasp_success,
             "failures": list(self.failures),
             "route": self.routing.as_dict() if self.routing is not None else None,
+            "preloaded": self.preloaded,
             "final": {body: [round(value, 6) for value in position]
                       for body, position in self.final.items()},
         }
+
+
+class _PreloadPlayback:
+    """Comenzile brațului 1, înregistrate pe o copie a scenei și redate cît brațul 2 sortează.
+
+    Un singur fir poate pași motorul, deci suprapunerea nu se face cu două fire: mișcarea
+    brațului 1 se joacă înregistrată, un pas de simulare pe rînd, iar comenzile lui se scriu
+    înainte de pasul următor. Înregistrarea vine dintr-o copie a stării de acum, cu aceeași
+    fizică, deci prinderea și lăsarea cad la aceleași momente ca în proba de pe copie.
+    """
+
+    def __init__(self, model: mujoco.MjModel, data: mujoco.MjData,
+                 ctrls: list[np.ndarray], events: dict[int, list[str]],
+                 arm: str = "arm1") -> None:
+        self.model = model
+        self.data = data
+        self.arm = arm
+        self.ctrl = ctrls
+        self.events = events
+        self.actuators = arms.actuator_ids(model, arm)
+        self.index = 0
+        self._apply(0)
+
+    @property
+    def done(self) -> bool:
+        """Toate comenzile înregistrate au fost scrise."""
+        return self.index >= len(self.ctrl)
+
+    def _apply(self, index: int) -> None:
+        self.data.ctrl[self.actuators] = self.ctrl[index]
+
+    def _run_events(self, index: int) -> None:
+        """Leagă ori desface piesa de mînă la momentul în care s-a întîmplat pe copie."""
+        for kind in self.events.get(index, ()):
+            if kind == "attach":
+                grasp.attach(self.model, self.data, self.arm, BLANK_BODY)
+            elif kind == "release":
+                grasp.release(self.model, self.data, self.arm, BLANK_BODY)
+            elif kind == "clamp":
+                grasp.clamp(self.model, self.data, BLANK_BODY)
+            elif kind == "unclamp":
+                grasp.unclamp(self.model, self.data, BLANK_BODY)
+
+    def advance(self) -> None:
+        """După un pas de simulare: evenimentele lui, apoi comanda pentru pasul următor."""
+        if self.done:
+            return
+        self._run_events(self.index)
+        self.index += 1
+        if not self.done:
+            self._apply(self.index)
 
 
 def pick_lift(half_thickness_m: float) -> float:
@@ -190,6 +268,15 @@ def _body_position(model: mujoco.MjModel, data: mujoco.MjData,
 def _body_quat(model: mujoco.MjModel, data: mujoco.MjData, body: str) -> tuple[float, ...]:
     """Cuaternarul unui corp, ca tuple de floate."""
     return tuple(float(value) for value in data.xquat[grasp.body_id(model, body)])
+
+
+def in_rack(model: mujoco.MjModel, data: mujoco.MjData, body: str) -> bool:
+    """Dacă o piesă stă acum în dulap, nu pe masa de descărcare a mașinii."""
+    x, y, z = _body_position(model, data, body)
+    return (layout.RACK_SHELF_Z - 0.05 <= z <= layout.RACK_TOP_Z + 0.05
+            and layout.RACK["x"] - 0.05 <= x <= layout.RACK["x"] + layout.RACK_DEPTH_M + 0.08
+            and layout.RACK["y"] - 0.05 <= y
+            <= layout.RACK["y"] + layout.RACK["h"] + 0.05)
 
 
 def varied_xy(seed: int, stream: str, nominal: tuple[float, float],
@@ -216,10 +303,16 @@ class Cycle:
                  recorder: CycleRecorder | None = None,
                  hook: StepHook | None = None,
                  reporter: Callable[[dict[str, Any]], None] | None = None,
-                 router: Router | None = None) -> None:
+                 router: Router | None = None,
+                 next_blank: bool = False,
+                 status: dict[str, Any] | None = None,
+                 blank_half_m: float | None = None) -> None:
         self.model = model
         self.data = data
         self.family = family
+        #: Corpul piesei mașinate al familiei acestui ciclu. Fiecare familie are un corp
+        #: compilat cu geometria și masa ei, deci nu se schimbă niciun mesh la rulare.
+        self.part_body = layout.part_body_name(family)
         self.seed = int(seed)
         self.settle = int(settle)
         self.machining_s = max(0.0, float(machining_s))
@@ -227,25 +320,57 @@ class Cycle:
         self.hook = hook
         self.reporter = reporter
         self.router = router
+        self.next_blank = bool(next_blank)
+        #: Starea pe care o citește telemetria viewer-ului: punctul de lucru de acum și dacă
+        #: mașina taie. Recorder-ul de sesiune are propriul lui `stage`; viewer-ul nu are
+        #: recorder, dar trimite eșantioane, deci are nevoie de aceleași momente.
+        self.status = status
+        if self.status is not None:
+            self.status.setdefault("machine_state", telemetry.IDLE_STATE)
+            self.status.setdefault("cutting", False)
         self.result = CycleResult()
+        #: Mișcarea înregistrată a brațului 1, redată cît brațul 2 își duce piesa la raft.
+        self.playback: _PreloadPlayback | None = None
+        self._preload_ok = False
         self.tool = {arm: arms.tool_length(model, data, arm) for arm in arms.ARMS}
-        self.blank_half = part.blank_half_thickness_m(family)
+        # Blocul brut este unul singur, de dimensiunea familiei cu care a fost construită scena,
+        # deci cota lui de prindere se ia din corpul real, nu din familia ciclului.
+        self.blank_half = (part.blank_half_thickness_m(family) if blank_half_m is None
+                           else max(0.0, float(blank_half_m)))
         self.part_half = part.gear_half_thickness_m(family)
         self.part_radius = part.gear_radius_m(family)
+        #: Adevărat cînd piesa intră între falci, deci se prinde pe laturi. Roata de Ø104 mm nu
+        #: intră: falcile se lasă pe fața ei de sus, iar clema rămîne activă pînă la legătură.
+        self.between_jaws = (part.narrow_width_m(family) + 2 * JAW_STRADDLE_MARGIN_M
+                             <= grasp.GRIPPER_OPENING_M)
         self.scales = (recorder.belt_scales if recorder is not None else 1.0)
 
     # ------------------------------------------------------------ faze și cadre
     def _phase(self, phase: str | None, work: wear.Work) -> None:
         if self.recorder is not None:
             self.recorder.begin_phase(phase, work)
+        if self.status is not None:
+            self.status["cutting"] = phase == wear.PHASE_CUTTING
+            if phase == wear.PHASE_CUTTING:
+                self.status["machine_state"] = wear.PHASE_CUTTING
+            elif self.status.get("point") is None:
+                self.status["machine_state"] = telemetry.IDLE_STATE
 
     def _enter(self, stage: str) -> None:
         if self.recorder is not None:
             self.recorder.enter(stage)
+        if self.status is not None:
+            self.status["point"] = stage
+            self.status["machine_state"] = telemetry.machine_state_for(stage)
+            self.status["cutting"] = False
 
     def _leave(self) -> None:
         if self.recorder is not None:
             self.recorder.leave()
+        if self.status is not None:
+            self.status["point"] = None
+            self.status["machine_state"] = telemetry.IDLE_STATE
+            self.status["cutting"] = False
 
     def _after_stage(self) -> None:
         if self.recorder is not None:
@@ -255,25 +380,39 @@ class Cycle:
         if self.recorder is not None:
             self.recorder.after_substage(point, substage)
 
-    def _step(self) -> None:
+    def _report(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
+        """După un pas: înaintează mișcarea paralelă, apoi anunță viewer-ul ori recorder-ul."""
+        if self.playback is not None:
+            self.playback.advance()
         if self.hook is not None:
-            self.hook(self.model, self.data)
+            self.hook(model, data)
+
+    def _step(self) -> None:
+        self._report(self.model, self.data)
 
     def _settle(self, steps: int, *, belts: bool = False) -> None:
         """Pași fără mișcare de braț: piesa se așază, benzile pot rămîne pornite."""
         for _ in range(steps):
             if belts:
                 cell.apply_belt_forces(self.model, self.data, self.scales,
-                                       (BLANK_BODY, PART_BODY))
+                                       (BLANK_BODY, self.part_body))
             mujoco.mj_step(self.model, self.data)
             self._step()
 
     # ------------------------------------------------------------ mișcări
     def _reach(self, arm: str, item: moves.Move, stage: str,
-               point: tuple[float, float, float]) -> dict[str, float]:
-        """Duce scula în punctul dat și raportează eroarea, contactele și drumul."""
-        report = arms.reach_point(self.model, self.data, arm, point, item.approach,
-                                  item.spin_deg, settle=self.settle, hook=self.hook)
+               point: tuple[float, float, float],
+               approach: tuple[float, float, float] | None = None) -> dict[str, float]:
+        """Duce scula în punctul dat și raportează eroarea, contactele și drumul.
+
+        ``approach`` schimbă doar direcția din care vine scula în acest punct. Trecerea din
+        fața dulapului se face vertical: din direcția înclinată a compartimentului, încheietura
+        nu mai nimerește punctul de trecere și intrarea în raft iese cu eroare de ordinul
+        centimetrilor.
+        """
+        report = arms.reach_point(self.model, self.data, arm, point,
+                                  item.approach if approach is None else approach,
+                                  item.spin_deg, settle=self.settle, hook=self._report)
         pairs = scene.contact_pairs(self.model, self.data)
         prefixes = tuple(f"{prefix}_" for prefix, _ in scene.ARM_MOUNTS)
         links = checks.arm_link_contacts(pairs, prefixes)
@@ -310,8 +449,12 @@ class Cycle:
 
     def _travel(self, arm: str, item: moves.Move) -> None:
         """Trecerea prin fața obstacolului, urcarea deasupra și coborîrea pe punct."""
+        # Trecerea din fața raftului se atinge de sus, chiar dacă intrarea în compartiment este
+        # înclinată: așa ajunge scula în dreptul feței deschise fără să atingă carcasa.
+        via_approach = (moves.FROM_ABOVE if item.name in layout.RACK_TARGETS.values()
+                        else item.approach)
         for index, point in enumerate(item.via, start=1):
-            self._reach(arm, item, f"trecere {index}", point)
+            self._reach(arm, item, f"trecere {index}", point, approach=via_approach)
         self._reach(arm, item, "sus", item.hover)
         self._reach(arm, item, "jos", item.point)
 
@@ -320,14 +463,17 @@ class Cycle:
 
     # ------------------------------------------------------------ prinderea
     def _grip(self, action: str, arm: str, body: str, point: str,
-              steps: int | None = None, hold: bool = False) -> grasp.GraspReport:
+              steps: int | None = None, hold: bool = False,
+              release_fixture: bool = False) -> grasp.GraspReport:
         """Închide ori deschide falcile, cu raportul scris în ciclu."""
         function = grasp.pick if action == "pick" else grasp.place
-        kwargs: dict[str, Any] = {"hook": self.hook, "point": point}
+        kwargs: dict[str, Any] = {"hook": self._report, "point": point}
         if steps is not None:
             kwargs["steps"] = steps
         if action == "place":
             kwargs["hold"] = hold
+        if release_fixture:
+            kwargs["release_fixture"] = True
         report = function(self.model, self.data, arm, body, **kwargs)
         self.result.grasps.append(report.as_dict())
         if self.reporter is not None:
@@ -364,9 +510,9 @@ class Cycle:
         return self._centered(arm, item, body)
 
     def _grasp_and_lift(self, arm: str, name: str, body: str,
-                        item: moves.Move) -> grasp.GraspReport:
+                        item: moves.Move, release_fixture: bool = False) -> grasp.GraspReport:
         """Închide falcile pe piesă, o ridică și iese din punctul de lucru."""
-        report = self._grip("pick", arm, body, name)
+        report = self._grip("pick", arm, body, name, release_fixture=release_fixture)
         self._lift(arm, item)
         self._leave()
         if report.success and not grasp.is_attached(self.model, self.data, arm, body):
@@ -375,14 +521,27 @@ class Cycle:
 
     def _pick_from(self, arm: str, name: str, body: str,
                    half_thickness_m: float, clearance_m: float = 0.0,
-                   align: bool = False) -> grasp.GraspReport:
+                   align: bool = False, release_fixture: bool = False) -> grasp.GraspReport:
         """Prinde piesa de pe suprafața ei, în locul unde se află acum."""
         item = self._approach(arm, name, body, half_thickness_m, clearance_m, align=align)
-        return self._grasp_and_lift(arm, name, body, item)
+        return self._grasp_and_lift(arm, name, body, item, release_fixture=release_fixture)
 
     def _withdraw(self, arm: str, item: moves.Move) -> None:
         """Scoate scula din punctul de jos fără să închidă falcile pe piesă."""
         self._reach(arm, item, "retragere", item.hover)
+        self._leave()
+
+    def _preposition_arm2(self) -> None:
+        """Mută brațul 2 deasupra liniei de preluare imediat după așezarea în raft.
+
+        Drumul durează cîteva secunde, iar brațul 1 are deja de lucru: următorul bloc este în
+        universal, iar ciclul următor îl găsește acolo. Brațul 2 așteaptă deschis deasupra
+        punctului, iar banda 2 îi aduce piesa sub falci; la începutul ciclului următor coboară
+        doar cît să prindă.
+        """
+        item = moves.move("belt2_pick", self.tool["arm2"], self.family)
+        self._enter("belt2_pick")
+        self._reach("arm2", item, "așteptare", item.hover)
         self._leave()
 
     # ------------------------------------------------------------ ruta
@@ -424,8 +583,8 @@ class Cycle:
         la capătul de vest al benzii în ladă.
         """
         self._phase(wear.PHASE_TRANSPORT, wear.Work(belts=wear.BELT_COMPONENTS))
-        grasp.unclamp(self.model, self.data, PART_BODY)
-        left = cell.carry_past_pickup(self.model, self.data, PART_BODY, hook=self.hook,
+        grasp.unclamp(self.model, self.data, self.part_body)
+        left = cell.carry_past_pickup(self.model, self.data, self.part_body, hook=self._report,
                                       speed_scale=self.scales)
         if not left:
             self._fail("piesa refuzată a rămas pe bandă, fără să ajungă la capătul ei")
@@ -495,25 +654,49 @@ class Cycle:
         return report
 
     # ------------------------------------------------------------ fluxul
-    def run(self) -> CycleResult:
-        """Ciclul întreg, în ordinea din plan; întoarce raportul și timpul simulat."""
-        started = float(self.data.time)
+    def _load_blank(self) -> None:
+        """Banda 1, brațul 1 și universalul: blocul brut ajunge în mașină.
 
-        # 1. Banda 1 aduce blocul brut la linia de preluare. Piesa este ținută de clemă cît
-        #    falcile se închid: altfel vîrfurile unui disc liber îl împing cîțiva centimetri.
+        Pașii stau împreună fiindcă se repetă în două locuri: la începutul ciclului și, în
+        demonstrația continuă, cît brațul 2 își duce piesa de dinainte la raft.
+        """
+        # Banda 1 aduce blocul brut la linia de preluare. Piesa este ținută de clemă cît
+        # falcile se închid: altfel vîrfurile unui disc liber îl împing cîțiva centimetri.
         self._phase(wear.PHASE_TRANSPORT, wear.Work(belts=wear.BELT_COMPONENTS))
         cell.bring_parts_to_pickup(self.model, self.data, (BLANK_BODY,),
-                                   hook=self.hook, speed_scale=self.scales)
+                                   hook=self._report, speed_scale=self.scales)
         self._settle(SETTLE_AFTER_RELEASE)
         grasp.clamp(self.model, self.data, BLANK_BODY)
 
-        # 2. Brațul 1 prinde blocul și îl duce în universal.
+        # Brațul 1 prinde blocul și îl duce în universal.
         self._phase(None, wear.Work(belts=wear.BELT_COMPONENTS, arms=("arm1",)))
         self._pick_from("arm1", "belt1_pick", BLANK_BODY, self.blank_half)
         blank_chuck = moves.work_point("cnc_chuck", self.family)
         self._place_at("arm1", "cnc_chuck", BLANK_BODY, blank_chuck, hold=True)
         self._settle(SETTLE_AFTER_RELEASE)
         grasp.clamp(self.model, self.data, BLANK_BODY)
+
+    def preload(self) -> None:
+        """Aceiași pași ca la începutul ciclului, pe o copie a scenei, fără așchiere.
+
+        Se folosește la înregistrarea mișcării brațului 1 cît brațul 2 sortează: copia are aceeași
+        fizică, deci comenzile înregistrate aici ajung piesa în universal la fel și în scena reală.
+        """
+        self._load_blank()
+
+    def run(self, preloaded: bool = False) -> CycleResult:
+        """Ciclul întreg, în ordinea din plan; întoarce raportul și timpul simulat.
+
+        Cu ``preloaded``, blocul brut este deja în universal, lăsat acolo de ciclul dinainte cît
+        brațul 2 își ducea piesa la raft: ciclul sare peste banda 1 și peste încărcare, mergînd
+        direct la așchiere.
+        """
+        started = float(self.data.time)
+
+        if preloaded:
+            self._settle(SETTLE_AFTER_RELEASE)
+        else:
+            self._load_blank()
 
         # 3. Fereastra de așchiere: mașina nu are axe în scenă, dar scula se uzează aici.
         self._machining()
@@ -524,45 +707,139 @@ class Cycle:
 
         # 5. Brațul 1 descarcă piesa din universal și o lasă pe banda 2.
         self._phase(None, wear.Work(belts=wear.BELT_COMPONENTS, arms=("arm1",)))
-        self._pick_from("arm1", "cnc_chuck", PART_BODY, self.part_half,
-                        clearance_m=CHUCK_PICK_CLEARANCE_M, align=True)
+        self._pick_from("arm1", "cnc_chuck", self.part_body, self.part_half,
+                        clearance_m=CHUCK_PICK_CLEARANCE_M, align=True,
+                        release_fixture=self.between_jaws)
         drop = self._drop_point()
-        self._place_at("arm1", "belt2_drop", PART_BODY, drop)
+        self._place_at("arm1", "belt2_drop", self.part_body, drop)
         self._settle(SETTLE_AFTER_RELEASE, belts=True)
+
+        # 5b. În demonstrația continuă, următorul bloc brut pleacă spre linia de preluare acum,
+        #     cît brațul 2 sortează piesa de dinainte. Banda 1 îl duce singură pînă la oprire.
+        transport = (self.part_body,)
+        if self.next_blank:
+            self._stage_next_blank()
+            transport = (self.part_body, BLANK_BODY)
 
         # 6. Banda 2 duce piesa spre vest, pînă la linia de preluare a brațului 2.
         self._phase(wear.PHASE_TRANSPORT, wear.Work(belts=wear.BELT_COMPONENTS))
-        cell.bring_parts_to_pickup(self.model, self.data, (PART_BODY,),
-                                   hook=self.hook, speed_scale=self.scales)
+        cell.bring_parts_to_pickup(self.model, self.data, transport,
+                                   hook=self._report, speed_scale=self.scales)
         self._settle(SETTLE_AFTER_RELEASE)
-        grasp.clamp(self.model, self.data, PART_BODY)
+        grasp.clamp(self.model, self.data, self.part_body)
 
         # 7. Brațul 2 coboară peste piesă, iar camera de pe flanșă ia cadrul care decide ruta.
         #    Verdictul bun duce piesa în compartimentul familiei; verdictul de rebut o lasă pe
         #    bandă, care o duce peste linia de preluare pînă cade în ladă.
         self._phase(None, wear.Work(belts=wear.BELT_COMPONENTS, arms=("arm2",)))
-        item = self._approach("arm2", "belt2_pick", PART_BODY, self.part_half, align=True)
+        item = self._approach("arm2", "belt2_pick", self.part_body, self.part_half, align=True)
         routing = self._decide()
+        # Ruta de raft lasă brațul 2 cu piesa în mînă pentru încă vreo 25 s: brațul 1 își
+        # începe imediat următoarea încărcare, din înregistrarea făcută pe copie. La rebut nu
+        # se pregătește nimic, fiindcă piesa din ciclul următor ar veni din ladă.
+        if routing.destination != inspection.ROUTE_SCRAP and self.next_blank:
+            self._begin_preload()
         if routing.destination == inspection.ROUTE_SCRAP:
             self._withdraw("arm2", item)
             self._send_to_scrap()
         else:
-            self._grasp_and_lift("arm2", "belt2_pick", PART_BODY, item)
+            self._grasp_and_lift("arm2", "belt2_pick", self.part_body, item,
+                                 release_fixture=self.between_jaws)
             family = routing.rack_family
             rack = layout.rack_target(family)
-            self._place_at("arm2", rack, PART_BODY, self._rack_point(rack, family),
-                           hold=True, family=family)
-            self._settle(SETTLE_AFTER_RELEASE)
-            grasp.clamp(self.model, self.data, PART_BODY)
+            rack_point = self._rack_point(rack, family)
+            self._place_at("arm2", rack, self.part_body,
+                           (rack_point[0], rack_point[1],
+                            rack_point[2] + RACK_PLACE_LIFT_M),
+                           family=family)
+            self._settle(SETTLE_AFTER_RELEASE * 3)
+            # Brațul 2 nu așteaptă lîngă raft: pleacă imediat deasupra liniei de preluare a
+            # benzii 2, cît brațul 1 lucrează, ca următoarea piesă să fie luată fără pauză.
+            self._preposition_arm2()
+            self._finish_preload()
 
         self._phase(None, wear.Work())
+        self.result.preloaded = bool(self._preload_ok)
         self._check_final(routing)
         self.result.duration_s = float(self.data.time) - started
         self.result.final = {
             body: _body_position(self.model, self.data, body)
-            for body in (BLANK_BODY, PART_BODY)
+            for body in (BLANK_BODY, self.part_body)
         }
         return self.result
+
+    # ------------------------------------------------------------ pregătirea paralelă
+    def _grasp_state(self, data: mujoco.MjData) -> tuple[bool, bool]:
+        """Dacă blocul este legat de brațul 1, respectiv ținut de clemă, în starea dată."""
+        return (grasp.is_attached(self.model, data, "arm1", BLANK_BODY),
+                grasp.is_clamped(self.model, data, BLANK_BODY))
+
+    def _plan_preload(self) -> tuple[_PreloadPlayback | None, bool]:
+        """Înregistrează încărcarea următorului bloc pe o copie a scenei.
+
+        Copia are aceeași fizică și aceleași constrângeri, deci încărcarea se desfășoară exact ca
+        în realitate; scena reală nu se mișcă. Se păstrează comenzile actuatoarelor brațului 1 și
+        momentele în care piesa se leagă ori se desface de mînă, fiindcă acelea sînt egalități din
+        model, nu valori din `ctrl`. `eq_data` al modelului este comun celor două stări, deci se
+        pune la loc după probă.
+        """
+        scratch = mujoco.MjData(self.model)
+        mujoco.mj_copyData(scratch, self.model, self.data)
+        saved = np.array(self.model.eq_data, dtype=float)
+        actuators = arms.actuator_ids(self.model, "arm1")
+        ctrls: list[np.ndarray] = []
+        events: dict[int, list[str]] = {}
+        before = self._grasp_state(scratch)
+
+        def record(model: mujoco.MjModel, data: mujoco.MjData) -> None:
+            """O comandă pe pas, plus trecerile legăturilor, așa cum le vede hook-ul ciclului."""
+            nonlocal before
+            ctrls.append(np.array([float(data.ctrl[index]) for index in actuators]))
+            now = self._grasp_state(data)
+            if now != before:
+                kinds: list[str] = []
+                if now[0] and not before[0]:
+                    kinds.append("attach")
+                elif before[0] and not now[0]:
+                    kinds.append("release")
+                if now[1] and not before[1]:
+                    kinds.append("clamp")
+                elif before[1] and not now[1]:
+                    kinds.append("unclamp")
+                for kind in kinds:
+                    events.setdefault(len(ctrls) - 1, []).append(kind)
+                before = now
+
+        try:
+            planner = Cycle(self.model, scratch, self.family, seed=self.seed,
+                            settle=self.settle, machining_s=0.0, hook=record, status=None,
+                            blank_half_m=self.blank_half)
+            planner.preload()
+            success = planner.result.grasp_success and not planner.result.failures
+        finally:
+            np.copyto(self.model.eq_data, saved)
+        if not ctrls:
+            return None, False
+        return _PreloadPlayback(self.model, self.data, ctrls, events), success
+
+    def _begin_preload(self) -> None:
+        """Pornește încărcarea paralelă; pașii brațului 2 o înaintează pe măsură ce se întîmplă."""
+        if self.reporter is not None:
+            self.reporter({"preload": "start"})
+        playback, success = self._plan_preload()
+        self.playback = playback
+        self._preload_ok = bool(success and playback is not None)
+        if not self._preload_ok:
+            self._fail("brațul 1 nu a putut pregăti următorul bloc cît brațul 2 sorta")
+        if self.reporter is not None:
+            self.reporter({"preload": "ok" if self._preload_ok else "failed"})
+
+    def _finish_preload(self) -> None:
+        """Dacă încărcarea ține mai mult decît mutarea brațului 2, o duce pînă la capăt."""
+        while self.playback is not None and not self.playback.done:
+            mujoco.mj_step(self.model, self.data)
+            self._step()
+        self.playback = None
 
     # ------------------------------------------------------------ proces
     def _machining(self) -> None:
@@ -573,7 +850,7 @@ class Cycle:
         steps = max(1, int(round(self.machining_s / float(self.model.opt.timestep))))
         for _ in range(steps):
             cell.apply_belt_forces(self.model, self.data, self.scales,
-                                   (BLANK_BODY, PART_BODY))
+                                   (BLANK_BODY, self.part_body))
             mujoco.mj_step(self.model, self.data)
             self._step()
 
@@ -585,7 +862,16 @@ class Cycle:
         sînt ținute apoi de clemă, ca să nu alunece cît brațul se apropie.
         """
         blank_q = _body_quat(self.model, self.data, BLANK_BODY)
-        part_q = _body_quat(self.model, self.data, PART_BODY)
+        part_q = part.yaw_quat(part.random_yaw_deg(self.seed, "part"))
+        # Piesa familiei acestui ciclu poate sta în raft, din tura dinainte a rotației. Înainte
+        # s-o teleportăm în universal, poziția ei se copiază pe un corp de afișare, ca raftul să
+        # nu se golească.
+        if self._in_rack(self.part_body):
+            rack_display.archive(self.model, self.data, self.part_body)
+        # Corpul are geometria familiei compilată în scenă; aici i se pornește ciocnirea și i se
+        # scoate compensarea greutății, oprite cît a stat în rezerva de sub podea.
+        scene.set_part_stored(self.model, self.part_body, False)
+        grasp.unclamp(self.model, self.data, self.part_body)
         grasp.unclamp(self.model, self.data, BLANK_BODY)
         grasp.set_body_pose(
             self.model, self.data, BLANK_BODY,
@@ -596,11 +882,11 @@ class Cycle:
 
         target = layout.target("cnc_chuck")
         grasp.set_body_pose(
-            self.model, self.data, PART_BODY,
+            self.model, self.data, self.part_body,
             (float(target["x"]), float(target["y"]),
-             moves.SURFACE_Z["cnc_chuck"] + self.part_half),
+             moves.SURFACE_Z["cnc_chuck"] + max(self.part_half, CHUCK_SEAT_HALF_M)),
             part_q)
-        grasp.clamp(self.model, self.data, PART_BODY)
+        grasp.clamp(self.model, self.data, self.part_body)
 
     def _drop_point(self) -> tuple[float, float, float]:
         """Locul de așezare pe banda 2, abătut din sămînță și ținut pe bandă."""
@@ -610,16 +896,40 @@ class Cycle:
                          DROP_JITTER_M)
         return (x, y, nominal[2])
 
+    def _stage_next_blank(self) -> None:
+        """Pune următorul bloc brut pe banda 1, ca să sosească în timpul sortării.
+
+        Blocul stătea pe masa de descărcare, unde îl lăsase schimbul de material. Aici îl scoate
+        din clemă și îl mută la intrarea benzii, iar forțele benzii îl duc singure pînă la linia
+        de preluare. Ciclul următor îl găsește acolo, deci linia nu se oprește între piese.
+        """
+        grasp.unclamp(self.model, self.data, BLANK_BODY)
+        x0, x1, y0, y1 = layout.belt_bounds(layout.BELT_IN)
+        x = min(max(NEXT_BLANK_X, x0), x1)
+        y = (y0 + y1) / 2
+        grasp.set_body_pose(
+            self.model, self.data, BLANK_BODY,
+            (x, y, layout.BELT_SURFACE_Z + self.blank_half),
+            (1.0, 0.0, 0.0, 0.0))
+
+    def _in_rack(self, body: str) -> bool:
+        """Dacă piesa stă acum în dulap, nu pe masa de descărcare a mașinii."""
+        return in_rack(self.model, self.data, body)
+
     def _rack_point(self, name: str, family: str | None = None
                     ) -> tuple[float, float, float]:
-        """Locul din compartiment, cu o abatere mică pe lungimea raftului.
+        """Locul din compartiment, pe primul loc liber de pe lungimea raftului.
 
-        Abaterea pe adîncimea dulapului este zero: fața vestică este deschisă, iar piesa stă
-        aproape de ea ca scula să intre fără ca antebrațul să atingă carcasa.
+        Compartimentul are 0,50 m, destul pentru trei discuri de Ø104 mm. Primul merge în centru,
+        al doilea la sud, al treilea la nord; al patrulea îl înlocuiește pe cel mai vechi, fiindcă
+        raftul ține ce s-a sortat, nu o stivă. Abaterea pe adîncimea dulapului este zero: fața
+        estică este deschisă, iar piesa stă aproape de ea ca scula să intre fără ca antebrațul să
+        atingă carcasa.
         """
         nominal = moves.work_point(name, family or self.family)
         rng = random.Random(f"{self.seed}:grasp:{name}")
-        y = float(nominal[1]) + rng.uniform(-RACK_JITTER_M, RACK_JITTER_M)
+        offset = rack_display.free_slot(self.model, self.data, name, float(nominal[1]))
+        y = float(nominal[1]) + offset + rng.uniform(-RACK_JITTER_M, RACK_JITTER_M)
         slot = layout.rack_slot_index(name) + 1
         entry = layout.rack_entry(slot)
         y0 = float(entry["y"])
@@ -637,21 +947,40 @@ class Cycle:
             family = routing.rack_family
             rack = layout.rack_target(family)
             expected = moves.work_point(rack, family)
-            actual = _body_position(self.model, self.data, PART_BODY)
-            distance = math.dist((actual[0], actual[1]), (expected[0], expected[1]))
-            if distance > RACK_TOLERANCE_M:
-                self._fail(f"piesa mașinată a rămas la {distance * 1000:.0f} mm de "
-                           f"compartimentul {rack}")
+            actual = _body_position(self.model, self.data, self.part_body)
+            # Pe adîncime punctul este fix; pe lungime piesa poate sta pe oricare dintre cele trei
+            # locuri ale compartimentului, deci se verifică amprenta, nu centrul.
+            if abs(actual[0] - expected[0]) > RACK_TOLERANCE_M:
+                self._fail(f"piesa mașinată a rămas la "
+                           f"{abs(actual[0] - expected[0]) * 1000:.0f} mm de compartimentul "
+                           f"{rack}, pe adîncime")
+            entry = layout.rack_entry(layout.rack_slot_index(rack) + 1)
+            y0 = float(entry["y"])
+            y1 = y0 + layout.RACK_ENTRY_M
+            margin = self.part_radius + part.BLANK_EDGE_MARGIN_M
+            if not y0 + margin <= actual[1] <= y1 - margin:
+                self._fail(f"piesa mașinată a ieșit din compartimentul {rack} "
+                           f"(y = {actual[1]:.3f} m, între {y0 + margin:.3f} și "
+                           f"{y1 - margin:.3f})")
             if actual[2] < expected[2] - 0.03:
                 self._fail(f"piesa mașinată a căzut sub raft ({actual[2]:.3f} m)")
 
         blank = _body_position(self.model, self.data, BLANK_BODY)
-        staging = (layout.MACHINE_STAGING_X, layout.MACHINE_STAGING_Y)
-        if math.dist((blank[0], blank[1]), staging) > PLACE_TOLERANCE_M:
-            self._fail(f"blocul brut nu a rămas pe masa de descărcare "
-                       f"({blank[0]:.3f}, {blank[1]:.3f})")
-        if blank[2] < layout.MACHINE_TABLE_Z:
-            self._fail(f"blocul brut a căzut de pe masa mașinii ({blank[2]:.3f} m)")
+        if self.result.preloaded:
+            expected_blank = moves.work_point("cnc_chuck", self.family)
+            distance = math.dist((blank[0], blank[1]), (expected_blank[0], expected_blank[1]))
+            if distance > PLACE_TOLERANCE_M:
+                self._fail(f"brațul 1 a lăsat următorul bloc la {distance * 1000:.0f} mm de "
+                           f"universal ({blank[0]:.3f}, {blank[1]:.3f})")
+            if blank[2] < moves.SURFACE_Z["cnc_chuck"]:
+                self._fail(f"blocul pregătit a căzut sub universal ({blank[2]:.3f} m)")
+        elif not self.next_blank:
+            staging = (layout.MACHINE_STAGING_X, layout.MACHINE_STAGING_Y)
+            if math.dist((blank[0], blank[1]), staging) > PLACE_TOLERANCE_M:
+                self._fail(f"blocul brut nu a rămas pe masa de descărcare "
+                           f"({blank[0]:.3f}, {blank[1]:.3f})")
+            if blank[2] < layout.MACHINE_TABLE_Z:
+                self._fail(f"blocul brut a căzut de pe masa mașinii ({blank[2]:.3f} m)")
 
     def _check_scrap(self) -> None:
         """Piesa refuzată a ajuns în ladă, între podeaua și marginea ei.
@@ -661,7 +990,7 @@ class Cycle:
         pe bandă, pe jos, ori să fi trecut prin tablă. Toleranța de la fund acoperă scufundarea
         contactului la impact.
         """
-        actual = _body_position(self.model, self.data, PART_BODY)
+        actual = _body_position(self.model, self.data, self.part_body)
         geometry = layout.scrap_bin_geometry()
         inside = (
             geometry["scrap_bin_cx"] - geometry["scrap_bin_hx"] <= actual[0]
@@ -687,7 +1016,46 @@ def run_cycle(model: mujoco.MjModel, data: mujoco.MjData, family: str, *,
               recorder: CycleRecorder | None = None,
               hook: StepHook | None = None,
               reporter: Callable[[dict[str, Any]], None] | None = None,
-              router: Router | None = None) -> CycleResult:
-    """Rulează un ciclu complet, cu prindere fizică; vezi :class:`Cycle`."""
+              router: Router | None = None,
+              next_blank: bool = False,
+              status: dict[str, Any] | None = None,
+              preloaded: bool = False,
+              blank_half_m: float | None = None) -> CycleResult:
+    """Rulează un ciclu complet, cu prindere fizică; vezi :class:`Cycle`.
+
+    ``next_blank`` pregătește următorul bloc cît brațul 2 sortează, iar ``preloaded`` spune că
+    blocul din ciclul acesta este deja în universal, adus de ciclul dinainte. ``blank_half_m``
+    este jumătatea grosimii blocului din scenă, cînd blocul nu este al familiei ciclului.
+    """
     return Cycle(model, data, family, seed=seed, settle=settle, machining_s=machining_s,
-                 recorder=recorder, hook=hook, reporter=reporter, router=router).run()
+                 recorder=recorder, hook=hook, reporter=reporter, router=router,
+                 next_blank=next_blank, status=status,
+                 blank_half_m=blank_half_m).run(preloaded=preloaded)
+
+
+def reset_cell(model: mujoco.MjModel, data: mujoco.MjData,
+               places: dict[str, Any], *, settle: int = 120) -> None:
+    """Readuce celula în starea de pornire, între două cicluri ale demonstrației continue.
+
+    Toate legăturile (clemele pieselor și prinderile brațelor) se desfac întîi: poziția nominală
+    rescrie doar `qpos` și `ctrl`, iar o clemă rămasă activă ar ține piesa veche de braț. Apoi
+    poziția nominală readuce blocul la linia de preluare a benzii 1, piesa familiei următoare pe
+    masa de descărcare, iar celelalte familii în rezerva de sub podea — starea din care pleacă un
+    ciclu. ``places`` este deci alcătuit pentru familia care urmează.
+    """
+    bodies = tuple(places)
+    # Piesele sortate rămîn vizibile în raft: poziția fiecăreia se copiază pe un corp de
+    # afișare înainte ca poziția nominală să le mute înapoi în celulă.
+    for body, place in places.items():
+        if place["state"] != layout.STATE_BLANK and in_rack(model, data, body):
+            rack_display.archive(model, data, body)
+    for arm in arms.ARMS:
+        for body in bodies:
+            grasp.release(model, data, arm, body)
+    for body in bodies:
+        grasp.unclamp(model, data, body)
+    scene.apply_nominal(model, data, places)
+    data.qvel[:] = 0.0
+    data.xfrc_applied[:] = 0.0
+    mujoco.mj_forward(model, data)
+    scene.settle(model, data, settle)

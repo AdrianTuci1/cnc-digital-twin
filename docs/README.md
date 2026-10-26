@@ -36,11 +36,14 @@ Sursa de adevăr pentru decizii. Codul spune *ce* se întâmplă; documentele de
 | [0015](adr/0015-colectare-pe-modal-cu-bucket-dedicat-si-oidc.md) | Colectarea lungă pe Modal, cu bucket dedicat și federare OIDC, fără chei statice |
 | [0016](adr/0016-notebook-urile-ajung-in-repo-prin-s3.md) | Notebook-urile din Studio ajung în repo prin sincronizare în S3, cu output-urile golite |
 | [0017](adr/0017-dulap-cu-trei-rafturi-si-doua-compartimente.md) | Dulap cu trei rafturi și două compartimente pe raft, cu apropiere înclinată la 45° |
-| [0018](adr/0018-dulap-rotit-90-de-grade.md) | Dulapul brațului 2 este rotit 90°, cu fața vestică spre braț și două unghiuri de apropiere |
+| [0018](adr/0018-dulap-rotit-90-de-grade.md) | Dulapul brațului 2 este rotit 90°, cu fața vestică spre braț și două unghiuri de apropiere (înlocuit de 0023) |
 | [0019](adr/0019-prinderea-fizica-si-texturi-in-geamanul-mujoco.md) | Prindere fizică în geamănul MuJoCo, cu legătură rigidă după contact, și texturi procedurale |
 | [0020](adr/0020-placa-dreptunghiulara-in-a-sasea-familie.md) | A șasea familie este o placă dreptunghiulară, ca rularea să aibă o siluetă distinctă |
 | [0021](adr/0021-doua-roti-si-patru-siluete-noi.md) | Doar două familii rămîn roți; restul primesc siluete de triunghi, hexagon și legătură |
 | [0022](adr/0022-piesa-solida-cadru-strans-si-prindere-pe-fata.md) | Mesh cu normale plate, cameră de 46° în afara mîinii, întoarsă 4° la stânga și cu fețele din spate randate, falci aliniate la forma piesei și verdict pe ambele falci |
+| [0023](adr/0023-dulap-la-vest-de-bratul-2.md) | Dulapul pe familii se mută la vest de brațul 2, cu fața estică deschisă spre braț |
+| [0024](adr/0024-rotatie-continua-si-comenzi-rampate.md) | Scula se rotește continuu pe traseu, iar comenzile articulațiilor se rampează la viteza lor |
+| [0025](adr/0025-incarcare-paralela-a-bratului-1.md) | Brațul 1 își încarcă următorul bloc cît brațul 2 sortează, din traiectoria înregistrată pe o copie a stării |
 
 ## Convenții
 

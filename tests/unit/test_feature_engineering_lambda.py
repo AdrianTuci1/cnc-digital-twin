@@ -343,13 +343,16 @@ def test_degradation_metrics_carry_the_element_dimension() -> None:
     decoded, _ = core.decode_batch(firehose_event(samples))
     results, _ = core.aggregate(decoded, window_s=60)
 
-    metrics = core.metric_data(results, "CNCDT/Telemetry", rates={"cnc": 0.0015, "robot": 0.0008})
+    metrics = core.metric_data(
+        results, "CNCDT/Telemetry",
+        rates={"cnc": 0.0015, "arm1": 0.0008, "arm2": 0.0008},
+    )
     by_name: dict[str, list[dict]] = {}
     for metric in metrics:
         by_name.setdefault(metric["MetricName"], []).append(metric)
 
     elements = {metric["Dimensions"][-1]["Value"] for metric in by_name[core.METRIC_DEGRADATION_INDEX]}
-    assert elements == {"cnc", "robot"}
+    assert elements == {"cnc", "arm1", "arm2"}
     assert len(by_name[core.METRIC_RUL_MINUTES]) == len(core.DEGRADATION_ELEMENTS)
     # RUL este o limită de jos, în minute de operare continuă: pozitiv cât timp există prag.
     assert all(metric["Value"] > 0 for metric in by_name[core.METRIC_RUL_MINUTES])

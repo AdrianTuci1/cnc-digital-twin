@@ -68,8 +68,8 @@ RACK_COLUMNS = int(RACK["columns"])
 #: Lățimea nominală a unui compartiment, din plan: 0,5 m, o celulă de grid.
 RACK_ENTRY_M = float(cell_layout.RACK_ENTRY_M)
 
-#: Adâncimea totală a dulapului, din plan: 0,30 m, cu fața deschisă la x = 3,18 m. Cei 0,30 m
-#: se întind spre est, în afara anvelopei brațului; dacă fața se mută spre braț, verigile ating
+#: Adâncimea totală a dulapului, din plan: 0,30 m, cu fața deschisă la x = 2,22 m. Cei 0,30 m
+#: se întind spre vest, sub anvelopa brațului; dacă fața se mută spre braț, verigile ating
 #: marginea raftului de deasupra.
 RACK_DEPTH_M = float(cell_layout.RACK_DEPTH_M)
 
@@ -176,8 +176,8 @@ MACHINE_CHUCK_TOP_Z = MACHINE_TABLE_Z + 2 * MACHINE_CHUCK_HALF_Z
 MACHINE_CHUCK_JAW_TOP_Z = MACHINE_CHUCK_TOP_Z + 2 * MACHINE_CHUCK_JAW_HALF_Z
 
 #: Dulapul pe familii: carcasa are laterale și spate, un fund și un capac, iar înăuntru stau trei
-#: rafturi despărțite în două de un panou vertical. Fața nordică rămâne deschisă, fiindcă pe acolo
-#: intră scula; dulapul are 0,30 m adâncime, dar cei 0,12 m din spate stau în afara anvelopei
+#: rafturi despărțite în două de un panou vertical. Fața estică rămâne deschisă, fiindcă pe acolo
+#: intră scula; dulapul are 0,30 m adâncime, iar cei 0,12 m dinspre spate stau în afara anvelopei
 #: brațului. Sunt secțiuni de desen, nu cifre din plan ori din documentație.
 RACK_SIDE_HALF_THICKNESS = 0.015
 RACK_SHELF_HALF_Z = 0.006
@@ -354,6 +354,19 @@ class PartPlacement(NamedTuple):
 #: Stările de material pe care le arată scena.
 STATE_BLANK = "blank"
 STATE_MACHINED = "machined"
+#: O piesă mașinată a unei familii care nu este cea activă: stă ascunsă pînă îi vine rîndul.
+STATE_PARKED = "parked"
+
+#: Corpul piesei mașinate pentru familia de referință, cel pe care îl folosesc testele de dinainte
+#: de familii. Celelalte familii au cîte un corp propriu, ca fiecare variantă să aibă masa și
+#: geometria ei compilate, nu un mesh schimbat la rulare.
+PART_BODY = "part_01"
+DEFAULT_PART_FAMILY = RACK_FAMILIES[0]
+
+
+def part_body_name(family: str) -> str:
+    """Corpul piesei mașinate al familiei date."""
+    return PART_BODY if family == DEFAULT_PART_FAMILY else f"part_{family}"
 
 #: Cît depășește masa mașinii cabinetul, pe fiecare latură: destul cît piesa să stea pe ea fără
 #: să atingă muchia. Valorile sînt aceleași cu cele din `scene_geometry` (`cnc_table_hx` etc.).
@@ -396,6 +409,28 @@ def part_placements() -> tuple[PartPlacement, ...]:
                       MACHINE_TABLE_Z, machine_table_bounds(),
                       "în mașină, pe masa de descărcare, pînă la schimbul cu blocul brut"),
     )
+
+
+#: Copiile de afișare ale pieselor sortate. Ciclul refolosește un singur corp de piesă: la
+#: schimbul de material, piesa din raft pleacă în universal. Ca raftul să arate ce s-a sortat,
+#: poziția ei se copiază pe un corp `mocap`, care nu cade și nu se ciocnește cu nimic. Numele
+#: stau aici, ca scena și modulul care le mută să folosească aceeași listă.
+RACK_COPY_BODIES: tuple[str, ...] = tuple(f"rack_copy_{index:02d}" for index in range(1, 7))
+
+#: Cota la care stau ascunse copiile nefolosite: sub podea, sub linia de vedere a camerelor.
+RACK_COPY_PARK_Z = -0.60
+
+#: Locul pieselor mașinate ale familiilor inactive: sub podea, în afara celulei. Sînt ținute de
+#: clemă și nu se ciocnesc cu nimic, deci nu pot cădea și nu apar în cadre.
+PARKED_PART_X = 5.0
+PARKED_PART_Y = 5.0
+PARKED_PART_Z = -0.60
+PARKED_PART_STEP_M = 0.20
+
+
+def parked_part_position(index: int) -> tuple[float, float, float]:
+    """Locul piesei familiei cu numărul dat, în afara celulei, sub podea."""
+    return (PARKED_PART_X + index * PARKED_PART_STEP_M, PARKED_PART_Y, PARKED_PART_Z)
 
 
 # ------------------------------------------------------------------ geometria sculei
@@ -487,9 +522,9 @@ def rack_geometry() -> dict[str, float]:
     """Dulapul pe familii: carcasa, cele trei rafturi și despărțitorul din mijloc.
 
     Așezarea și cotele rafturilor ies din `docs/diagrams/cell_layout.py`, iar podeaua de jos din
-    înălțimile documentate. Fața vestică rămâne deschisă; lateralele de nord și sud, spatele de
-    est, fundul și capacul închid dulapul, iar rafturile se opresc la fața vestică. Dulapul are
-    0,30 m adâncime pe est și 1,00 m lungime pe nord-sud, ca brațul să se rotească 90° de la
+    înălțimile documentate. Fața estică rămâne deschisă; lateralele de nord și sud, spatele de
+    vest, fundul și capacul închid dulapul, iar rafturile se opresc la fața estică. Dulapul are
+    0,30 m adâncime pe vest și 1,00 m lungime pe nord-sud, ca brațul să se rotească 90° de la
     banda 2 până la raft.
     """
     cx, cy = center(RACK)
@@ -497,9 +532,9 @@ def rack_geometry() -> dict[str, float]:
     hy = float(RACK["h"]) / 2
     side = RACK_SIDE_HALF_THICKNESS
     board = RACK_SHELF_HALF_Z
-    # Rafturile pornesc de la fața vestică deschisă și merg până la fața din spate a carcasei.
+    # Rafturile pornesc de la fața estică deschisă și merg până la fața din spate a carcasei.
     shelf_hx = hx - RACK_SHELF_BACK_MARGIN
-    shelf_dx = -RACK_SHELF_BACK_MARGIN
+    shelf_dx = RACK_SHELF_BACK_MARGIN
     divider_z0 = RACK_FLOORS[0]
     divider_z1 = RACK_TOP_Z - 2 * board
     values: dict[str, float] = {
@@ -507,7 +542,7 @@ def rack_geometry() -> dict[str, float]:
         "rack_cy": cy,
         "rack_hx": hx,
         "rack_hy": hy,
-        # Lateralele de nord și sud și spatele de est urcă până la fața de sus.
+        # Lateralele de nord și sud și spatele de vest urcă până la fața de sus.
         "rack_side_hx": hx,
         "rack_side_hy": side,
         "rack_side_hz": RACK_TOP_Z / 2,
@@ -518,7 +553,7 @@ def rack_geometry() -> dict[str, float]:
         "rack_back_hy": hy,
         "rack_back_hz": RACK_TOP_Z / 2,
         "rack_back_z": RACK_TOP_Z / 2,
-        "rack_back_dx": hx - side,
+        "rack_back_dx": -(hx - side),
         # Fundul și capacul, între laterale.
         "rack_board_hx": hx,
         "rack_board_hy": hy,

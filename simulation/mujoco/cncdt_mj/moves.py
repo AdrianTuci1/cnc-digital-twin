@@ -34,20 +34,23 @@ RACK_APPROACH_MARGIN_M = 0.04
 FROM_ABOVE: tuple[float, float, float] = (0.0, 0.0, -1.0)
 
 #: Unghiul cu care scula intră în dulapul pe familii, față de verticală, măsurat în scenă. Dulapul
-#: are rafturi suprapuse, deci scula nu poate coborî de sus: intră dinspre vest, pe deasupra
+#: are rafturi suprapuse, deci scula nu poate coborî de sus: intră dinspre est, pe deasupra
 #: marginii feței deschise, înclinată, iar antebrațul rămâne în afara carcasei. Compartimentul
-#: sudic cere 50°: la 45° flanșa urcă prea mult și raftul 3 iese cu 13 mm din rază, iar la 30° cu
-#: 91 mm. Compartimentul nordic stă aproape drept în fața bazei, iar la 45° încheietura se
-#: răsucește până la limită (85,7° eroare); la 30° intră drept, fără contacte, pe toate rafturile.
+#: sudic cere 50° și o abatere de 30° spre sud: drept spre vest, încheietura nu mai nimerește
+#: orientarea (81 mm eroare). Compartimentul nordic stă aproape drept în fața bazei, iar la 30°
+#: intră drept, fără contacte, pe toate rafturile.
 RACK_APPROACH_DEG = 50.0
 RACK_APPROACH_NORTH_DEG = 30.0
+RACK_APPROACH_AZIMUTH_DEG = -30.0
 RACK_APPROACH: tuple[float, float, float] = (
-    math.sin(math.radians(RACK_APPROACH_DEG)),
-    0.0,
+    -math.sin(math.radians(RACK_APPROACH_DEG))
+    * math.cos(math.radians(RACK_APPROACH_AZIMUTH_DEG)),
+    math.sin(math.radians(RACK_APPROACH_DEG))
+    * math.sin(math.radians(RACK_APPROACH_AZIMUTH_DEG)),
     -math.cos(math.radians(RACK_APPROACH_DEG)),
 )
 RACK_APPROACH_NORTH: tuple[float, float, float] = (
-    math.sin(math.radians(RACK_APPROACH_NORTH_DEG)),
+    -math.sin(math.radians(RACK_APPROACH_NORTH_DEG)),
     0.0,
     -math.cos(math.radians(RACK_APPROACH_NORTH_DEG)),
 )
@@ -113,11 +116,11 @@ TOOL_SPIN_DEG: Mapping[str, float] = {}
 #: Cât de departe în fața dulapului trece scula înainte de a se apropia de un raft, și cât de sus
 #: față de punctul de lucru. Fără punctul de trecere, drumul cel mai scurt de la banda 2 la un
 #: compartiment de la 1,41 m ar tăia colțul dulapului la cota de lucru: scula ar intra în
-#: carcasa. Punctul stă în aer liber, la x = 2,92 m, adică la 0,26 m în fața feței vestice.
-RACK_VIA_X = 2.92
+#: carcasa. Punctul stă în aer liber, la x = 2,48 m, adică la 0,26 m în fața feței estice.
+RACK_VIA_X = 2.48
 #: Raza minimă față de baza brațului la care poate sta trecerea. Compartimentul nordic e aproape
 #: de bază, iar la 0,22 m brațul intră în zona moartă a umărului și nu mai nimerește orientarea
-#: (217 mm eroare); trecerea lui se mută spre est, în fața feței, până iese din zona moartă.
+#: (217 mm eroare); trecerea lui se mută spre vest, în fața feței, până iese din zona moartă.
 RACK_VIA_MIN_RADIUS_M = 0.35
 #: Cât urcă punctul de trecere față de punctul de lucru. La 5 cm, trecerile se ating cu eroare de
 #: sub 6 mm; o urcare mai mare nu ajută, fiindcă trecerea stă deja în afara carcasei, iar
@@ -136,7 +139,7 @@ def _rack_via(name: str, family: str | None) -> tuple[tuple[float, float, float]
     base = layout.arm("arm2")
     dy = y - float(base["y"])
     dx_min = math.sqrt(max(0.0, RACK_VIA_MIN_RADIUS_M**2 - dy**2))
-    x = max(RACK_VIA_X, float(base["x"]) + dx_min)
+    x = min(RACK_VIA_X, float(base["x"]) - dx_min)
     return ((x, y, z + RACK_VIA_LIFT_M),)
 
 

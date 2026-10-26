@@ -14,20 +14,24 @@ from cncdt_mj import control, wear
 
 
 def test_butoanele_acopera_uzura_si_reparatia() -> None:
-    """Panoul are cele șapte butoane cerute, cu comenzile din schema de control."""
-    labels = {label for label, _, _ in control.BUTTONS}
+    """Panoul are butoane pentru sculă și pentru fiecare braț, plus reparația și resetul."""
+    labels = {label for label, _, _, _ in control.BUTTONS}
     assert labels == {
-        "Uzură +0.1",
-        "Uzură +0.25",
-        "Frecare +0.25",
-        "Sculă nouă",
-        "Repară articulații",
-        "Repară tot",
-        "Reset degradare",
+        "CNC wear +0.1",
+        "CNC wear +0.25",
+        "Arm 1 inject +0.25",
+        "Arm 2 inject +0.25",
+        "Arm 1 repair",
+        "Arm 2 repair",
+        "New CNC tool",
+        "Repair all",
+        "Reset wear",
     }
-    commands = {command for _, command, _ in control.BUTTONS}
-    assert {"inject_tool_wear", "inject_joint_friction", "replace_tool", "repair_joints"} <= commands
+    commands = {command for _, command, _, _ in control.BUTTONS}
+    assert {"inject_tool_wear", "inject_wear", "repair", "replace_tool"} <= commands
     assert {"repair_all", "reset_wear"} <= commands
+    arms = {component for _, _, _, component in control.BUTTONS if component is not None}
+    assert arms == {"arm1", "arm2"}
 
 
 def test_inject_tool_wear_creste_indicele_si_scade_calitatea() -> None:
@@ -37,7 +41,7 @@ def test_inject_tool_wear_creste_indicele_si_scade_calitatea() -> None:
 
     detail = session.apply({"command": "inject_tool_wear", "amount": 0.25})
 
-    assert "sănătate" in detail
+    assert "health" in detail
     assert session.status()["tool_wear_index"] == pytest.approx(0.25, abs=1e-9)
     assert session.status()["surface_quality"] < before
 
@@ -52,6 +56,32 @@ def test_inject_joint_friction_atinge_ambele_brate() -> None:
     assert session.model.health_of("arm2") == pytest.approx(0.8, abs=1e-9)
 
 
+def test_inject_wear_atinge_doar_bratul_cerut() -> None:
+    """Butonul per braț schimbă un singur braț; celălalt rămîne curat, iar agregatul îl urmează."""
+    session = control.ControlSession()
+
+    detail = session.apply({"command": "inject_wear", "component": "arm2", "amount": 0.3})
+
+    assert "health" in detail
+    assert session.status()["arm1_friction_index"] == 0.0
+    assert session.status()["arm2_friction_index"] == pytest.approx(0.3, abs=1e-9)
+    assert session.status()["joint_friction_index"] == pytest.approx(0.3, abs=1e-9)
+    assert session.model.health_of("arm2") == pytest.approx(0.7, abs=1e-9)
+
+
+def test_repair_atinge_doar_bratul_cerut() -> None:
+    """Reparația per braț readuce brațul atins și lasă uzura celuilalt intactă."""
+    session = control.ControlSession()
+    session.model.inject("arm1", 0.2)
+    session.model.inject("arm2", 0.4)
+
+    session.apply({"command": "repair", "component": "arm2"})
+
+    assert session.status()["arm1_friction_index"] == pytest.approx(0.2, abs=1e-9)
+    assert session.status()["arm2_friction_index"] == 0.0
+    assert session.status()["joint_friction_index"] == pytest.approx(0.2, abs=1e-9)
+
+
 def test_repair_all_readuce_scula_si_articulatiile() -> None:
     """Butonul „Repară tot” repară scula și brațele, fără să atingă benzile."""
     session = control.ControlSession()
@@ -61,7 +91,7 @@ def test_repair_all_readuce_scula_si_articulatiile() -> None:
 
     detail = session.apply({"command": "repair_all"})
 
-    assert detail == "sculă și articulații reparate"
+    assert detail == "tool and joints repaired"
     assert session.status()["tool_wear_index"] == 0.0
     assert session.status()["joint_friction_index"] == 0.0
     assert session.model.health_of("belt_in") == pytest.approx(0.8, abs=1e-9)
@@ -85,15 +115,21 @@ def test_status_are_cheile_pe_care_le_citeste_panoul() -> None:
     assert set(status) == {
         "tool_wear_index",
         "joint_friction_index",
+        "arm1_friction_index",
+        "arm2_friction_index",
         "surface_quality",
         "tool_health",
         "joint_health",
+        "arm1_health",
+        "arm2_health",
         "belt_speed_scale",
         "active_failures",
         "last_action",
     }
     assert status["tool_wear_index"] == 0.0
     assert status["joint_friction_index"] == 0.0
+    assert status["arm1_friction_index"] == 0.0
+    assert status["arm2_friction_index"] == 0.0
     assert status["surface_quality"] == 1.0
     assert status["active_failures"] == []
     assert status["last_action"] == "—"

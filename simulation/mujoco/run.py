@@ -518,9 +518,10 @@ def run_session(args: argparse.Namespace) -> int:
               f"prinderi")
 
     if session.iot is not None:
-        print(f"  IoT Core         {session.iot.sent} eșantioane publicate, "
-              f"{session.iot.failed} refuzate")
+        # Închiderea așteaptă PUBACK-urile; cifra „publicate" de dinainte ar număra doar coada.
         session.iot.close()
+        print(f"  IoT Core         {session.iot.acked}/{session.iot.sent} confirmate, "
+              f"{session.iot.failed + session.iot.rejected} refuzate")
 
     totals = {
         "cycles": args.cycles,

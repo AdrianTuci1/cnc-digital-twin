@@ -5,9 +5,9 @@
 Fluxul materialului, în ordine: banda 1 alimentează dinspre vest, brațul 1 preia piesa și o
 încarcă în mașină; după ce mașina termină, tot brațul 1 o descarcă și o așază pe banda 2, care
 merge într-un singur sens spre vest. Brațul 2 stă la marginea sudică a benzii 2, iar dulapul pe
-familii stă la est de braț, cu lungimea pe direcția nord-sud: trei rafturi suprapuse, fiecare
+familii stă la vest de braț, cu lungimea pe direcția nord-sud: trei rafturi suprapuse, fiecare
 despărțit în două compartimente de 0,5 m, câte unul pe familie. Brațul ia piesa de pe bandă și o
-lasă în compartimentul familiei ei, apropiindu-se înclinat de pe fața vestică. Verdictul — familia
+lasă în compartimentul familiei ei, apropiindu-se înclinat de pe fața estică. Verdictul — familia
 și conformitatea — îl dă camera de pe flanșa brațului 2,
 care fotografiază piesa ținută. O cameră fixă nu există: ruta piesei o decide brațul. Piesa
 neconformă nu are punct de lucru: rămâne pe bandă până la capătul de vest, de unde cade în lada de
@@ -62,7 +62,7 @@ BELT_OUT = dict(name="outfeed_conveyor", kind="belt", x=0.8, y=1.8, w=3.8, h=0.4
 # rămână la aceeași țintă. Nu e o reprezentare reală, iar capacul rămâne la 1,90 m.
 CNC = dict(name="cnc_3axis", kind="cnc", x=3.4, y=2.65, w=1.0, h=0.8)
 
-# Dulapul pe familii stă la est de brațul 2, cu lungimea pe direcția nord-sud, și are trei rafturi
+# Dulapul pe familii stă la vest de brațul 2, cu lungimea pe direcția nord-sud, și are trei rafturi
 # suprapuse, fiecare despărțit în două compartimente: șase locuri, câte unul pentru fiecare
 # familie. Este forma dulapului real, nu o masă cu intrări separate.
 # Lungimea pe nord-sud pune compartimentele la 90° față de banda 2, deci brațul se rotește ~90° de
@@ -71,12 +71,13 @@ CNC = dict(name="cnc_3axis", kind="cnc", x=3.4, y=2.65, w=1.0, h=0.8)
 # Așezarea nu e liberă, ci iese din măsurătoare. Baza brațului 2 este la (2,70, 1,55), raza de
 # atingere este 0,855 m până la flanșă, iar scula atârnă 0,103 m sub ea. Un dulap cu rafturile
 # aliniate nu se poate încărca de sus: antebrațul brațului 2 trece prin volumul lui. De aceea fața
-# vestică stă la x = 3,18, la 0,48 m de bază, iar piesa la 2 cm în spatele ei, la x = 3,20; scula
-# intră dinspre vest, înclinată la 45°. Cotele de mai jos sunt măsurate în scenă (`make mj-check`,
-# `make mj-demo`): la 45°, verigile nu ating dulapul.
+# deschisă stă la x = 2,22, la 0,48 m de bază, iar piesa la 2 cm în spatele ei, la x = 2,20; scula
+# intră dinspre est, înclinată la 50° în compartimentul sudic și la 30° în cel nordic. Cotele de
+# mai jos sunt măsurate în scenă (`make mj-check`, `make mj-demo`): la aceste unghiuri, verigile nu
+# ating dulapul.
 #
-# Dulapul are 0,30 m adâncime spre est și 1,00 m lungime pe nord-sud; capătul nordic stă la 1,79 m,
-# la 1 cm de banda 2. Fața vestică este deschisă, iar rafturile au 0,31 m și 0,25 m între ele;
+# Dulapul are 0,30 m adâncime spre vest și 1,00 m lungime pe nord-sud; capătul nordic stă la 1,79 m,
+# la 1 cm de banda 2. Fața estică este deschisă, iar rafturile au 0,31 m și 0,25 m între ele;
 # partea de jos, spatele și lateralele sunt închise, ca să se citească drept dulap. Podeaua de jos
 # stă la 0,85 m, nivelul benzii 2.
 RACK_COLUMNS = 2
@@ -86,8 +87,8 @@ RACK_SHELVES = 3
 #: subțiri lasă compartimentul util cu ~0,47 m, destul pentru discul de Ø104 mm.
 RACK_ENTRY_M = 0.5
 
-#: Adâncimea dulapului, pe direcția de intrare a sculei: 0,30 m. Fața vestică, spre braț, este
-#: deschisă, iar cei 0,30 m se întind spre est, în spatele ei.
+#: Adâncimea dulapului, pe direcția de intrare a sculei: 0,30 m. Fața estică, spre braț, este
+#: deschisă, iar cei 0,30 m se întind spre vest, în spatele ei.
 RACK_DEPTH_M = 0.30
 
 #: Cota fiecărei podele de raft: nivelul benzii, apoi treptele de 0,31 m și 0,25 m. A treia este
@@ -97,14 +98,17 @@ RACK_FLOORS = (0.85, 1.16, 1.41)
 #: Cota feței de sus a dulapului: ultimul raft plus încă o treaptă.
 RACK_TOP_Z = 1.69
 
-#: Colțul sud-vest al dulapului: fața vestică, spre braț, și capătul sudic. Dulapul stă la est de
-#: brațul 2, cu lungimea pe direcția nord-sud, ca brațul să se rotească 90° de la banda 2 la raft.
-RACK_X = 3.18
+#: Colțul sud-vest al dulapului: spatele închis, la vest, și capătul sudic. Dulapul stă la vest
+#: de brațul 2, cu fața deschisă spre est, ca brațul să ajungă la ea rotindu-se 90° de la banda 2.
+RACK_X = 1.92
 RACK_Y = 0.79
 
-#: Cota la care se așază piesa pe fiecare raft, aproape de fața vestică: acolo ajunge scula fără
-#: să intre cu antebrațul în dulap. Piesa stă la 2 cm în spatele feței, pe direcția est.
-RACK_PICK_X = RACK_X + 0.02
+#: Fața deschisă a dulapului, spre braț: marginea estică a carcasei.
+RACK_FACE_X = RACK_X + RACK_DEPTH_M
+
+#: Cota la care se așază piesa pe fiecare raft, aproape de fața deschisă: acolo ajunge scula fără
+#: să intre cu antebrațul în dulap. Piesa stă la 2 cm în spatele feței, pe direcția vest.
+RACK_PICK_X = RACK_FACE_X - 0.02
 
 #: Intrările dulapului, în ordinea de umplere: raftul de jos de la sud la nord, apoi cele de
 #: deasupra. Coordonatele `x` și `y` sunt colțul sud-vest al compartimentului, ca la celelalte
@@ -151,8 +155,8 @@ def rack_entry(index: int) -> dict:
 def rack_entry_center(index: int) -> tuple[float, float]:
     """Punctul de așezare al piesei în compartimentul dat, în plan.
 
-    Nu este centrul geometric al compartimentului: piesa stă aproape de fața vestică, singurul loc
-    în care scula ajunge fără ca antebrațul să intre în dulap.
+    Nu este centrul geometric al compartimentului: piesa stă aproape de fața deschisă, singurul
+    loc în care scula ajunge fără ca antebrațul să intre în dulap.
     """
     item = rack_entry(index)
     return (RACK_PICK_X, item["y"] + RACK_ENTRY_M / 2)
@@ -210,7 +214,7 @@ TARGETS = [
     dict(name="belt2_drop", key="arm1", x=3.25, y=2.0, label="așezare pe banda 2"),
     dict(name="belt2_pick", key="arm2", x=2.7, y=2.0, label="preluare de pe banda 2"),
     # Fiecare familie are compartimentul ei: piesa se lasă culcată pe podeaua raftului, aproape de
-    # fața vestică, iar compartimentele se umplu în ordinea din listă — raftul de jos de la sud la
+    # fața deschisă, iar compartimentele se umplu în ordinea din listă — raftul de jos de la sud la
     # nord, apoi cele de deasupra. Toate șase au o familie.
     *(
         dict(name=f"rack_{family}", key="arm2", slot=index,
@@ -479,7 +483,7 @@ def build_legend() -> str:
     swatch(*COLORS["rack"], "Dulap pe familii: 3 rafturi × 2 compartimente",
            "podele la 0,85 / 1,16 / 1,41 m; piesa stă în față, pe raft")
     swatch(*COLORS["rack_support"], "Carcasa dulapului",
-           "laterale, spate și capac; fața vestică rămâne deschisă")
+           "laterale, spate și capac; fața estică rămâne deschisă")
     swatch(*COLORS["trash"], "Ladă rebut", "sub capătul de vest al benzii 2, fără perete la est")
     swatch(*COLORS["camera_wrist"], "Cameră pe braț (pe flanșă)",
            "brațul 2 fotografiază piesa ținută și decide familia și conformitatea")

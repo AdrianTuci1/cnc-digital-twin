@@ -98,6 +98,19 @@ def test_masuratorile_masinii_se_scriu_sub_numele_din_contract() -> None:
     assert telemetry.validate_sample(record) == []
 
 
+def test_frecarea_se_scrie_pe_fiecare_brat() -> None:
+    """Brațele au coloane separate în contract, ca CloudWatch să aibă un element pentru fiecare."""
+    reading = telemetry.MachineReading(
+        joint_friction_index=0.4,
+        joint_friction_index_arm1=0.1,
+        joint_friction_index_arm2=0.4,
+    )
+    record = _sample(machine=reading)
+    assert record["joint_friction_index_arm1"] == pytest.approx(0.1)
+    assert record["joint_friction_index_arm2"] == pytest.approx(0.4)
+    assert telemetry.validate_sample(record) == []
+
+
 def test_identificatorii_au_formatul_din_contract() -> None:
     """Ciclul și piesa au șase cifre, ca în expresiile regulate ale schemei."""
     assert telemetry.cycle_id(1) == "cyc-000001"

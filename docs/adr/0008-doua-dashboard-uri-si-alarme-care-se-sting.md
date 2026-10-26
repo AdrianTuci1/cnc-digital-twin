@@ -1,6 +1,6 @@
 # ADR 0008: Două dashboard-uri CloudWatch și alarme de degradare care se sting la reparație
 
-- **Status:** acceptat
+- **Status:** acceptat; punctul 3 amendat de ADR 0026 (panourile de producție au ieșit din dashboard-ul de fabrică)
 - **Data:** 2026-10-05
 - **Decis de:** echipa de proiect
 - **Pornește de la:** ADR 0005 (CloudWatch ca singur instrument de vizualizare)
@@ -34,12 +34,12 @@ după reparație.
    producția pe oră (`PartsGood`, `PartsScrap`), rata de rebut, câte un indicator tip gauge per
    element degradat, timpul până la pragul de avarie și anomalii detectate de model.
 4. **O alarmă per element degradat, pe prag de index.** `DegradationIndex` cu dimensiunea
-   `Element` (`cnc`, `robot`), `GreaterThanOrEqualToThreshold`, statistică `Maximum`, perioadă
-   300 s, o singură evaluare. Elementele și pragurile se declară în `degradation_elements`,
-   nu se hardcodează.
+   `Element` (`cnc`, `arm1`, `arm2`), `GreaterThanOrEqualToThreshold`, statistică `Maximum`,
+   perioadă 300 s, o singură evaluare. Elementele și pragurile se declară în
+   `degradation_elements`, nu se hardcodează.
 5. **O alarmă de tip „câte minute până la degradare".** `RULMinutes` cu dimensiunea `Element`,
    `LessThanThreshold`, statistică `Minimum`, perioadă 300 s. Traduce indexul într-o
-   propoziție: „Brațul robotic: 15 minute până la degradare".
+   propoziție: „Arm 1: 6 minute până la degradare".
 6. **Notificarea are două căi.** Subiectul SNS primește abonamente `email` (urma cu detalii)
    și `sms` (ajunge pe telefon în secunde), din `alarm_email_endpoints` și
    `alarm_sms_numbers`.

@@ -31,10 +31,19 @@ from . import arms
 WELD_SOLREF = (0.004, 1.0)
 WELD_SOLIMP = (0.95, 0.99, 0.001, 0.5, 2.0)
 
+#: Cît de tare ține clema de lume. O clemă de lume are brațul de pîrghie pînă la origine (cîțiva
+#: metri), iar cu scara de cuplu implicită piesa se lăsa trasă în jos și în lateral cu zeci de
+#: centimetri în cîteva zecimi de secundă. La 100, abaterea scade sub zecimea de milimetru.
+FIXTURE_TORQUE_SCALE = 100.0
+
 #: Cîți pași se lasă falcile să se închidă, respectiv să se deschidă și piesa să cadă.
 CLOSE_STEPS = 420
 OPEN_STEPS = 160
 RELEASE_STEPS = 180
+
+#: Deschiderea maximă a falcilor, în metri. Sub ea piesa intră între falci și se prinde pe
+#: laturi; peste ea (roata de Ø104 mm) falcile se lasă pe fața de sus.
+GRIPPER_OPENING_M = 0.080
 
 #: Numele egalității de prindere dintre un braț și o piesă.
 def grasp_equality(arm: str, body: str) -> str:
@@ -134,7 +143,8 @@ def _pose(model: mujoco.MjModel, data: mujoco.MjData,
 
 def _set_relative(model: mujoco.MjModel, data: mujoco.MjData, name: str,
                   first: tuple[np.ndarray, np.ndarray],
-                  second: tuple[np.ndarray, np.ndarray]) -> None:
+                  second: tuple[np.ndarray, np.ndarray],
+                  torque_scale: float = 1.0) -> None:
     """Scrie poziția relativă dintre două corpuri și activează legătura.
 
     Legătura `weld` impune ca al doilea corp să stea, în sistemul primului, exact la poziția
@@ -152,14 +162,15 @@ def _set_relative(model: mujoco.MjModel, data: mujoco.MjData, name: str,
     model.eq_data[identifier, :3] = 0.0
     model.eq_data[identifier, 3:6] = relative_position
     model.eq_data[identifier, 6:10] = relative_quat
-    model.eq_data[identifier, 10] = 1.0
+    model.eq_data[identifier, 10] = float(torque_scale)
     data.eq_active[identifier] = 1
 
 
 def clamp(model: mujoco.MjModel, data: mujoco.MjData, body: str) -> None:
     """Ține piesa pe loc, legată de lume, pînă cînd o prinde brațul."""
     _set_relative(model, data, fixture_equality(body), _pose(model, data, body),
-                  (np.zeros(3), np.array([1.0, 0.0, 0.0, 0.0])))
+                  (np.zeros(3), np.array([1.0, 0.0, 0.0, 0.0])),
+                  torque_scale=FIXTURE_TORQUE_SCALE)
 
 
 def unclamp(model: mujoco.MjModel, data: mujoco.MjData, body: str) -> None:
@@ -247,12 +258,20 @@ def finger_gap(model: mujoco.MjModel, data: mujoco.MjData, arm: str) -> float:
 
 def close(model: mujoco.MjModel, data: mujoco.MjData, arm: str, body: str | None = None,
           steps: int = CLOSE_STEPS, hook: Callable[[mujoco.MjModel, mujoco.MjData], None]
-          | None = None) -> GraspReport:
-    """Comandă falcile închis și lasă fizica să oprească închiderea pe piesă."""
+          | None = None, release_fixture: bool = False) -> GraspReport:
+    """Comandă falcile închis și lasă fizica să oprească închiderea pe piesă.
+
+    ``release_fixture`` dă drumul clemei la primul contact, cînd piesa intră între falci.
+    Fălcile sînt cuplate printr-un tendon: dacă piesa stă țintuită de clemă, prima falcă care
+    o atinge oprește și cealaltă, care rămîne în aer — prinderea pare ratată deși piesa e la
+    locul ei. O clemă de universal ori de bandă cedează în realitate cînd robotul închide pe
+    piesă; piesa se așează între falci cu cîțiva milimetri de deplasare.
+    """
     arms.set_gripper(model, data, arm, arms.GRIPPER_CLOSED)
     contact = False
     counts = (0, 0)
     grasp_counts: tuple[int, int] | None = None
+    released = not release_fixture
     for _ in range(steps):
         mujoco.mj_step(model, data)
         if hook is not None:
@@ -260,6 +279,9 @@ def close(model: mujoco.MjModel, data: mujoco.MjData, arm: str, body: str | None
         if body is not None:
             counts = finger_contact_counts(model, data, arm, body)
             contact = contact or bool(counts[0] or counts[1])
+            if not released and (counts[0] or counts[1]):
+                unclamp(model, data, body)
+                released = True
             # Verdictul cere ambele falci în același pas, nu contacte răzlețe: o piesă ținută
             # de un singur vîrf alunecă la prima accelerație, iar legătura rigidă ar ascunde
             # problema pînă la așezare.
@@ -277,13 +299,15 @@ def close(model: mujoco.MjModel, data: mujoco.MjData, arm: str, body: str | None
 def pick(model: mujoco.MjModel, data: mujoco.MjData, arm: str, body: str,
          steps: int = CLOSE_STEPS,
          hook: Callable[[mujoco.MjModel, mujoco.MjData], None] | None = None,
-         point: str = "") -> GraspReport:
+         point: str = "", release_fixture: bool = False) -> GraspReport:
     """Închide falcile pe piesă, scoate clema și leagă piesa de mînă.
 
     Ordinea contează: piesa stă în clemă cît se închid falcile, altfel vîrfurile o împing; abia
-    după contact clema se scoate și legătura rigidă preia piesa.
+    după contact clema se scoate și legătura rigidă preia piesa. Cu ``release_fixture``, clema se
+    scoate la primul contact al unei falci, ca a doua să poată așeza piesa între ele.
     """
-    report = close(model, data, arm, body, steps=steps, hook=hook)
+    report = close(model, data, arm, body, steps=steps, hook=hook,
+                   release_fixture=release_fixture)
     if report.success:
         attach(model, data, arm, body)
     return replace(report, action="pick", point=point)

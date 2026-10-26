@@ -27,6 +27,8 @@
     "coolant_flow_lpm",
     "temp_c_mean",
     "joint_friction_index",
+    "joint_friction_index_arm1",
+    "joint_friction_index_arm2",
     "anomaly_score",
     "anomaly_detected",
     "model_version",
@@ -65,6 +67,8 @@
     "coolant_flow_lpm": { "type": "number" },
     "temp_c_mean": { "type": "number" },
     "joint_friction_index": { "type": "number" },
+    "joint_friction_index_arm1": { "type": "number" },
+    "joint_friction_index_arm2": { "type": "number" },
     "anomaly_score": {
       "type": "number",
       "minimum": 0,

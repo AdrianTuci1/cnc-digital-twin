@@ -22,12 +22,14 @@
     "axis_feed",
     "tool_wear_index",
     "joint_friction_index",
+    "joint_friction_index_arm1",
+    "joint_friction_index_arm2",
     "surface_quality"
   ],
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "1.0.0"
+      "const": "1.1.0"
     },
     "device_id": {
       "type": "string",
@@ -100,7 +102,19 @@
       "type": "number",
       "minimum": 0,
       "maximum": 1,
-      "description": "Frecarea articulațiilor, de la 0 (lubrifiate) la 1 (blocate)."
+      "description": "Frecarea articulațiilor, brațul mai rău, de la 0 (lubrifiate) la 1 (blocate)."
+    },
+    "joint_friction_index_arm1": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Frecarea articulațiilor brațului 1, de la 0 (lubrifiate) la 1 (blocate)."
+    },
+    "joint_friction_index_arm2": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Frecarea articulațiilor brațului 2, de la 0 (lubrifiate) la 1 (blocate)."
     },
     "surface_quality": {
       "type": "number",

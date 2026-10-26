@@ -293,6 +293,11 @@ class SceneSensors:
             {
                 "tool_wear_index": round(tool.index, 5),
                 "joint_friction_index": round(joint.index, 5),
+                # Celula Isaac are un singur model de frecare, aplicat ambelor brațe: coloanele
+                # per braț există în contract pentru geamănul MuJoCo (ADR 0026), deci aici poartă
+                # aceeași valoare.
+                "joint_friction_index_arm1": round(joint.index, 5),
+                "joint_friction_index_arm2": round(joint.index, 5),
                 "surface_quality": round(tool.surface_quality, 5),
             }
         )

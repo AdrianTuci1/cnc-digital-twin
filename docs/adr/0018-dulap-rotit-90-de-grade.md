@@ -1,6 +1,8 @@
 # ADR 0018: Dulapul brațului 2 este rotit 90°, cu fața vestică spre braț
 
-- **Status:** acceptat
+- **Status:** înlocuit de [ADR 0023](0023-dulap-la-vest-de-bratul-2.md) pentru așezarea în plan și
+  orientarea feței deschise; cotele rafturilor, ordinea familiilor și unghiurile de apropiere
+  rămîn valabile
 - **Data:** 2026-10-17
 - **Decizat de:** echipa de proiect
 - **Pornește de la:** ADR 0017 (dulapul cu trei rafturi și două compartimente),

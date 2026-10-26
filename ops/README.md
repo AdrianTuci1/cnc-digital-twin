@@ -16,7 +16,12 @@ folosesc namespace-ul de metrice `CNCDT/Telemetry`, plus `CNCDT/Simulation` pent
 | Dashboard | Nume implicit | Ce arată | Cine se uită |
 | --- | --- | --- | --- |
 | Infrastructură | `<prefix>-infra` | starea alarmelor de serviciu, ingestia IoT și Firehose, metricele Lambda, endpoint-urile SageMaker, sănătatea pipeline-ului de date, GPU-ul simulării, erorile recente | cine ține platforma |
-| Fabrică | `<prefix>-factory` | starea celulei (alarme de degradare și de RUL), producția pe oră (bune/rebut), rata de rebut, câte un gauge per element degradat, minutele până la pragul de avarie, anomaliile modelului | operatorul de fabrică |
+| Fabrică | `<prefix>-factory` | starea celulei (alarme de degradare și de RUL), eșantioanele și ferestrele procesate pe minut, câte un gauge per element degradat, minutele până la pragul de avarie, anomaliile modelului | operatorul de fabrică |
+
+Widget-urile și alarmele interoghează exact dimensiunile publicate de geamăn (`DeviceId`,
+`CellId`, `Element`, `Stage = aggregate`). Dacă schimbi `CNCDT_DEVICE_ID` sau `CNCDT_CELL_ID`
+în `.env`, schimbă și `telemetry_device_id` / `telemetry_cell_id` în stiva `platform`; altfel
+CloudWatch caută serii care nu există și panourile rămîn goale (ADR 0026).
 
 Numele exacte ies din stiva de platformă:
 

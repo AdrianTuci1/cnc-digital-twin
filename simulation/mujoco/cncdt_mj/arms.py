@@ -68,6 +68,11 @@ SPIN_CANDIDATES_DEG = (0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0)
 PATH_STEP_M = 0.01
 TOOL_SPEED_MPS = 0.15
 
+#: Cât de repede se poate roti scula în jurul punctului de strângere, în radiani pe secundă.
+#: Orientarea de sosire depinde de direcția de apropiere și de rotirea aleasă de plan; când diferă
+#: mult de cea de acum, drumul primește destule puncte cât rotirea să fie o mișcare, nu un salt.
+TOOL_TURN_SPEED_RAD_S = math.radians(60.0)
+
 #: Cât de bine trebuie să nimerească rezolvitorul: poziția punctului de strângere, în metri, și
 #: orientarea sculei, în grade. Sunt pragurile verificării mișcării din `view.py --demo`.
 IK_POSITION_TOLERANCE_M = 0.002
@@ -497,6 +502,30 @@ def waypoint_target(model: mujoco.MjModel, data: mujoco.MjData, arm: str,
     return candidate, error
 
 
+def slerp_quat(start: np.ndarray, end: np.ndarray, fraction: float) -> np.ndarray:
+    """Cuaternarul dintre două orientări, la fracțiunea dată din drum.
+
+    Se ia drumul cel mai scurt (semnul se schimbă dacă produsul scalar este negativ), iar pentru
+    unghiuri mici se interpolează liniar: altfel formula generală împarte la un sinus aproape zero.
+    """
+    first = np.asarray(start, dtype=float)
+    first = first / float(np.linalg.norm(first))
+    second = np.asarray(end, dtype=float)
+    second = second / float(np.linalg.norm(second))
+    dot = float(first @ second)
+    if dot < 0.0:
+        second = -second
+        dot = -dot
+    fraction = min(max(float(fraction), 0.0), 1.0)
+    if dot > 0.9995:
+        mixed = first + fraction * (second - first)
+        return mixed / float(np.linalg.norm(mixed))
+    angle = math.acos(min(dot, 1.0))
+    sine = math.sin(angle)
+    weight = math.sin(fraction * angle) / sine
+    return (math.sin((1.0 - fraction) * angle) / sine) * first + weight * second
+
+
 def follow_line(model: mujoco.MjModel, data: mujoco.MjData, arm: str,
                 point: tuple[float, float, float], approach: tuple[float, float, float],
                 quat: np.ndarray, settle: int = SETTLE_STEPS,
@@ -505,25 +534,51 @@ def follow_line(model: mujoco.MjModel, data: mujoco.MjData, arm: str,
 
     Fiecare pas al drumului se rezolvă prin cinematică inversă pornind de la pasul dinainte, deci
     soluția curge și nu sare în altă ramură la jumătatea drumului, iar servo-urile fac atâția pași
-    de simulare cât ține mersul cu viteza din :data:`TOOL_SPEED_MPS`. Se reține cea mai mare eroare
-    pe care a lăsat-o rezolvitorul pe drum: dacă acolo e o valoare mare, drumul a trecut printr-o
-    configurație pe care brațul nu o poate urma, oricât de bine ar nimeri capătul.
+    de simulare cât ține mersul cu viteza din :data:`TOOL_SPEED_MPS`.
+
+    Orientarea se interpolează pe tot drumul, nu se impune de la primul punct: o schimbare de
+    direcție de apropiere (verticală la bandă, înclinată la raft) cere până la 180°, iar comanda
+    care sărea acolo făcea încheietura să se răsucească dintr-un pas. Când rotirea cere mai multe
+    puncte decât drumul drept, linia se împarte mai mărunt, ca scula să se rotească cu
+    :data:`TOOL_TURN_SPEED_RAD_S` în timp ce înaintează. Comenzile de articulație se schimbă și ele
+    treptat, cu cel mult :data:`JOINT_SPEED_RAD_S`, deci un salt mare de soluție devine o mișcare
+    scurtă, nu un recul.
+
+    Se reține cea mai mare eroare pe care a lăsat-o rezolvitorul pe drum: dacă acolo e o valoare
+    mare, drumul a trecut printr-o configurație pe care brațul nu o poate urma, oricât de bine ar
+    nimeri capătul.
     """
     end = np.asarray(point, dtype=float)
     quat = np.asarray(quat, dtype=float)
     steps = 0
     worst = 0.0
-    seed = joint_controls(model, data, arm)
+    start = tool_point(model, data, arm)
+    start_quat = hand_pose(model, data, arm)[1]
+    pinch = pinch_local(model, data, arm)
     per_point = max(1, int(round(PATH_STEP_M / TOOL_SPEED_MPS / float(model.opt.timestep))))
-    for waypoint in tool_path(tool_point(model, data, arm), end):
-        target_position = waypoint - rotation_matrix(quat) @ pinch_local(model, data, arm)
-        seed, error = waypoint_target(model, data, arm, target_position, quat, seed)
+    timestep = float(model.opt.timestep)
+    turn = 2.0 * math.acos(min(1.0, abs(float(np.dot(start_quat, quat)))))
+    turn_points = int(math.ceil(turn / (TOOL_TURN_SPEED_RAD_S * per_point * timestep)))
+    count = max(1, len(tool_path(start, end)), turn_points)
+    previous = joint_controls(model, data, arm)
+    seed = np.array(previous, dtype=float)
+    for index in range(1, count + 1):
+        fraction = index / count
+        waypoint_quat = slerp_quat(start_quat, quat, fraction)
+        target_position = (start + (end - start) * fraction
+                           - rotation_matrix(waypoint_quat) @ pinch)
+        seed, error = waypoint_target(model, data, arm, target_position, waypoint_quat, seed)
         worst = max(worst, error)
-        set_joint_controls(model, data, arm, seed)
-        for _ in range(per_point):
+        delta = seed - previous
+        needed = int(math.ceil(float(np.max(np.abs(delta)))
+                               / (JOINT_SPEED_RAD_S * timestep)))
+        step_count = max(per_point, needed, 1)
+        for step in range(1, step_count + 1):
+            set_joint_controls(model, data, arm, previous + delta * (step / step_count))
             mujoco.mj_step(model, data)
             _report(hook, model, data)
             steps += 1
+        previous = np.array(seed, dtype=float)
     hold(model, data, settle, hook)
     return {"steps": float(steps), "path_residual_m": worst}
 

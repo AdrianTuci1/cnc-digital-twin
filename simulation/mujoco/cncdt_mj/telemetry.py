@@ -103,6 +103,8 @@ class MachineReading:
     axis_feed: float = 0.0
     tool_wear_index: float = 0.0
     joint_friction_index: float = 0.0
+    joint_friction_index_arm1: float = 0.0
+    joint_friction_index_arm2: float = 0.0
     surface_quality: float = 1.0
     coolant_fault: bool = False
 
@@ -269,7 +271,7 @@ def sample(*, seq: int, ts_ms: int, machine_state: str, cycle: str, part: str,
     if machine_state not in MACHINE_STATES:
         raise ValueError(f"stare de mașină necunoscută: {machine_state}")
     record = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "device_id": DEVICE_ID,
         "cell_id": CELL_ID,
         "topic": TELEMETRY_TOPIC,
@@ -286,6 +288,8 @@ def sample(*, seq: int, ts_ms: int, machine_state: str, cycle: str, part: str,
         "axis_feed": float(machine.axis_feed),
         "tool_wear_index": float(machine.tool_wear_index),
         "joint_friction_index": float(machine.joint_friction_index),
+        "joint_friction_index_arm1": float(machine.joint_friction_index_arm1),
+        "joint_friction_index_arm2": float(machine.joint_friction_index_arm2),
         "surface_quality": float(machine.surface_quality),
         "coolant_fault": bool(machine.coolant_fault),
         "is_synthetic_defect": bool(is_synthetic_defect),

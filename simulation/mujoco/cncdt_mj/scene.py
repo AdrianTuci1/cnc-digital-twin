@@ -27,6 +27,7 @@ from . import grasp
 from . import layout
 from . import part
 from . import povs
+from . import rack_display
 from . import textures
 
 #: Modelul de braț, din registrul Menagerie; licența este Apache-2.0.
@@ -61,6 +62,11 @@ ARM_MOUNTS: tuple[tuple[str, str], ...] = (("arm1", "arm1_mount"), ("arm2", "arm
 #: rămîn încadrate; defectele de 2,5 mm cad la ~9 px, dintele ciobit de 4 mm la ~14 px.
 WRIST_CAMERA_OFFSET = (0.14, 0.0, 0.14)
 WRIST_CAMERA_FOVY = 46.0
+
+#: Canalul de ciocnire al pieselor din rezerva de sub podea. Orice valoare nenulă diferită de 1
+#: ține piesa departe de podea și de celulă, dar o lasă în arborele de ciocnire al motorului, ca
+#: pornirea ciocnirii la intrarea în ciclu să prindă.
+STORED_CONTYPE = 2
 
 #: Cît de mult privește camera la stânga față de punctul de strângere, în grade. Consola stă pe
 #: latura încheieturii, deci mîna îi intră în cadru pe jos, chiar sub obiectiv. Rotirea mută
@@ -145,9 +151,11 @@ def placements(variant: part.PartVariant, blank: part.BlankStock, seed: int = pa
         part_xy = part.on_surface_xy(part_xy[0], part_xy[1], machined_place.bounds,
                                      part.gear_radius_m(variant.family), surface="mesei")
 
-    return {
+    body = layout.part_body_name(variant.family)
+    places: dict[str, dict[str, Any]] = {
         blank_place.body: {
             "state": blank_place.state,
+            "family": variant.family,
             "note": blank_place.note,
             "pos": (float(blank_xy[0]), float(blank_xy[1]),
                     blank.rest_z_m(blank_place.surface_z)),
@@ -156,14 +164,29 @@ def placements(variant: part.PartVariant, blank: part.BlankStock, seed: int = pa
             "radius_m": blank.radius_m,
             "half_height_m": blank.half_height_m,
         },
-        machined_place.body: {
+        body: {
             "state": machined_place.state,
+            "family": variant.family,
             "note": machined_place.note,
             "pos": (float(part_xy[0]), float(part_xy[1]),
                     part.rest_z_m(variant, machined_place.surface_z)),
             "yaw_deg": float(part_yaw_deg),
         },
     }
+    # Piesele celorlalte familii există din construcția scenei, ca fiecare să aibă geometria și
+    # masa ei compilate. Stau sub podea, în afara celulei, pînă le vine rîndul în rotație.
+    for index, name in enumerate(part.family_names()):
+        if name == variant.family:
+            continue
+        other = layout.part_body_name(name)
+        places[other] = {
+            "state": layout.STATE_PARKED,
+            "family": name,
+            "note": "în rezervă, sub podea, pînă îi vine rîndul",
+            "pos": layout.parked_part_position(index),
+            "yaw_deg": 0.0,
+        }
+    return places
 
 
 def _joint_qpos(model: mujoco.MjModel, name: str) -> int:
@@ -207,13 +230,17 @@ def _planar_uv(vertices: np.ndarray) -> np.ndarray:
     return np.column_stack(((x - x.min()) / span_x, (y - y.min()) / span_y))
 
 
-def _add_parts(spec: mujoco.MjSpec, variant: part.PartVariant, blank: part.BlankStock,
-               places: dict[str, dict[str, Any]]) -> None:
-    """Cele două stări de material, ca două corpuri libere așezate în celulă.
+def _part_mesh_name(family: str) -> str:
+    """Numele meshului unei familii, în scenă."""
+    return f"part_mesh_{family}"
 
-    Blocul brut și roata mașinată sunt amândouă în scenă: în flux, blocul intră în mașină și iese
-    ca rotă, iar schimbul dintre ele se face la prelucrare. Yaw-ul fiecăruia este parametru, iar
-    meshul piesei primește UV-uri ca textura de metal periat să se vadă.
+
+def _add_part_mesh(spec: mujoco.MjSpec, variant: part.PartVariant) -> str:
+    """Adaugă meshul piesei mașinate și întoarce numele lui din scenă.
+
+    Se adaugă câte un mesh pentru fiecare familie, iar fiecare piesă are propriul corp, compilat
+    cu meshul ei. Un singur corp cu meshul schimbat la rulare păstra masa și inerția formei
+    vechi, iar placa lată și subțire era aruncată din falci la deschidere.
     """
     vertices, faces = part.scaled_geometry(variant)
     # Vîrfurile se repetă pentru fiecare triunghi, ca la randarea de catalog: altfel un vîrf de
@@ -231,13 +258,57 @@ def _add_parts(spec: mujoco.MjSpec, variant: part.PartVariant, blank: part.Blank
     flat_normals = np.repeat(normals, 3, axis=0)
     uv = _planar_uv(flat_vertices)
     corners = np.arange(len(flat_vertices), dtype=np.int64).reshape(-1, 3)
-    spec.add_mesh(name="machined_part_mesh", uservert=flat_vertices.ravel().tolist(),
+    name = _part_mesh_name(variant.family)
+    spec.add_mesh(name=name, uservert=flat_vertices.ravel().tolist(),
                   usernormal=flat_normals.ravel().tolist(),
                   usertexcoord=uv.ravel().tolist(), userface=corners.ravel().tolist(),
                   userfacetexcoord=corners.ravel().tolist(), smoothnormal=False)
+    return name
+
+
+def set_part_stored(model: mujoco.MjModel, body: str, stored: bool) -> None:
+    """Pune o piesă în rezervă ori o scoate din ea.
+
+    Piesele care așteaptă sub podea primesc un alt canal de ciocnire, ca planul infinit al
+    podelei să nu le împingă afară, iar greutatea lor este compensată, ca să rămînă la cota de
+    depozitare fără o legătură rigidă. Cînd piesa intră în ciclu, amîndouă se dau la loc.
+
+    Canalul de rezervă trebuie să fie **nenul**: MuJoCo își construiește arborele de ciocnire
+    la compilare din geomele care pot ciocni vreodată, iar o geomă cu `contype = 0` nu mai intră
+    în el. Pornirea ciocnirii la rulare ar fi atunci ignorată tăcut — piesa ar trece prin falci
+    și prin universal fără niciun contact.
+    """
+    geom = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, f"{body}_geom")
+    if geom >= 0:
+        channel = STORED_CONTYPE if stored else 1
+        model.geom_contype[geom] = channel
+        model.geom_conaffinity[geom] = channel
+    identifier = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body)
+    if identifier >= 0:
+        # Motorul ține și un rezumat pe corp, din care își construiește perechile de ciocnire:
+        # schimbat doar pe geomă, rezumatul rămîne pe canalul vechi și piesa nu mai ciocnește
+        # nimic, deși `geom_contype` arată bine.
+        model.body_contype[identifier] = channel
+        model.body_conaffinity[identifier] = channel
+        model.body_gravcomp[identifier] = 1.0 if stored else 0.0
+
+
+def _add_parts(spec: mujoco.MjSpec, places: dict[str, dict[str, Any]],
+               meshes: dict[str, str]) -> None:
+    """Materialul celulei: blocul brut și cîte un corp de piesă pentru fiecare familie.
+
+    Blocul brut și roata mașinată sunt amândouă în scenă: în flux, blocul intră în mașină și iese
+    ca rotă, iar schimbul dintre ele se face la prelucrare. Fiecare familie are propriul corp,
+    compilat cu meshul, masa și inerția ei; cele inactive stau sub podea, pe un canal de ciocnire
+    care nu atinge nimic, pînă le vine rîndul.
+    """
     for body, place in places.items():
+        # `gravcomp` se scrie în spec, nu doar în model: fără ea la compilare, MuJoCo nu
+        # activează compensarea greutății (`flg_gravcomp`), iar pornirea la rulare e ignorată.
+        stored = place["state"] == layout.STATE_PARKED
         spec_body = spec.worldbody.add_body(name=body, pos=list(place["pos"]),
-                                            quat=list(part.yaw_quat(place["yaw_deg"])))
+                                            quat=list(part.yaw_quat(place["yaw_deg"])),
+                                            gravcomp=1.0 if stored else 0.0)
         spec_body.add_freejoint(name=f"{body}_free")
         if place["state"] == layout.STATE_BLANK:
             if place["shape"] == part.BLANK_SHAPES[0]:
@@ -250,8 +321,19 @@ def _add_parts(spec: mujoco.MjSpec, variant: part.PartVariant, blank: part.Blank
                                          place["half_height_m"]],
                                    material="blank_brushed")
         else:
+            quiet = place["state"] == layout.STATE_PARKED
+            channel = STORED_CONTYPE if quiet else 1
             spec_body.add_geom(name=f"{body}_geom", type=mujoco.mjtGeom.mjGEOM_MESH,
-                               meshname="machined_part_mesh", material="part_brushed")
+                               meshname=meshes[str(place["family"])], material="part_brushed",
+                               contype=channel, conaffinity=channel)
+    # Copiile de afișare ale pieselor sortate: aceeași geometrie, dar corpuri `mocap`. Nu cad și
+    # nu se ciocnesc, deci pot sta în raft fără să deranjeze brațele. Pornesc ascunse sub podea.
+    for name in layout.RACK_COPY_BODIES:
+        copy_body = spec.worldbody.add_body(name=name, pos=[0.0, 0.0, layout.RACK_COPY_PARK_Z],
+                                            mocap=True)
+        copy_body.add_geom(name=f"{name}_geom", type=mujoco.mjtGeom.mjGEOM_MESH,
+                           meshname=meshes[layout.DEFAULT_PART_FAMILY], material="part_brushed",
+                           contype=0, conaffinity=0)
 
 
 def _body_id(model: mujoco.MjModel, name: str) -> int:
@@ -317,8 +399,9 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
     fiindcă între ele se petrece prelucrarea.
     """
     panda_dir = Path(mujoco_menagerie.get(PANDA_MODEL).path())
-    variant = part.load_variant(seed, defect, family)
-    blank = part.blank_stock(blank_shape, family)
+    variants = {name: part.load_variant(seed, defect, name) for name in part.family_names()}
+    variant = variants[part.family(family).name]
+    blank = part.blank_stock(blank_shape, variant.family)
     places = placements(variant, blank, seed, blank_xy, blank_yaw_deg, part_yaw_deg, part_xy)
 
     spec = mujoco.MjSpec.from_string(scene_template())
@@ -343,7 +426,10 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
     for prefix, _ in ARM_MOUNTS:
         spec.light(f"{prefix}_top").castshadow = False
 
-    _add_parts(spec, variant, blank, places)
+    # Câte un mesh și câte un corp pentru fiecare familie: aceeași scenă poate prelucra oricare
+    # dintre ele, iar corpul fiecăreia are geometria și masa ei compilate.
+    meshes = {name: _add_part_mesh(spec, item) for name, item in variants.items()}
+    _add_parts(spec, places, meshes)
     # Legăturile de prindere și clemele pieselor: inactive pînă la ciclu, dar prezente în model,
     # fiindcă MuJoCo nu poate adăuga constrângeri după compilare.
     grasp.add_constraints(spec, arms.ARMS, tuple(places))
@@ -366,6 +452,8 @@ def build_spec(seed: int = part.DEFAULT_SEED, defect: str | None = None,
         "seed": seed,
         "panda_model": PANDA_MODEL,
         "part": part.describe(variant),
+        "families": {name: part.describe(item) for name, item in variants.items()},
+        "meshes": meshes,
         "blank": blank.as_dict(),
         "placements": places,
     }
@@ -412,7 +500,15 @@ def apply_nominal(model: mujoco.MjModel, data: mujoco.MjData,
     """
     data.qpos[:] = nominal_qpos(model, places)
     data.ctrl[:] = nominal_ctrl(model)
+    # Raftul pornește gol: copiile de afișare se ascund sub podea înainte de primul pas.
+    rack_display.park_all(model, data)
     mujoco.mj_forward(model, data)
+    # Piesele familiilor inactive rămîn în rezerva de sub podea, cu ciocnirea oprită și greutatea
+    # compensată, pînă le vine rîndul; piesa familiei active stă normal, pe masa mașinii.
+    for body, place in places.items():
+        if place["state"] == layout.STATE_BLANK:
+            continue
+        set_part_stored(model, body, place["state"] == layout.STATE_PARKED)
 
 
 def settle(model: mujoco.MjModel, data: mujoco.MjData, steps: int = SETTLE_STEPS) -> None:

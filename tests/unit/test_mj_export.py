@@ -224,7 +224,7 @@ def test_manifest_says_what_the_corpus_holds(run_dir: Path) -> None:
     assert manifest["labels"]["families"] == ["hex_68", "wheel_100"]
     assert manifest["labels"]["defects"] == {"PASS": 3, "POROSITY": 1}
     assert manifest["source"]["mujoco_version"] == "3.15.0"
-    assert manifest["source"]["schemas"]["samples"] == "1.0.0"
+    assert manifest["source"]["schemas"]["samples"] == "1.1.0"
     assert manifest["problems"] == []
     assert manifest["git"] == {"revision": "abc1234"}
 

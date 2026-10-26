@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 from typing import Any, Iterable, Mapping
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 # Ordinea contează: este ordinea coloanelor din tabelul din catalog.
 ENRICHED_COLUMNS: tuple[str, ...] = (
@@ -39,6 +39,8 @@ ENRICHED_COLUMNS: tuple[str, ...] = (
     "coolant_flow_lpm",
     "temp_c_mean",
     "joint_friction_index",
+    "joint_friction_index_arm1",
+    "joint_friction_index_arm2",
     "anomaly_score",
     "anomaly_detected",
     "model_version",

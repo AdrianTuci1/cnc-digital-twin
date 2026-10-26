@@ -208,8 +208,12 @@ resource "aws_cloudwatch_metric_alarm" "degradation_index" {
   treat_missing_data  = "notBreaching"
   alarm_description   = "${each.value.label}: degradation index exceeded ${each.value.warn_threshold}. After service, choose 'Repair all' in the MuJoCo viewer; the alarm clears when the index drops below the threshold."
 
+  # CloudWatch identifică o metrică prin setul complet de dimensiuni: fără DeviceId și CellId,
+  # alarma ar căuta o serie care nu există și ar sta în OK pe date lipsă.
   dimensions = {
-    Element = each.key
+    DeviceId = var.telemetry_device_id
+    CellId   = var.telemetry_cell_id
+    Element  = each.key
   }
 
   alarm_actions = local.alarm_actions
@@ -236,7 +240,9 @@ resource "aws_cloudwatch_metric_alarm" "degradation_rul" {
   alarm_description   = "${each.value.label}: less than ${each.value.warn_rul_minutes} operating minutes until the failure threshold. Schedule service."
 
   dimensions = {
-    Element = each.key
+    DeviceId = var.telemetry_device_id
+    CellId   = var.telemetry_cell_id
+    Element  = each.key
   }
 
   alarm_actions = local.alarm_actions
@@ -330,15 +336,19 @@ resource "aws_cloudwatch_dashboard" "infra" {
           width  = 12
           height = 6
           properties = {
-            title  = "Feature engineering Lambda"
+            title  = "Hot path Lambdas"
             region = var.region
             view   = "timeSeries"
             period = 60
             metrics = concat(
               [for fn in var.lambda_function_names : ["AWS/Lambda", "Invocations", "FunctionName", fn, { stat = "Sum" }]],
               [for fn in var.lambda_function_names : ["AWS/Lambda", "Errors", "FunctionName", fn, { stat = "Sum", color = "#d62728" }]],
-              [for fn in var.lambda_function_names : ["AWS/Lambda", "Duration", "FunctionName", fn, { stat = "p95" }]],
+              [for fn in var.lambda_function_names : ["AWS/Lambda", "Duration", "FunctionName", fn, { stat = "p95", yAxis = "right" }]],
             )
+            yAxis = {
+              left  = { label = "invocations, errors", showUnits = false }
+              right = { label = "duration p95 (ms)", showUnits = false }
+            }
           }
         },
       ],
@@ -379,8 +389,10 @@ resource "aws_cloudwatch_dashboard" "infra" {
             view   = "timeSeries"
             period = 60
             metrics = [
-              [local.telemetry_namespace, "SamplesAggregated", { stat = "Sum" }],
-              [local.telemetry_namespace, "WindowsProcessed", { stat = "Sum" }],
+              # Dimensiunile trebuie să fie exact cele publicate de Lambda: altfel seria nu
+              # există și panoul rămâne gol deși datele ajung.
+              [local.telemetry_namespace, "SamplesAggregated", "DeviceId", var.telemetry_device_id, "CellId", var.telemetry_cell_id, { stat = "Sum" }],
+              [local.telemetry_namespace, "WindowsProcessed", "Stage", "aggregate", { stat = "Sum" }],
               [local.telemetry_namespace, "EndpointFailures", { stat = "Sum", color = "#d62728" }],
               [local.telemetry_namespace, "QaEndpointFailures", { stat = "Sum", color = "#ff7f0e" }],
               # Cadre rămase fără verdict fiindcă nu există model. Verdictul nu se inventează
@@ -477,8 +489,8 @@ resource "aws_cloudwatch_dashboard" "factory" {
         },
       ],
 
-      # Producția: câte piese bune și câte rebuturi ies pe oră. Când degradarea este mică,
-      # ambele cifre stau la valoarea nominală a celulei.
+      # Datele celulei: câte eșantioane ajung și câte ferestre închide Lambda-ul pe minut.
+      # Aici se vede dacă geamănul trimite; o linie plată înseamnă că pipeline-ul nu are date.
       [
         {
           type   = "metric"
@@ -487,17 +499,18 @@ resource "aws_cloudwatch_dashboard" "factory" {
           width  = 12
           height = 6
           properties = {
-            title   = "Hourly production: good parts and scrap"
-            region  = var.region
-            view    = "timeSeries"
-            period  = 3600
-            stat    = "Sum"
-            stacked = true
+            title  = "Data reaching CloudWatch"
+            region = var.region
+            view   = "timeSeries"
+            period = 60
             metrics = [
-              [local.telemetry_namespace, "PartsGood", { label = "good parts", color = "#2ca02c" }],
-              [local.telemetry_namespace, "PartsScrap", { label = "scrap", color = "#d62728" }],
+              [local.telemetry_namespace, "SamplesAggregated", "DeviceId", var.telemetry_device_id, "CellId", var.telemetry_cell_id, { stat = "Sum", label = "samples/min" }],
+              [local.telemetry_namespace, "WindowsProcessed", "Stage", "aggregate", { stat = "Sum", label = "windows/min", yAxis = "right" }],
             ]
-            yAxis = { left = { label = "parts per hour", showUnits = false } }
+            yAxis = {
+              left  = { label = "samples per minute", showUnits = false }
+              right = { label = "windows per minute", showUnits = false }
+            }
           }
         },
         {
@@ -507,16 +520,25 @@ resource "aws_cloudwatch_dashboard" "factory" {
           width  = 12
           height = 6
           properties = {
-            title  = "Scrap rate"
+            title  = "Time to failure threshold (operating minutes)"
             region = var.region
             view   = "timeSeries"
-            period = 3600
+            period = 60
+            stat   = "Minimum"
             metrics = [
-              [{ expression = "100 * scrap / (good + scrap)", label = "scrap (%)", id = "rate" }],
-              [local.telemetry_namespace, "PartsGood", { id = "good", stat = "Sum", visible = false }],
-              [local.telemetry_namespace, "PartsScrap", { id = "scrap", stat = "Sum", visible = false }],
+              for key in local.factory_elements :
+              [local.telemetry_namespace, "RULMinutes", "DeviceId", var.telemetry_device_id, "CellId", var.telemetry_cell_id, "Element", key, { label = key }]
             ]
-            yAxis = { left = { label = "%", min = 0, showUnits = false } }
+            yAxis = { left = { label = "minutes", min = 0, showUnits = false } }
+            annotations = length(var.degradation_elements) == 0 ? {} : {
+              horizontal = [
+                {
+                  label = "service threshold"
+                  value = min([for element in values(var.degradation_elements) : element.warn_rul_minutes]...)
+                  fill  = "below"
+                },
+              ]
+            }
           }
         },
       ],
@@ -535,7 +557,7 @@ resource "aws_cloudwatch_dashboard" "factory" {
           period = 60
           stat   = "Maximum"
           metrics = [
-            [local.telemetry_namespace, "DegradationIndex", "Element", key, { label = key }],
+            [local.telemetry_namespace, "DegradationIndex", "DeviceId", var.telemetry_device_id, "CellId", var.telemetry_cell_id, "Element", key, { label = key }],
           ]
           yAxis = { left = { min = 0, max = 1, label = "index", showUnits = false } }
           annotations = {
@@ -546,56 +568,28 @@ resource "aws_cloudwatch_dashboard" "factory" {
         }
       }],
 
-      # Cât timp de operare a mai rămas până la pragul de avarie: estimarea din panta
-      # degradării, adică eticheta pe care o prezice modelul de predictive maintenance.
+      # Ferestrele marcate de model, plus scorul care le-a produs. Pragul scris în titlu este
+      # cel al alarmei, care adună 10 minute; panoul arată suma pe minut, ca să reacționeze
+      # imediat în demo.
       [
         {
           type   = "metric"
           x      = 0
           y      = 16
-          width  = 12
+          width  = 24
           height = 6
           properties = {
-            title  = "Time to failure threshold (operating minutes)"
-            region = var.region
-            view   = "timeSeries"
-            period = 60
-            stat   = "Minimum"
-            metrics = [
-              for key in local.factory_elements :
-              [local.telemetry_namespace, "RULMinutes", "Element", key, { label = key }]
-            ]
-            yAxis = { left = { label = "minutes", min = 0, showUnits = false } }
-            annotations = length(var.degradation_elements) == 0 ? {} : {
-              horizontal = [
-                {
-                  label = "service threshold"
-                  value = min([for element in values(var.degradation_elements) : element.warn_rul_minutes]...)
-                  fill  = "below"
-                },
-              ]
-            }
-          }
-        },
-        {
-          type   = "metric"
-          x      = 12
-          y      = 16
-          width  = 12
-          height = 6
-          properties = {
-            title  = "Model-detected anomalies"
+            title  = "Model-detected anomalies (alarm: ${var.anomaly_alarm_threshold} windows in 10 minutes)"
             region = var.region
             view   = "timeSeries"
             period = 60
             metrics = [
-              [local.telemetry_namespace, "AnomalyDetectedWindows", { stat = "Sum", label = "anomalous windows" }],
-              [local.telemetry_namespace, "AnomalyScore", { stat = "Average", label = "score", yAxis = "right" }],
+              [local.telemetry_namespace, "AnomalyDetectedWindows", { stat = "Sum", label = "anomalous windows", color = "#d62728" }],
+              [local.telemetry_namespace, "AnomalyScore", "DeviceId", var.telemetry_device_id, "CellId", var.telemetry_cell_id, { stat = "Average", label = "score", yAxis = "right" }],
             ]
-            annotations = {
-              horizontal = [
-                { label = "alarm threshold", value = var.anomaly_alarm_threshold },
-              ]
+            yAxis = {
+              left  = { label = "windows per minute", min = 0, showUnits = false }
+              right = { label = "score", showUnits = false }
             }
           }
         },
@@ -611,9 +605,10 @@ resource "aws_cloudwatch_dashboard" "factory" {
           properties = {
             markdown = join("\n", [
               "### How to read the panels",
-              "**Hourly production** — `PartsGood` and `PartsScrap`, summed over a clock hour.",
+              "**Data reaching CloudWatch** — samples aggregated and windows closed per minute. A flat line means the twin is not sending.",
               "**Degradation** — index from 0 to 1, with the alarm threshold drawn; repair from the MuJoCo viewer brings it down and the alarm clears by itself.",
               "**Time to failure threshold** — continuous operating minutes, derived from the degradation slope; while the cell is idle, the estimate does not drop.",
+              "**Model-detected anomalies** — anomalous windows per minute; the alarm fires at ${var.anomaly_alarm_threshold} windows in 10 minutes.",
             ])
           }
         },

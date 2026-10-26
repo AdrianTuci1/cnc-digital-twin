@@ -62,7 +62,7 @@ Fiecare fereastră publică în `CNCDT/Telemetry` un set mic, în ritmul microba
 | `SamplesAggregated` | `DeviceId`, `CellId` | Lambda-ul, direct | eșantioanele adunate în fereastră |
 | `WindowsProcessed` | `Stage = aggregate` | Lambda-ul, direct | câte ferestre a închis invocarea |
 | `EndpointFailures` | fără dimensiuni | Lambda-ul, direct, doar când este pozitiv | apeluri eșuate către endpoint-ul de anomalii |
-| `DegradationIndex` | `DeviceId`, `CellId`, **`Element`** (`cnc`, `robot`) | Lambda-ul, direct | indexul de uzură, 0–1 |
+| `DegradationIndex` | `DeviceId`, `CellId`, **`Element`** (`cnc`, `arm1`, `arm2`) | Lambda-ul, direct | indexul de uzură, 0–1 |
 | `RULMinutes` | `DeviceId`, `CellId`, **`Element`** | Lambda-ul, direct | minute de operare până la pragul de avarie |
 | `AnomalyDetectedWindows` | fără dimensiuni | filtru de metrice pe log group | câte ferestre au fost marcate anomale |
 
@@ -78,8 +78,9 @@ pentru analiză exploratorie în CloudWatch.
 `RULMinutes` este `(prag − index) / (rată × 60)`, calculat doar când rata este pozitivă: ratele
 vin din `TOOL_WEAR_RATE` și `JOINT_FRICTION_RATE`, aceleași valori ca `CNCDT_TOOL_WEAR_RATE` și
 `CNCDT_JOINT_FRICTION_RATE` din `.env` (ADR 0007). Pragurile de alarmă și gauge-urile din
-dashboard-ul de fabrică se declară în `degradation_elements` (ADR 0008). Contoarele de
-producție (`PartsGood`, `PartsScrap`) vin din Lambda-ul de inspecție, nu de aici.
+dashboard-ul de fabrică se declară în `degradation_elements` (ADR 0008). Contoarele
+`PartsGood` și `PartsScrap` vin din Lambda-ul de inspecție, pe calea S3 → Lambda; geamănul
+cheamă endpoint-ul de viziune direct, deci dashboard-ul de fabrică nu le afișează (ADR 0026).
 
 ## Etichete: limită asumată
 

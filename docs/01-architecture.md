@@ -58,8 +58,9 @@ simulare și acționează pistonul de rejecție. Fiecare verigă are un contract
    `modules/observability` și versionate ca orice altă resursă. Sunt două, separate pe
    audiență (ADR 0008): unul de infrastructură (alarme de serviciu, ingestie Firehose,
    metricele Lambda-urilor, erorile din loguri, GPU-ul instanței de simulare) și unul de
-   fabrică (producție pe oră, rata de rebut, degradare per element, minute până la pragul de
-   avarie, anomalii). Proiectul nu folosește QuickSight sau alt instrument BI (ADR 0005).
+   fabrică (eșantioane și ferestre procesate pe minut, degradare per element, minute până la
+   pragul de avarie, anomalii). Proiectul nu folosește QuickSight sau alt instrument BI
+   (ADR 0005).
 7. **Antrenare.** Un pipeline SageMaker antrenează modelul, scrie metricele în Experiments și
    artefactul în `models/<nume>/<versiune>/`.
 8. **Inferență.** Endpoint-ul serverless este chemat de Lambda pe hot path (anomalii) și de

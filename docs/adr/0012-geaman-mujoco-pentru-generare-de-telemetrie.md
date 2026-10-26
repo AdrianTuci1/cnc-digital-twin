@@ -4,6 +4,7 @@
 - **Data:** 2026-10-13
 - **Decis de:** echipa de proiect
 - **Pornește de la:** ADR 0007 (ceas real), ADR 0010 (instanța pe spot)
+- **Amendat de:** ADR 0026 (contractul `1.1.0`, cu frecarea publicată per braț)
 
 ## Context
 
@@ -65,8 +66,9 @@ Verificat pe 2026-10-13, pe macOS arm64, în venv-ul proiectului (Python 3.14.6)
    Degradarea camerei este un al cincilea mecanism, aplicat peste cadrele randate. Motorul nu
    importă MuJoCo, deci se testează fără el.
 4. **Telemetria respectă contractele existente.** Eșantion brut la ~10 Hz pe exact câmpurile din
-   `cnc.telemetry.v1.json`, apoi ferestre de 60 s pe exact cele 26 de coloane din
-   `cncdt_ml.schema.ENRICHED_COLUMNS`. Geamănul nu inventează un al doilea format de date.
+   `cnc.telemetry.v1.json`, apoi ferestre de 60 s pe exact cele 27 de coloane din
+   `cncdt_ml.schema.ENRICHED_COLUMNS` (contractul `1.1.0`). Geamănul nu inventează un al doilea
+   format de date.
 5. **Detecția anomaliilor: RCF local pentru dezvoltare, cu vector de caracteristici identic
    celui care va merge la SageMaker RCF.** Regula de alarmă este parte din livrabil (scor peste
    prag pe ferestre consecutive), iar timpul de anticipare se **măsoară** pe episoade de eșec

@@ -71,8 +71,15 @@ class IotPublisher:
             raise RuntimeError("lipsește CNCDT_TELEMETRY_TOPIC din iot-endpoint.env")
         self.port = int(env.get("CNCDT_MQTT_PORT", "8883"))
         self.host = host
+        #: Câte eșantioane au intrat în coada clientului, câte le-a confirmat brokerul și câte au
+        #: fost refuzate. `sent` singur nu dovedește nimic: paho raportează succesul punerii în
+        #: coadă, iar o politică IoT greșită se vede abia la confirmare (ori la deconectare).
         self.sent = 0
+        self.acked = 0
         self.failed = 0
+        self.rejected = 0
+        self.connected = False
+        self.last_error = ""
         self.client_id = client_id or env.get("CNCDT_MQTT_CLIENT_ID", "cncdt-mujoco")
 
         import paho.mqtt.client as mqtt
@@ -82,6 +89,9 @@ class IotPublisher:
             mqtt.CallbackAPIVersion.VERSION2,
             client_id=self.client_id,
             protocol=mqtt.MQTTv311)
+        self._client.on_connect = self._on_connect
+        self._client.on_publish = self._on_publish
+        self._client.on_disconnect = self._on_disconnect
         self._client.tls_set(
             ca_certs=str(directory / CA_FILE),
             certfile=str(directory / CERT_FILE),
@@ -111,11 +121,39 @@ class IotPublisher:
             self.sent += 1
         else:
             self.failed += 1
+            self.last_error = str(info.rc)
+
+    def _on_connect(self, client: Any, userdata: Any, flags: Any, reason_code: Any,
+                    properties: Any) -> None:
+        """CONNACK: de aici încolo brokerul chiar primește ce publicăm."""
+        self.connected = not getattr(reason_code, "is_failure", False)
+        if not self.connected:
+            self.last_error = f"connect: {reason_code}"
+
+    def _on_publish(self, client: Any, userdata: Any, mid: int, reason_code: Any,
+                    properties: Any) -> None:
+        """PUBACK pentru un eșantion: numai el dovedește că IoT Core l-a acceptat."""
+        if getattr(reason_code, "is_failure", False):
+            self.rejected += 1
+            self.last_error = f"publish: {reason_code}"
+        else:
+            self.acked += 1
+
+    def _on_disconnect(self, client: Any, userdata: Any, flags: Any, reason_code: Any,
+                       properties: Any) -> None:
+        """Brokerul a închis legătura; următorul mesaj va fi pus în coada de reconectare."""
+        self.connected = False
+        if getattr(reason_code, "is_failure", False):
+            self.last_error = f"disconnect: {reason_code}"
 
     def close(self) -> None:
-        """Așteaptă coada, apoi închide curat."""
+        """Așteaptă confirmările, apoi închide curat."""
         try:
-            self._client.loop_stop()
+            deadline = time.monotonic() + 3.0
+            while (self.sent > self.acked + self.rejected
+                   and time.monotonic() < deadline):
+                time.sleep(0.05)
             self._client.disconnect()
+            self._client.loop_stop()
         except Exception:  # pragma: no cover - închiderea nu are voie să cadă la final
             pass

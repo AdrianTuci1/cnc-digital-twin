@@ -75,6 +75,16 @@ variable "iot_rule_name" {
   default     = ""
 }
 
+variable "telemetry_device_id" {
+  description = "DeviceId cu care geamănul publică metricele. Trebuie să coincidă cu CNCDT_DEVICE_ID, fiindcă dimensionarea face parte din identitatea metricei în CloudWatch."
+  type        = string
+}
+
+variable "telemetry_cell_id" {
+  description = "CellId cu care geamănul publică metricele. Trebuie să coincidă cu CNCDT_CELL_ID."
+  type        = string
+}
+
 variable "sim_instance_id" {
   description = "ID-ul instanței de simulare, pentru widget-urile de GPU."
   type        = string

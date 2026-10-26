@@ -20,6 +20,8 @@ Patru moduri, toate pe aceeași scenă compusă de `cncdt_mj.scene`:
   și reparații (`panel.py`), cu butoanele din schema de control; `--no-panel` îl oprește. Cu
   `--iot`, eșantioanele pleacă în IoT Core din exact modelul de uzură pe care îl repară panoul,
   iar viewer-ul rămîne deschis după ciclu (`--hold`), ca reparația să stingă alarma din CloudWatch.
+  În colțul ferestrei stă un rezumat (IoT, ciclu, uzură) și jurnalul ultimelor evenimente;
+  `--view-fps` limitează redesenarea, fiindcă simularea are 500 de pași pe secundă.
   `--route vision` trimite cadrul de sortare endpoint-ului, ca în `run.py`. Pe macOS viewer-ul
   merge doar sub `mjpython`, deci scriptul spune asta explicit și refuză să pornească sub `python`.
 
@@ -53,7 +55,8 @@ if str(MUJOCO_DIR) not in sys.path:
 import mujoco  # noqa: E402  (importul cere calea de mai sus)
 
 from cncdt_mj import (arms, belt, camera, cell, checks, control, grasp_cycle,  # noqa: E402
-                      inspection, iot, layout, part, povs, scene, sensors, telemetry, wear)
+                      inspection, iot, journal, layout, pacing, part, povs, scene, sensors,
+                      telemetry, wear)
 
 #: Unde se scriu cadrele; directorul e comis, ca dovada vizuală să fie în repo.
 RENDERS_DIR = MUJOCO_DIR / "renders"
@@ -64,6 +67,15 @@ ARM_PREFIXES = tuple(f"{prefix}_" for prefix, _ in scene.ARM_MOUNTS)
 #: La cât timp simulat se tipărește o linie de transport în viewer.
 REPORT_PERIOD_S = 1.0
 
+#: Cîte linii de jurnal încap în overlay-ul viewer-ului.
+VIEWER_JOURNAL_LINES = 5
+
+#: Cîte linii de jurnal primește panoul la fiecare actualizare de stare.
+PANEL_JOURNAL_LINES = 20
+
+#: La cît timp se adaugă în jurnal un rînd cu eșantioanele trimise în IoT Core.
+IOT_REPORT_S = 10.0
+
 #: Cât durează fereastra de așchiere în `--demo`: destul ca uzura să avanseze și să se vadă în
 #: viewer, fără să țină demonstrația douăsprezece secunde pe ciclu.
 DEMO_MACHINING_S = 0.5
@@ -71,6 +83,53 @@ DEMO_MACHINING_S = 0.5
 # Pragurile verificării (`MIN_WRIST_PART_PX`, `YAW_TOLERANCE_DEG`, `MAX_SETTLE_DRIFT_M`) stau în
 # `cncdt_mj/checks.py`: sunt reguli pure, iar testele din `.venv`-ul proiectului le împart cu
 # scriptul de față.
+
+
+def iot_line(publisher: Any) -> str:
+    """Ce se știe despre trimiterea către IoT Core, într-o linie de fereastră.
+
+    Se numără confirmările brokerului, nu doar punerile în coadă: un eșantion poate fi acceptat
+    de clientul MQTT și refuzat de politica IoT, iar atunci cifra „sent" ar minți.
+    """
+    if publisher is None:
+        return "IoT Core: off (no --iot) — data stays local"
+    link = "connected" if publisher.connected else "reconnecting"
+    return (f"IoT Core: {link} · {publisher.acked} acked · "
+            f"{publisher.failed + publisher.rejected} failed")
+
+
+#: Numele fazelor din ciclu, așa cum apar în fereastră: jurnalul și overlay-ul sînt în engleză,
+#: ca demonstrația să fie citită de oricine, iar raportul din terminal rămîne în română.
+STAGE_LABELS: dict[str, str] = {
+    "sus": "above",
+    "jos": "at point",
+    "ridicare": "lift",
+    "centrare": "centering",
+    "retragere": "retract",
+    "așteptare": "waiting",
+}
+
+#: Motivele unei rute, pentru jurnal.
+ROUTE_REASONS: dict[str, str] = {
+    "implicit": "default",
+    "comandă": "command",
+    "fallback": "fallback",
+    "family_missing": "family missing",
+}
+
+
+def stage_label(stage: str) -> str:
+    """Faza ciclului în engleză, păstrînd numărul trecerii."""
+    if stage in STAGE_LABELS:
+        return STAGE_LABELS[stage]
+    if stage.startswith("trecere "):
+        return "approach " + stage[len("trecere "):]
+    return stage
+
+
+def route_reason(reason: str) -> str:
+    """Motivele cunoscute ale rutei, în engleză; restul rămîn cum vin."""
+    return ROUTE_REASONS.get(reason, reason)
 
 
 class DemoTelemetry:
@@ -90,6 +149,11 @@ class DemoTelemetry:
         self.seq = 0
         self.next_s = 0.0
 
+    def start_cycle(self, index: int) -> None:
+        """Identitățile ciclului următor, ca ferestrele din cloud să nu se amestece."""
+        self.cycle = telemetry.cycle_id(index)
+        self.part = telemetry.part_id(index)
+
     def due(self, sim_time_s: float) -> bool:
         """A venit rândul eșantionului? Rata se socotește pe timpul simulat."""
         if float(sim_time_s) + 1e-9 < self.next_s:
@@ -98,8 +162,15 @@ class DemoTelemetry:
         return True
 
     def record(self, model: mujoco.MjModel, data: mujoco.MjData,
-               wear_model: wear.WearModel, parts: tuple[str, ...]) -> None:
-        """Un eșantion brut, dacă a venit rândul lui, și publicarea lui."""
+               wear_model: wear.WearModel, parts: tuple[str, ...], *,
+               machine_state: str = "IDLE", cutting: bool = False,
+               defect: bool = False) -> None:
+        """Un eșantion brut, dacă a venit rândul lui, și publicarea lui.
+
+        ``machine_state`` și ``cutting`` vin din ciclu: un eșantion luat în timpul așchierii are
+        sarcina axului și vibrația acelei ferestre, nu o celei de repaus. ``defect`` este eticheta
+        piesei din scenă, singurul loc din care viewer-ul o știe fără recorder.
+        """
         if not self.due(float(data.time)):
             return
         values = sensors.reading(
@@ -109,12 +180,12 @@ class DemoTelemetry:
         self.publisher.publish(telemetry.sample(
             seq=self.seq,
             ts_ms=int(time.time() * 1000),
-            machine_state="IDLE",
+            machine_state=machine_state,
             cycle=self.cycle,
             part=self.part,
             joint_effort=values["joint_effort_nm"],
-            machine=wear_model.reading(cutting=False),
-            is_synthetic_defect=False,
+            machine=wear_model.reading(cutting=cutting),
+            is_synthetic_defect=defect,
         ))
         self.seq += 1
 
@@ -145,6 +216,18 @@ def requested_xy(x: float | None, y: float | None, state: str) -> tuple[float, f
         return None
     place = next(item for item in layout.part_placements() if item.state == state)
     return (place.x if x is None else x, place.y if y is None else y)
+
+
+def cycle_places(metadata: dict, args: argparse.Namespace, family: str) -> dict:
+    """Așezarea nominală pentru familia următoare, la resetarea dintre cicluri.
+
+    Blocul brut este cel compilat în scenă, iar piesa este a familiei care urmează: poziția
+    nominală readuce piesa acelei familii pe masa de descărcare și lasă celelalte familii în
+    rezerva de sub podea.
+    """
+    blank = part.BlankStock(**metadata["blank"])
+    variant = part.load_variant(seed=args.seed, defect=args.defect, family_name=family)
+    return scene.placements(variant, blank, args.seed)
 
 
 def prepare(model: mujoco.MjModel, data: mujoco.MjData, metadata: dict,
@@ -258,8 +341,13 @@ def check(args: argparse.Namespace) -> int:
     grips = [name for name in named if name and name.startswith("grasp_")]
     fixtures = [name for name in named if name and name.startswith("fixture_")]
     # Egalitățile din modelele atașate (cuplarea falcilor Panda) sînt active din fabrică și nu
-    # fac parte din prinderea noastră: se numără doar cele de mai sus.
-    active = sum(1 for index in ours if bool(data.eq_active[index]))
+    # fac parte din prinderea noastră: se numără doar cele de mai sus. Piesele familiilor
+    # inactive stau ținute de clemă în rezerva de sub podea, deci clemele lor sînt active din
+    # construcție.
+    parked = {f"fixture_{body}" for body, place in metadata["placements"].items()
+              if place["state"] == layout.STATE_PARKED}
+    active = sum(1 for index in ours
+                 if bool(data.eq_active[index]) and named[index] not in parked)
     print(f"  {len(grips)} cleme braț↔piesă, {len(fixtures)} cleme piesă↔lume, "
           f"{active} active acum")
     if len(grips) != len(ARM_PREFIXES) * len(metadata["placements"]):
@@ -321,11 +409,13 @@ def demo(args: argparse.Namespace, hook: arms.StepHook | None = None,
             print(f"  {message}")
     scene.apply_nominal(model, data, metadata["placements"])
     scene.settle(model, data, steps)
-    return run_demo(model, data, args, str(metadata["part"]["family"]), hook=hook, shots=shots)
+    return run_demo(model, data, args, str(metadata["part"]["family"]), hook=hook, shots=shots,
+                    blank_half_m=float(metadata["blank"]["half_height_m"]))
 
 
 def vision_router(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespace,
-                  temp_dir: Path, index: int = 1) -> tuple[grasp_cycle.Router, camera.Frames]:
+                  temp_dir: Path, index: int = 1,
+                  events: journal.Journal | None = None) -> tuple[grasp_cycle.Router, camera.Frames]:
     """Ruta din verdictul endpoint-ului, cu cadrul de sortare randat în viewer.
 
     Viewer-ul nu are `Recorder`-ul sesiunii, deci cadrul se scrie aici, exact cînd brațul 2
@@ -352,6 +442,9 @@ def vision_router(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Nam
         print(f"  {cycle_id}: verdict {verdict.verdict} "
               f"(p={verdict.defect_probability:.3f}), familia {verdict.family or '-'} "
               f"(p={probability}) -> {verdict.route} ({verdict.reason})")
+        if events is not None:
+            events.add(f"Verdict {verdict.verdict}, family {verdict.family or '-'} "
+                       f"(p={verdict.defect_probability:.2f}) → {verdict.route}")
         family = verdict.family if verdict.route == inspection.ROUTE_RACK else None
         return grasp_cycle.Routing(verdict.route, family, verdict.reason)
 
@@ -360,7 +453,10 @@ def vision_router(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Nam
 
 def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespace,
              family: str | None = None, hook: arms.StepHook | None = None,
-             shots: Path | None = None) -> int:
+             shots: Path | None = None, events: journal.Journal | None = None,
+             state: dict[str, Any] | None = None, cycle: int = 1,
+             next_blank: bool = False, preloaded: bool = False,
+             blank_half_m: float | None = None) -> int:
     """Ciclul de lucru cu prindere fizică: banda 1 → brațul 1 → CNC → banda 2 → raft.
 
     Este singura parte a verificării care se vede. La fiecare punct de lucru se tipăresc eroarea
@@ -368,6 +464,8 @@ def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespac
     dacă falcile au atins piesa, cât au închis și dacă au legat-o de mînă. O verigă a brațului care
     atinge celula este eșec, iar la sfîrșit se verifică locul fiecărei piese. ``family`` alege
     piesa, blocul brut și compartimentul din raft, deci toate cele cinci familii se pot proba.
+    ``events`` și ``state`` hrănesc jurnalul din viewer și din panou: fără ele, ciclul scrie doar
+    în terminal.
     """
     family = family or part.family().name
     parts = cell.part_bodies(model)
@@ -385,14 +483,28 @@ def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespac
         print(f"  scula {arm}                : {tool[arm] * 1000:.1f} mm de la flanșă la punctul "
               f"de strângere")
     print()
+    if events is not None:
+        source = "the blank is already in the CNC" if preloaded else "the blank comes on belt 1"
+        events.add(f"Cycle {cycle} started: family {family}, route {args.route} — {source}")
+    if state is not None:
+        state["cycle"] = f"starting (family {family})"
+        state["family"] = family
 
     def reporter(row: dict[str, Any]) -> None:
         """O linie pentru fiecare oprire a sculei, prindere și verdict de rută."""
+        if "preload" in row:
+            if row["preload"] == "start":
+                print("       arm1  starts the next load in parallel with arm 2")
+                if events is not None:
+                    events.add("Arm 1 starts loading the next blank while arm 2 sorts")
+            return
         if "route" in row:
             item = row["route"]
             family = f", familia {item['family']}" if item["family"] else ""
             print(f"  {'':<5} {'':<11} {'':<28} {'rută':<10} {item['destination']} "
                   f"({item['reason']}{family})")
+            if events is not None:
+                events.add(f"Route: {item['destination']} ({route_reason(item['reason'])})")
             return
         if "grasp" in row:
             item = row["grasp"]
@@ -400,9 +512,13 @@ def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespac
             print(f"  {item['arm']:<5} {'':<11} {'':<28} falcile {item['action']:<5} "
                   f"{outcome}: contact {'da' if item['contact'] else 'nu'}, "
                   f"deschidere {item['finger_gap_m'] * 1000:.1f} mm, {item['steps']} pași")
+            if not item["success"] and events is not None:
+                events.add(f"Grasp failed: {item['arm']} at {item['point']}")
             if frames is not None and shots is not None:
                 frames.write(data, shots / f"{item['arm']}-{item['point']}-{item['action']}.png")
             return
+        if state is not None:
+            state["cycle"] = f"{row['arm']} → {row['point']} ({stage_label(row['stage'])})"
         print(f"  {row['arm']:<5} {row['point']:<11} {row['label']:<28} {row['stage']:<10} "
               f"({row['target'][0]:.3f}, {row['target'][1]:.3f}, {row['target'][2]:.3f})  "
               f"eroare {row['position_m'] * 1000:6.1f} mm / "
@@ -422,11 +538,14 @@ def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespac
             inspection.ROUTE_SCRAP, None, "comandă")
     elif args.route == "vision":
         sorting_dir = tempfile.mkdtemp(prefix="cncdt-sorting-")
-        router, sorting_frames = vision_router(model, data, args, Path(sorting_dir))
+        router, sorting_frames = vision_router(model, data, args, Path(sorting_dir),
+                                               index=cycle, events=events)
     try:
         result = grasp_cycle.run_cycle(
-            model, data, family, seed=args.seed, settle=args.demo_settle,
-            machining_s=DEMO_MACHINING_S, hook=hook, reporter=reporter, router=router)
+            model, data, family, seed=args.seed + max(0, cycle - 1),
+            settle=args.demo_settle, machining_s=DEMO_MACHINING_S, hook=hook,
+            reporter=reporter, router=router, next_blank=next_blank, status=state,
+            preloaded=preloaded, blank_half_m=blank_half_m)
     finally:
         if frames is not None:
             frames.close()
@@ -447,6 +566,16 @@ def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespac
 
     good = sum(1 for row in result.grasps if row["success"])
     print(f"\nPrinderi: {good}/{len(result.grasps)} reușite")
+    if events is not None:
+        events.add(f"Cycle {cycle} {'FAILED' if failures else 'OK'}: "
+                   f"{good}/{len(result.grasps)} grasps succeeded")
+    if result.preloaded:
+        print("  brațul 1 a pregătit următorul bloc cît brațul 2 a dus piesa la raft")
+        if events is not None:
+            events.add("Arm 1 loaded the next blank while arm 2 sorted the previous part")
+    if state is not None:
+        state["cycle"] = f"cycle {cycle} finished"
+        state["preloaded"] = bool(result.preloaded)
     if failures:
         print(f"\nCiclul: CĂZUT ({len(failures)})")
         for failure in failures:
@@ -460,19 +589,27 @@ def run_demo(model: mujoco.MjModel, data: mujoco.MjData, args: argparse.Namespac
 def panel_python() -> str | None:
     """Interpretul care are Tkinter: venv-ul geamănului nu îl are pe macOS.
 
-    Panoul este un proces separat, deci nu trebuie să ruleze sub `mjpython`. Se încearcă întâi
-    interpretul curent, apoi `python3` din PATH și, pe macOS, Python-ul de sistem, care vine cu
-    Tkinter. Dacă niciunul nu îl are, viewer-ul continuă fără fereastră și spune de ce.
+    Panoul este un proces separat, deci nu trebuie să ruleze sub `mjpython`. Se încearcă întîi
+    interpretul curent, apoi `python3` din PATH și versiunile Homebrew, care aduc Tk 9. Tk 8.5
+    din Python-ul de sistem desenează o fereastră goală pe macOS 27, deci probele cer Tk cel
+    puțin 8.6; dacă niciun interpret nu îl are, se revine la primul cu Tkinter, ca panoul să
+    pornească măcar pe un sistem mai vechi.
     """
-    candidates = (sys.executable, shutil.which("python3"), "/usr/bin/python3")
+    candidates = [sys.executable, shutil.which("python3")]
+    candidates += [shutil.which(name) for name in
+                   ("python3.14", "python3.13", "python3.12", "python3.11")]
+    candidates += ["/opt/homebrew/bin/python3.14", "/usr/local/bin/python3", "/usr/bin/python3"]
+    probe_code = ("import sys, tkinter; "
+                  "sys.exit(0 if tkinter.TkVersion >= 8.6 else 3)")
     seen: set[str] = set()
+    fallback: str | None = None
     for candidate in candidates:
         if not candidate or candidate in seen:
             continue
         seen.add(candidate)
         try:
             probe = subprocess.run(
-                [candidate, "-c", "import tkinter"],
+                [candidate, "-c", probe_code],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=5,
@@ -482,7 +619,9 @@ def panel_python() -> str | None:
             continue
         if probe.returncode == 0:
             return candidate
-    return None
+        if probe.returncode == 3 and fallback is None:
+            fallback = candidate
+    return fallback
 
 
 class ViewerPanel:
@@ -595,6 +734,9 @@ def view(args: argparse.Namespace) -> int:
     for message in messages:
         print(f"  {message}")
     parts = cell.part_bodies(model)
+    events = journal.Journal()
+    state = {"cycle": "pornire"}
+    pacer = pacing.FramePacer(args.view_fps)
     if args.belts:
         print(f"Benzile sunt pornite la {belt.BELT_SURFACE_SPEED_MPS:.3f} m/s; își scot forța la "
               f"{layout.belt_stop_x('belt_in'):.3f} m (banda 1) și "
@@ -603,6 +745,11 @@ def view(args: argparse.Namespace) -> int:
         print("Benzile sunt oprite; `--belts` le pornește.")
     print(f"Ritm de rulare {args.speed:g}x față de timpul real." if args.speed > 0.0
           else "Rulare cât de repede merge (fără ritm real).")
+    if pacer.frames_per_second() > 0.0:
+        print(f"Pași de simulare: {1.0 / float(model.opt.timestep):.0f}/s; fereastra se "
+              f"redesenează la {pacer.frames_per_second():g} cadre/s.")
+    else:
+        print("Fereastra se redesenează la fiecare pas de simulare.")
     steps = args.steps or 0
     started = time.monotonic()
     next_report = 0.0
@@ -614,6 +761,9 @@ def view(args: argparse.Namespace) -> int:
         except Exception as error:  # certificat lipsă ori rețea: mesajul spune ce lipsește
             print(f"Publicarea IoT nu a pornit: {error}", file=sys.stderr)
             return 2
+        events.add(f"IoT Core: connected to {publisher.host}, topic {publisher.topic}")
+    else:
+        events.add("IoT Core: off — data stays local; `--iot` starts publishing")
     sink = DemoTelemetry(publisher) if publisher is not None else None
     # Cu `--iot`, viewer-ul rămîne deschis după ciclu: altfel alarma nu are timp să apară, iar
     # reparația din panou nu ajunge într-o fereastră următoare.
@@ -623,62 +773,149 @@ def view(args: argparse.Namespace) -> int:
         panel = None
     last_wear_time = float(data.time)
     next_status = 0.0
+    next_iot_report = 0.0
+    last_sent = 0
+    last_failed = 0
 
     def tick(work: wear.Work) -> None:
         """Aplică comenzile panoului, avansează uzura și trimite starea înapoi."""
-        nonlocal last_wear_time, next_status
+        nonlocal last_wear_time, next_status, next_iot_report, last_sent, last_failed
         if panel is not None:
             for message in panel.poll():
                 try:
                     detail = session.apply(message)
                 except (KeyError, ValueError, TypeError) as exc:
-                    detail = f"refuzat: {exc}"
+                    detail = f"rejected: {exc}"
                 print(f"Comandă panoul: {detail}", flush=True)
+                events.add(f"Panel command: {detail}")
         dt = max(0.0, float(data.time) - last_wear_time)
         last_wear_time = float(data.time)
         if dt > 0.0:
             session.advance(dt, work)
         if sink is not None:
-            sink.record(model, data, session.model, parts)
+            variant = metadata.get("families", {}).get(
+                str(state.get("family", "")), metadata["part"])
+            sink.record(model, data, session.model, parts,
+                        machine_state=state.get("machine_state", "IDLE"),
+                        cutting=bool(state.get("cutting", False)),
+                        defect=str(variant["defect"]) != "PASS")
+            if publisher is not None:
+                failures = publisher.failed + publisher.rejected
+                if failures != last_failed:
+                    events.add(f"IoT: publish rejected (total {failures})"
+                               + (f" — {publisher.last_error}" if publisher.last_error else ""))
+                    last_failed = failures
+                if last_sent == 0 and publisher.acked > 0:
+                    events.add(f"IoT: first sample acknowledged by IoT Core "
+                               f"({publisher.acked} published)")
+                last_sent = publisher.acked
+                now = time.monotonic()
+                if now >= next_iot_report:
+                    events.add(f"{iot_line(publisher)} · state "
+                               f"{state.get('machine_state', 'IDLE')}")
+                    next_iot_report = now + IOT_REPORT_S
         if panel is not None:
             now = time.monotonic()
             if now >= next_status:
-                panel.send(session.status())
+                status = session.status()
+                status.update({
+                    "pipeline": iot_line(publisher),
+                    "cycle": state["cycle"],
+                    "machine": state.get("machine_state", "IDLE"),
+                    "journal": events.lines(PANEL_JOURNAL_LINES),
+                })
+                panel.send(status)
                 next_status = now + 0.2
 
     try:
         with mujoco.viewer.launch_passive(model, data) as viewer:
             camera.configure_camera(viewer.cam)
+            overlay_text = {"value": ""}
+
+            def refresh_overlay() -> None:
+                """Scrie în fereastră ce se întîmplă: IoT, ciclu, uzură și ultimele evenimente."""
+                status = "\n".join((
+                    "CNCDT — CNC cell (dev)",
+                    iot_line(publisher),
+                    f"Cycle: {state['cycle']}",
+                    f"Machine: {state.get('machine_state', 'IDLE')} · "
+                    f"wear tool {session.model.tool_wear_index():.2f} · "
+                    f"arms {session.model.wear_index('arm1'):.2f}/"
+                    f"{session.model.wear_index('arm2'):.2f}",
+                ))
+                recent = "\n".join(events.lines(VIEWER_JOURNAL_LINES))
+                if status + recent == overlay_text["value"]:
+                    return
+                overlay_text["value"] = status + recent
+                viewer.set_texts([
+                    (mujoco.mjtFontScale.mjFONTSCALE_150,
+                     mujoco.mjtGridPos.mjGRID_TOPLEFT, status, ""),
+                    (mujoco.mjtFontScale.mjFONTSCALE_100,
+                     mujoco.mjtGridPos.mjGRID_BOTTOMLEFT, recent, ""),
+                ])
+
+            refresh_overlay()
+            viewer.sync()
             if args.demo:
                 def hook(model: mujoco.MjModel, data: mujoco.MjData) -> None:
                     """Ține viewer-ul la curent cu starea și ritmul de rulare."""
                     if not viewer.is_running():
                         raise SystemExit(0)
-                    tick(wear.Work(belts=wear.BELT_COMPONENTS, arms=wear.ARM_COMPONENTS))
+                    tick(wear.demo_work(bool(state.get("cutting", False))))
                     if args.speed > 0.0:
                         delay = started + data.time / args.speed - time.monotonic()
                         if delay > 0.0:
                             time.sleep(delay)
-                    viewer.sync()
-
-                code = run_demo(model, data, args, str(metadata["part"]["family"]), hook=hook)
-                if hold:
-                    print("Viewer-ul rămîne deschis după ciclu: injectează uzură ori repară din "
-                          "panou; închide fereastra cînd termini.", flush=True)
-                    while viewer.is_running():
-                        if args.belts:
-                            cell.apply_belt_forces(
-                                model, data, speed_scale=session.model.belt_speed_scales())
-                        mujoco.mj_step(model, data)
-                        tick(wear.Work(belts=wear.BELT_COMPONENTS) if args.belts else wear.Work())
-                        if args.speed > 0.0:
-                            delay = started + data.time / args.speed - time.monotonic()
-                            if delay > 0.0:
-                                time.sleep(delay)
+                    if pacer.due():
+                        refresh_overlay()
                         viewer.sync()
-                        if args.belts and data.time >= next_report:
-                            print(transport_line(model, data, parts), flush=True)
-                            next_report = data.time + REPORT_PERIOD_S
+
+                index = 0
+                code = 0
+                preloaded = False
+                # În bucla demonstrativă, fiecare ciclu prelucrează altă familie, în ordinea
+                # compartimentelor din dulap: cele șase variante ajung pe rînd în raft.
+                rotation = (list(layout.RACK_FAMILIES)
+                            if args.loop and args.family is None
+                            else [str(metadata["part"]["family"])])
+                while viewer.is_running():
+                    index += 1
+                    family = rotation[(index - 1) % len(rotation)]
+                    if sink is not None:
+                        sink.start_cycle(index)
+                    code = run_demo(model, data, args, family,
+                                    hook=hook, events=events, state=state,
+                                    cycle=index, next_blank=args.loop,
+                                    preloaded=preloaded,
+                                    blank_half_m=float(metadata["blank"]["half_height_m"]))
+                    preloaded = bool(state.get("preloaded", False))
+                    if not args.loop or not viewer.is_running():
+                        break
+                    if preloaded:
+                        # Celula nu se resetează: brațul 1 a lăsat deja următorul bloc în
+                        # universal, iar piesa de dinainte stă în raft. Ciclul următor începe
+                        # cu așchierea, nu cu banda 1.
+                        events.add(f"Cycle {index} finished — arm 1 already loaded the next "
+                                   f"blank; cycle {index + 1} starts at the cut")
+                        state["cycle"] = f"cycle {index + 1} starting at the cut"
+                    else:
+                        events.add(f"Cycle {index} finished — resetting the cell; "
+                                   f"the next blank is at the pickup")
+                        state["cycle"] = "resetting the cell for the next part"
+                    state["machine_state"] = "IDLE"
+                    state["cutting"] = False
+                    state["point"] = None
+                    refresh_overlay()
+                    viewer.sync()
+                    if not preloaded:
+                        grasp_cycle.reset_cell(
+                            model, data,
+                            cycle_places(metadata, args,
+                                         rotation[index % len(rotation)]),
+                            settle=max(60, args.demo_settle // 2))
+                    state["cycle"] = f"cycle {index + 1} starting"
+                    refresh_overlay()
+                    viewer.sync()
                 return code
             while viewer.is_running():
                 if args.belts:
@@ -690,7 +927,9 @@ def view(args: argparse.Namespace) -> int:
                     delay = started + data.time / args.speed - time.monotonic()
                     if delay > 0.0:
                         time.sleep(delay)
-                viewer.sync()
+                if pacer.due():
+                    refresh_overlay()
+                    viewer.sync()
                 if args.belts and data.time >= next_report:
                     print(transport_line(model, data, parts), flush=True)
                     next_report = data.time + REPORT_PERIOD_S
@@ -787,6 +1026,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--speed", type=float, default=1.0,
                        help="ritmul de rulare în viewer față de timpul real (implicit 1; "
                             "0 rulează cât de repede merge)")
+    parser.add_argument("--view-fps", type=float, default=pacing.DEFAULT_VIEW_FPS,
+                       help="cîte cadre pe secundă desenează viewer-ul; simularea merge în "
+                            "continuare la 500 de pași/s (implicit "
+                            f"{pacing.DEFAULT_VIEW_FPS:g}; 0 redesenează la fiecare pas)")
+    parser.add_argument("--loop", action=argparse.BooleanOptionalAction, default=True,
+                       help="cu `--view --demo`, reia ciclul la nesfîrșit: următorul bloc brut "
+                            "pleacă pe banda 1 cît brațul 2 sortează piesa de dinainte "
+                            "(implicit pornit; `--no-loop` rulează un singur ciclu)")
     parser.add_argument("--iot", action="store_true",
                        help="publică eșantioanele viewer-ului în IoT Core, din același model de "
                             "uzură pe care îl repară panoul (cere gen-iot-certs.sh)")

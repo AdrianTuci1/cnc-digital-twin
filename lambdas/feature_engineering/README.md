@@ -20,7 +20,8 @@ base64 + JSON. Câmpurile citite:
 
 `schema_version`, `device_id`, `cell_id`, `topic`, `ts_ms`, `machine_state`, `cycle_id`,
 `part_id`, `spindle_load`, `vibration`, `temp_c`, `coolant_flow_lpm`, `joint_effort`,
-`axis_feed`, `tool_wear_index`, `joint_friction_index`, `is_synthetic_defect`.
+`axis_feed`, `tool_wear_index`, `joint_friction_index`, `joint_friction_index_arm1`,
+`joint_friction_index_arm2`, `is_synthetic_defect`.
 
 Cheia de grupare este `(device_id, cell_id, fereastra)`; fereastra este aliniată la epoch, la
 multipli de 60 de secunde.
@@ -41,9 +42,10 @@ schema din catalog. De aceea `core.assemble_response` trece fiecare înregistrar
 
 `core.MODEL_FEATURE_ORDER` este singura listă care decide intrarea modelului, iar ea conține
 doar măsurători: `spindle_load_*`, `vibration_*`, `coolant_flow_lpm`, `temp_c_mean`,
-`axis_feed_mean`. `tool_wear_index` și `joint_friction_index` rămân în contract și hrănesc
-dashboard-ul de degradare, dar nu intră în vector: sunt `1 - h`, adică starea internă a
-motorului de uzură, iar un model care le primește are răspunsul în intrare (ADR 0013).
+`axis_feed_mean`. `tool_wear_index`, `joint_friction_index` și cele două coloane per braț rămân
+în contract și hrănesc dashboard-ul de degradare, dar nu intră în vector: sunt `1 - h`, adică
+starea internă a motorului de uzură, iar un model care le primește are răspunsul în intrare
+(ADR 0013).
 
 Endpoint-ul poate fi un `inference.py` propriu (`{"predictions": [...]}`) ori containerul
 built-in Random Cut Forest (`{"scores": [{"score": ...}]}`). Ambele forme ajung la același

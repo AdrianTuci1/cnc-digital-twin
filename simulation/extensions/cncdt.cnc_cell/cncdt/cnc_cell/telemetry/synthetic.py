@@ -163,6 +163,8 @@ class SyntheticCell:
             "axis_feed": round(max(0.0, feed), 2),
             "tool_wear_index": round(tool.index, 5),
             "joint_friction_index": round(joint.index, 5),
+            "joint_friction_index_arm1": round(joint.index, 5),
+            "joint_friction_index_arm2": round(joint.index, 5),
             "surface_quality": round(tool.surface_quality, 5),
             "coolant_fault": self._coolant_fault,
         }

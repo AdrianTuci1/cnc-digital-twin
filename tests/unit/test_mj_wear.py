@@ -64,6 +64,16 @@ def _failures_of_belts(health: float, seed: int, hours: float = 4.0, step_s: flo
 # ---------------------------------------------------------------- ecuația
 
 
+def test_munca_din_demonstratie_include_scula_doar_in_fereastra_de_aschiere() -> None:
+    """În viewer, uzura se avansează pe pas, nu pe fază: fără `cutting`, CNC-ul nu se uzează."""
+    idle = wear.demo_work(False)
+    cutting = wear.demo_work(True)
+
+    assert set(wear.ARM_COMPONENTS) <= set(idle.components())
+    assert not set(wear.CNC_COMPONENTS) & set(idle.components())
+    assert set(wear.CNC_COMPONENTS) <= set(cutting.components())
+
+
 def test_uzura_ajunge_la_degradat_exact_in_timpul_documentat() -> None:
     """Fiecare componentă ajunge la `h = 0.3` în timpul ei nominal de lucru.
 
@@ -195,6 +205,8 @@ def test_marimile_de_aschiere_ies_din_profilul_nominal() -> None:
     assert reading.coolant_flow_lpm == pytest.approx(model.profile.coolant_lpm)
     assert reading.axis_feed == pytest.approx(model.profile.axis_feed)
     assert reading.tool_wear_index == 0.0
+    assert reading.joint_friction_index_arm1 == 0.0
+    assert reading.joint_friction_index_arm2 == 0.0
     assert reading.surface_quality == 1.0
     assert not reading.coolant_fault
 

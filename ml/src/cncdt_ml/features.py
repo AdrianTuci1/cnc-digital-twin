@@ -231,6 +231,8 @@ def enriched_record(
         "coolant_flow_lpm": round(features.coolant_flow_lpm, 6),
         "temp_c_mean": round(features.temp_c_mean, 6),
         "joint_friction_index": pick("joint_friction_index", 0.0),
+        "joint_friction_index_arm1": pick("joint_friction_index_arm1", 0.0),
+        "joint_friction_index_arm2": pick("joint_friction_index_arm2", 0.0),
         "anomaly_score": pick("anomaly_score", 0.0),
         "anomaly_detected": bool(pick("anomaly_detected", False)),
         "model_version": pick("model_version", "unversioned"),

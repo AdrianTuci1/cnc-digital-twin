@@ -174,8 +174,9 @@ module "lambda_feature_engineering" {
     DATA_LAKE_BUCKET        = module.storage.data_lake_bucket_name
     # Pantele degradării din simulare, din care se estimează RUL publicat în CloudWatch.
     # Se schimbă în același commit cu `.env` (CNCDT_TOOL_WEAR_RATE, CNCDT_JOINT_FRICTION_RATE).
-    TOOL_WEAR_RATE      = tostring(lookup(var.degradation_rates, "cnc", 0))
-    JOINT_FRICTION_RATE = tostring(lookup(var.degradation_rates, "robot", 0))
+    TOOL_WEAR_RATE     = tostring(lookup(var.degradation_rates, "cnc", 0))
+    ARM1_FRICTION_RATE = tostring(lookup(var.degradation_rates, "arm1", 0))
+    ARM2_FRICTION_RATE = tostring(lookup(var.degradation_rates, "arm2", 0))
     # Caracteristicile brute nu se publică în CloudWatch: nu le citește niciun widget sau
     # alarmă, iar fiecare metrică custom costă lunar. Se pornește doar pentru analiză.
     PUBLISH_FEATURE_METRICS = "false"
@@ -531,6 +532,8 @@ module "observability" {
   alarm_email_endpoints = var.alarm_email_endpoints
   alarm_sms_numbers     = var.alarm_sms_numbers
   degradation_elements  = var.degradation_elements
+  telemetry_device_id   = var.telemetry_device_id
+  telemetry_cell_id     = var.telemetry_cell_id
 
   firehose_stream_name          = module.iot_ingestion.firehose_stream_name
   iot_rule_name                 = module.iot_ingestion.topic_rule_name

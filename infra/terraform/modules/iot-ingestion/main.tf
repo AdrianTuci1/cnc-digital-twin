@@ -434,6 +434,14 @@ resource "aws_glue_catalog_table" "telemetry" {
       type = "double"
     }
     columns {
+      name = "joint_friction_index_arm1"
+      type = "double"
+    }
+    columns {
+      name = "joint_friction_index_arm2"
+      type = "double"
+    }
+    columns {
       name = "anomaly_score"
       type = "double"
     }
