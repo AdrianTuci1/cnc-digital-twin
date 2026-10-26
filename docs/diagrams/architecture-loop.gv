@@ -1,55 +1,51 @@
-digraph "CNC Digital Twin — bucla de date și control" {
-	graph [fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 label="CNC Digital Twin — bucla de date și control" newrank=true nodesep=0.9 pad=0.5 rankdir=LR ranksep=1.4 splines=spline]
+digraph "CNC Digital Twin — data and control loop" {
+	graph [fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 label="CNC Digital Twin — data and control loop" newrank=true nodesep=0.9 pad=0.5 rankdir=LR ranksep=1.4 splines=spline]
 	node [fixedsize=true fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 height=1.4 imagescale=true labelloc=b shape=box style=rounded width=1.4]
 	edge [color="#7B8894"]
-	c88f05e9b0f34d039b33c4e32258478a [label=WebRTC height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/onprem/client/client.png" shape=none]
-	"909e53c4a71742b3a1d5f2bfdad160df" [label="AWS VPN" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/network/client-vpn.png" shape=none]
-	"89a88f616e234250a1a9ea1ae5d0e648" -> "321504e2e8174d42ba20c4dac9b5992d" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	"321504e2e8174d42ba20c4dac9b5992d" -> de9fafcc2a4047cc8c9d2e05c3b2756e [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	subgraph cluster_Pipeline {
-		graph [bgcolor="#E5F5FD" fontname="Sans-Serif" fontsize=12 label=Pipeline labeljust=l margin=20 pencolor="#AEB6BE" rankdir=LR shape=box style=rounded]
-		"89a88f616e234250a1a9ea1ae5d0e648" [label="Isaac Sim" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/compute/ec2.png" shape=none]
-		"321504e2e8174d42ba20c4dac9b5992d" [label="IoT Core" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/iot/iot-core.png" shape=none]
-		de9fafcc2a4047cc8c9d2e05c3b2756e [label=Firehose height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/analytics/kinesis-data-firehose.png" shape=none]
+	ab0de9f64cdc482fae82746001449ca4 -> a8a2718fe9324e04918752abbf496545 [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	a8a2718fe9324e04918752abbf496545 -> "462743fc6a8649c48c61a359640cf167" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	subgraph "cluster_Simulation and ingestion" {
+		graph [bgcolor="#E5F5FD" fontname="Sans-Serif" fontsize=12 label="Simulation and ingestion" labeljust=l margin=20 pencolor="#AEB6BE" rankdir=LR shape=box style=rounded]
+		ab0de9f64cdc482fae82746001449ca4 [label="MuJoCo twin
+local viewer + panel" height=2.3 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/onprem/client/client.png" shape=none]
+		a8a2718fe9324e04918752abbf496545 [label="IoT Core" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/iot/iot-core.png" shape=none]
+		"462743fc6a8649c48c61a359640cf167" [label=Firehose height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/analytics/kinesis-data-firehose.png" shape=none]
 	}
 	subgraph "cluster_ML route" {
 		graph [bgcolor="#E5F5FD" fontname="Sans-Serif" fontsize=12 label="ML route" labeljust=l margin=20 pencolor="#AEB6BE" rankdir=LR shape=box style=rounded]
-		"8a3a0827b17042e7a6c4c056b56b585d" [label="S3 raw" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/storage/simple-storage-service-s3.png" shape=none]
-		e85e3f7f37794003849f3f5fd1440e88 [label="Data Wrangler" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/analytics/athena.png" shape=none]
-		c835e629873e4e8bb8228e06d0a02153 [label="ML1 — anomalii" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/ml/sagemaker.png" shape=none]
-		"4532070aadee435182ece7583a28d5c1" [label="ML2 — viziune" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/ml/sagemaker.png" shape=none]
+		ec8eeb5883c040d98d31eca943053b6f [label="S3 raw" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/storage/simple-storage-service-s3.png" shape=none]
+		"2572745e1c3b42569867ec72660e90da" [label="Data Wrangler" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/analytics/athena.png" shape=none]
+		c0496474120641a28a698f1120df94e1 [label="ML1 — anomalies" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/ml/sagemaker.png" shape=none]
+		"412137b510104f04ad9bf9057e3ca4e9" [label="ML2 — vision" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/ml/sagemaker.png" shape=none]
 	}
 	subgraph "cluster_Live route" {
 		graph [bgcolor="#E5F5FD" fontname="Sans-Serif" fontsize=12 label="Live route" labeljust=l margin=20 pencolor="#AEB6BE" rankdir=LR shape=box style=rounded]
-		c58ee9746b4c4ebe928bfe0ac4eb4a02 [label=Transformare height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/compute/lambda.png" shape=none]
-		"077ec9a655964c77a425fea9f3f1ac5a" [label=Viziune height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/compute/lambda.png" shape=none]
+		"57c49490c57c4c15abbb0284dafc9ae7" [label="Feature engineering" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/compute/lambda.png" shape=none]
+		bd8123344ac84485bb5766f540a821b9 [label="Vision QA" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/compute/lambda.png" shape=none]
 	}
-	subgraph cluster_Observabilitate {
-		graph [bgcolor="#E5F5FD" fontname="Sans-Serif" fontsize=12 label=Observabilitate labeljust=l margin=20 pencolor="#AEB6BE" rankdir=LR shape=box style=rounded]
-		"94800e068d3c4b099cde0c82a2375606" [label=CloudWatch height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/management/cloudwatch.png" shape=none]
-		"2ca1c377fa564238b914d74d6ab46309" [label=SNS height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/integration/simple-notification-service-sns.png" shape=none]
+	subgraph cluster_Observability {
+		graph [bgcolor="#E5F5FD" fontname="Sans-Serif" fontsize=12 label=Observability labeljust=l margin=20 pencolor="#AEB6BE" rankdir=LR shape=box style=rounded]
+		"50004ba04c7f44e6bd042b8be41ab199" [label=CloudWatch height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/management/cloudwatch.png" shape=none]
+		"72c9ff094e6b4958869ec8973b18ce57" [label=SNS height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/integration/simple-notification-service-sns.png" shape=none]
 	}
-	subgraph "cluster_Comandă" {
-		graph [bgcolor="#E5F5FD" fontname="Sans-Serif" fontsize=12 label="Comandă" labeljust=l margin=20 pencolor="#AEB6BE" rankdir=LR shape=box style=rounded]
-		"25d7f3bf875f4920a9dbfdbfd774c6cf" [label=Dispatcher height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/compute/lambda.png" shape=none]
-		"24cf6e206c194b628bf6abdb6111952a" [label="Isaac Sim" height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/compute/ec2.png" shape=none]
+	subgraph cluster_Command {
+		graph [bgcolor="#E5F5FD" fontname="Sans-Serif" fontsize=12 label=Command labeljust=l margin=20 pencolor="#AEB6BE" rankdir=LR shape=box style=rounded]
+		"95f7d720fbd94a3d80b62202fa755832" [label=Dispatcher height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/aws/compute/lambda.png" shape=none]
 	}
-	fc90181b58084acaa8bfca155de977af [label=Utilizator height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/onprem/client/user.png" shape=none]
-	c88f05e9b0f34d039b33c4e32258478a -> "909e53c4a71742b3a1d5f2bfdad160df" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	"909e53c4a71742b3a1d5f2bfdad160df" -> "89a88f616e234250a1a9ea1ae5d0e648" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	de9fafcc2a4047cc8c9d2e05c3b2756e -> "8a3a0827b17042e7a6c4c056b56b585d" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	de9fafcc2a4047cc8c9d2e05c3b2756e -> c58ee9746b4c4ebe928bfe0ac4eb4a02 [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	"8a3a0827b17042e7a6c4c056b56b585d" -> e85e3f7f37794003849f3f5fd1440e88 [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 style=invis]
-	e85e3f7f37794003849f3f5fd1440e88 -> c835e629873e4e8bb8228e06d0a02153 [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 style=invis]
-	e85e3f7f37794003849f3f5fd1440e88 -> "4532070aadee435182ece7583a28d5c1" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 style=invis]
-	c835e629873e4e8bb8228e06d0a02153 -> c58ee9746b4c4ebe928bfe0ac4eb4a02 [dir=both fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	"4532070aadee435182ece7583a28d5c1" -> "077ec9a655964c77a425fea9f3f1ac5a" [dir=both fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	c58ee9746b4c4ebe928bfe0ac4eb4a02 -> "94800e068d3c4b099cde0c82a2375606" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	"077ec9a655964c77a425fea9f3f1ac5a" -> "94800e068d3c4b099cde0c82a2375606" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	"94800e068d3c4b099cde0c82a2375606" -> "2ca1c377fa564238b914d74d6ab46309" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	"2ca1c377fa564238b914d74d6ab46309" -> fc90181b58084acaa8bfca155de977af [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	"2ca1c377fa564238b914d74d6ab46309" -> "25d7f3bf875f4920a9dbfdbfd774c6cf" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
-	"25d7f3bf875f4920a9dbfdbfd774c6cf" -> "24cf6e206c194b628bf6abdb6111952a" [color=firebrick dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 style=bold]
-{rank=same; "8a3a0827b17042e7a6c4c056b56b585d"; "c835e629873e4e8bb8228e06d0a02153"; "c58ee9746b4c4ebe928bfe0ac4eb4a02"; "94800e068d3c4b099cde0c82a2375606"}
-{rank=same; "e85e3f7f37794003849f3f5fd1440e88"; "4532070aadee435182ece7583a28d5c1"; "077ec9a655964c77a425fea9f3f1ac5a"; "2ca1c377fa564238b914d74d6ab46309"}
+	e87950195ed84011a9382f2fbfe32953 [label=Operator height=1.9 image="/Users/adrian.tucicovencogmail.com/Projects/cnc-digital-twin/.venv/lib/python3.14/site-packages/resources/onprem/client/user.png" shape=none]
+	"462743fc6a8649c48c61a359640cf167" -> ec8eeb5883c040d98d31eca943053b6f [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"462743fc6a8649c48c61a359640cf167" -> "57c49490c57c4c15abbb0284dafc9ae7" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	ec8eeb5883c040d98d31eca943053b6f -> "2572745e1c3b42569867ec72660e90da" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 style=invis]
+	"2572745e1c3b42569867ec72660e90da" -> c0496474120641a28a698f1120df94e1 [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 style=invis]
+	"2572745e1c3b42569867ec72660e90da" -> "412137b510104f04ad9bf9057e3ca4e9" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 style=invis]
+	c0496474120641a28a698f1120df94e1 -> "57c49490c57c4c15abbb0284dafc9ae7" [dir=both fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"412137b510104f04ad9bf9057e3ca4e9" -> bd8123344ac84485bb5766f540a821b9 [dir=both fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"57c49490c57c4c15abbb0284dafc9ae7" -> "50004ba04c7f44e6bd042b8be41ab199" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	bd8123344ac84485bb5766f540a821b9 -> "50004ba04c7f44e6bd042b8be41ab199" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"50004ba04c7f44e6bd042b8be41ab199" -> "72c9ff094e6b4958869ec8973b18ce57" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"72c9ff094e6b4958869ec8973b18ce57" -> e87950195ed84011a9382f2fbfe32953 [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"72c9ff094e6b4958869ec8973b18ce57" -> "95f7d720fbd94a3d80b62202fa755832" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+	"95f7d720fbd94a3d80b62202fa755832" -> ab0de9f64cdc482fae82746001449ca4 [color=firebrick dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 style=bold]
+{rank=same; "ec8eeb5883c040d98d31eca943053b6f"; "c0496474120641a28a698f1120df94e1"; "57c49490c57c4c15abbb0284dafc9ae7"; "50004ba04c7f44e6bd042b8be41ab199"}
+{rank=same; "2572745e1c3b42569867ec72660e90da"; "412137b510104f04ad9bf9057e3ca4e9"; "bd8123344ac84485bb5766f540a821b9"; "72c9ff094e6b4958869ec8973b18ce57"}
 }

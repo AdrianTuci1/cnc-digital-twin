@@ -14,7 +14,7 @@ coloana. O diagramă produce o singură imagine, fără variante.
 
 | Fișier | Ce arată |
 | --- | --- |
-| `architecture-loop.png` | bucla de date și control: clientul WebRTC, nodul AWS VPN, pipeline-ul (EC2 cu Isaac Sim, IoT Core, Firehose), coloana din mijloc cu ML route (S3 raw, Data Wrangler, cele două modele, pe două rânduri), Live route (Lambda-urile, pe un rând) și Observabilitate (CloudWatch, SNS, pe un rând), apoi Comandă (dispatcher-ul plus simularea, pe un rând) și utilizatorul notificat |
+| `architecture-loop.png` | bucla de date și control: grupul Simulation and ingestion (geamănul MuJoCo local, IoT Core, Firehose, pe un rând), coloana din mijloc cu ML route (S3 raw, Data Wrangler, cele două modele, pe două rânduri), Live route (Lambda-urile, pe un rând) și Observability (CloudWatch, SNS, pe un rând), apoi Command (dispatcher-ul, pe un rând) și operatorul notificat |
 | `architecture-platform.png` | platforma: de la data lake la endpoint, operarea și guvernanța |
 | `cnc-cell-layout.png` | planul celulei CNC, văzut de sus, pe un grid de 0,5 m: banda 1, brațul 1 care încarcă și descarcă mașina, CNC-ul, banda 2 cu sens unic, brațul 2 pe latura sudică a ei, dulapul pe familii cu trei rafturi suprapuse și câte două compartimente de 0,5 m pe raft, la vest de braț, cu fața estică deschisă, lada de rebut de sub capătul de vest al benzii 2, camerele de pe flanșele brațelor, țintele de prindere și fluxul materialului |
 
@@ -50,17 +50,19 @@ Așezarea se gândește pe **coloane** (etapele fluxului) și **rânduri** (ramu
 laterale). Un rang Graphviz înseamnă o coloană, iar nodurile care cad pe ranguri vecine și
 sunt aliniate ajung pe același rând.
 
-Bucla de date și control are cinci coloane:
+Bucla de date și control are patru coloane:
 
-1. clientul **WebRTC**;
-2. nodul **AWS VPN**;
-3. grupul **Pipeline** (EC2 cu Isaac Sim, IoT Core, Firehose), pe un singur rând;
-4. coloana din mijloc, cu trei grupuri una sub alta, pe aceleași două coloane de noduri:
+1. grupul **Simulation and ingestion** (geamănul MuJoCo local, IoT Core, Firehose), pe un
+   singur rând;
+2. coloana din mijloc, cu trei grupuri una sub alta, pe aceleași două coloane de noduri:
    **ML route** (cele două modele pe un rând, S3 raw și Data Wrangler pe rândul de
-   dedesubt), **Live route** (cele două Lambda-uri, pe un rând) și **Observabilitate**
+   dedesubt), **Live route** (cele două Lambda-uri, pe un rând) și **Observability**
    (CloudWatch, SNS, pe un rând);
-5. grupul **Comandă** (dispatcher-ul împreună cu aceeași instanță EC2, desenată din nou ca să
-   închidă bucla), iar la capătul notificării SNS stă, fără grup, pictograma de utilizator.
+3. grupul **Command** (dispatcher-ul), iar la capătul notificării SNS stă, fără grup,
+   pictograma de operator.
+
+Geamănul nu are un nod de rețea înaintea lui: viewer-ul MuJoCo și panoul rulează local, pe
+mașina operatorului, iar telemetria pleacă de acolo direct în IoT Core.
 
 Alinierea coloanei din mijloc se face cu două instrucțiuni `rank=same` scrise la rădăcină,
 după ce toate grupurile s-au închis: `newrank` lasă rangul să treacă peste marginile
@@ -83,19 +85,23 @@ modele: pașii stau în textul documentației, iar muchiile dintre ele sunt invi
 să țină nodurile în aceeași grilă. Singurele săgeți ale grupului pornesc de la modele către
 Lambda-urile rutei live.
 
-Nodurile au nume scurte — WebRTC, AWS VPN, Isaac Sim, IoT Core, Firehose, S3 raw, Data
-Wrangler, ML1, ML2, CloudWatch, SNS, Dispatcher, Utilizator — iar **muchiile nu poartă
-etichete**: ce se întâmplă pe fiecare muchie stă în `docs/01-architecture.md`. Containerul de
-simulare poartă pictograma EC2, fiindcă acolo rulează instanța GPU. Camera de la lamă, coada
-SQS și certificatul IoT rămân în textul documentației, fără nod propriu.
+Nodurile au nume scurte — MuJoCo twin, IoT Core, Firehose, S3 raw, Data Wrangler, ML1, ML2,
+CloudWatch, SNS, Dispatcher, Operator — iar **muchiile nu poartă etichete**: ce se întâmplă
+pe fiecare muchie stă în `docs/01-architecture.md`. Geamănul poartă pictograma de client,
+fiindcă rulează local, pe mașina operatorului. Camera de la lamă, coada SQS și certificatul
+IoT rămân în textul documentației, fără nod propriu.
 
-Pictogramele vin din bibliotecă: AWS VPN este `ClientVpn`. Data Wrangler nu are pictogramă
+Etichetele și titlurile diagramelor sunt în engleză, fiindcă imaginile se citesc din
+`README.md`, care este în engleză; restul documentației rămâne în română.
+
+Pictogramele vin din bibliotecă. Data Wrangler nu are pictogramă
 proprie nici în bibliotecă, nici în pachetul oficial AWS de pictograme de arhitectură
 (verificat pe ediția 31.07.2026; pentru SageMaker are doar AI, Ground Truth și Studio Lab, iar
 ca pictograme de resursă Notebook, Train, Model, Canvas, Shadow Testing și Geospatial ML),
 așa că nodul folosește pictograma de bază de date a serviciului Athena, cu numele schimbat.
-Cele două pictograme SageMaker sunt **același endpoint**, desenat de două ori ca să se vadă ce
-modele deservește: ML1 pentru anomalii și ML2 pentru viziune.
+Cele două pictograme SageMaker sunt cele două endpoint-uri serverless: ML1 pentru anomalii și
+ML2 pentru viziune. În diagrama platformei stau sub un singur nod, ca promovarea să rămână o
+singură muchie.
 
 ## Gridul planului de celulă
 

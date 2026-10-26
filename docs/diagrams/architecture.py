@@ -3,15 +3,15 @@
 Proiectul are două suprafețe de citit, ca și dashboard-urile CloudWatch (ADR 0008), așa că
 scriptul randează **două** diagrame:
 
-1. `architecture-loop` — bucla de date și control: simularea produce telemetrie și cadre QA,
-   AWS le transformă în decizii, verdictul se întoarce ca acțiune fizică în simulare.
+1. `architecture-loop` — bucla de date și control: geamănul MuJoCo produce telemetrie și cadre
+   QA, AWS le transformă în decizii, verdictul se întoarce ca acțiune fizică în simulare.
 2. `architecture-platform` — platforma: ciclul de viață al modelelor, operarea și guvernanța
    (Terraform, rol de operator, backup).
 
-Ambele se citesc stânga→dreapta, pe coloane: fiecare etapă își are coloana. Bucla are cinci
-coloane — clientul, VPN-ul, pipeline-ul, coloana din mijloc (ML route deasupra, Live route la
-mijloc, Observabilitate dedesubt, toate trei una sub alta) și comanda, cu utilizatorul la
-capătul notificării. O diagramă produce o singură imagine.
+Ambele se citesc stânga→dreapta, pe coloane: fiecare etapă își are coloana. Bucla are patru
+coloane — simularea și ingestia, coloana din mijloc (ML route deasupra, Live route la mijloc,
+Observabilitate dedesubt, toate trei una sub alta) și comanda, cu utilizatorul la capătul
+notificării. O diagramă produce o singură imagine.
 
 Rulare (cere `graphviz` instalat și pachetul `diagrams`):
 
@@ -20,8 +20,9 @@ Rulare (cere `graphviz` instalat și pachetul `diagrams`):
     python docs/diagrams/architecture.py loop       # doar bucla
 
 Rezultatul este scris lângă acest fișier: câte un `.png` și câte o sursă Graphviz `.gv`.
-Identificatorii din cod păstrează engleza; etichele din diagramă sunt în română, ca restul
-documentației. Detalii despre componente: `docs/01-architecture.md`.
+Identificatorii din cod și etichetele din diagramă păstrează engleza, fiindcă imaginile se
+citesc din `README.md`; comentariile rămân în română, ca restul codului. Detalii despre
+componente: `docs/01-architecture.md`.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from pathlib import Path
 
 from diagrams import Cluster, Diagram, Edge, Node, getcluster, getdiagram
 from diagrams.aws.analytics import Athena, KinesisDataFirehose
-from diagrams.aws.compute import EC2, Lambda
+from diagrams.aws.compute import Lambda
 from diagrams.aws.integration import SNS
 from diagrams.aws.iot import IotCore
 from diagrams.aws.management import Cloudwatch, CloudwatchAlarm
@@ -42,7 +43,6 @@ from diagrams.aws.ml import (
     SagemakerNotebook,
     SagemakerTrainingJob,
 )
-from diagrams.aws.network import ClientVpn
 from diagrams.aws.security import IAM
 from diagrams.aws.storage import EFS, S3, Backup
 from diagrams.onprem.client import Client, User
@@ -96,14 +96,13 @@ def stem_for(name: str) -> str:
 def build_data_loop(name: str) -> str:
     """Bucla de date și control, pe coloane.
 
-    Coloanele sunt etapele: clientul WebRTC, nodul AWS VPN, pipeline-ul (EC2-ul de simulare →
-    IoT Core → Firehose), coloana din mijloc — ML route deasupra, Live route la mijloc,
-    Observabilitate dedesubt — și comanda, cu utilizatorul în afara grupurilor, la capătul
-    notificării SNS.
+    Coloanele sunt etapele: simularea și ingestia (geamănul MuJoCo → IoT Core → Firehose),
+    coloana din mijloc — ML route deasupra, Live route la mijloc, Observabilitate dedesubt —
+    și comanda, cu utilizatorul în afara grupurilor, la capătul notificării SNS.
 
     Ruta ML stă pe două rânduri: pregătirea offline (S3 brut → Data Wrangler) și cele două
-    modele ale endpoint-ului. Ruta live, observabilitatea și comanda stau fiecare pe câte un
-    singur rând.
+    modele care rulează pe endpoint-uri. Ruta live, observabilitatea și comanda stau fiecare
+    pe câte un singur rând.
 
     Fluxul: Firehose scrie brutul în S3 și trimite fereastra Lambda-ului de transformare.
     Lambda-ul trimite datele modelului și primește verdictul înapoi (o singură muchie, cu vârf
@@ -111,20 +110,16 @@ def build_data_loop(name: str) -> str:
     scurte, iar muchiile nu poartă etichete. Întoarce sursa Graphviz.
     """
     with Diagram(
-        "CNC Digital Twin — bucla de date și control",
+        "CNC Digital Twin — data and control loop",
         filename=str(HERE / stem_for(name)),
         outformat="png",
         show=False,
         direction="LR",
         graph_attr=graph_attr(),
     ) as diagram:
-        browser = Client("WebRTC")
-        # Utilizatorul ține legătura cu instanța prin Client VPN.
-        vpn = ClientVpn("AWS VPN")
-
-        # Containerul de simulare poartă pictograma EC2, fiindcă acolo rulează instanța GPU.
-        with group("Pipeline"):
-            cell = EC2("Isaac Sim")
+        # Geamănul rulează local, pe mașina operatorului: viewer-ul MuJoCo și panoul de uzură.
+        with group("Simulation and ingestion"):
+            cell = Client("MuJoCo twin\nlocal viewer + panel")
             iot = IotCore("IoT Core")
             firehose = KinesisDataFirehose("Firehose")
             cell >> iot >> firehose
@@ -137,28 +132,25 @@ def build_data_loop(name: str) -> str:
         with group("ML route"):
             lake = S3("S3 raw")
             wrangler = Athena("Data Wrangler")
-            model_anomalies = Sagemaker("ML1 — anomalii")
-            model_vision = Sagemaker("ML2 — viziune")
+            model_anomalies = Sagemaker("ML1 — anomalies")
+            model_vision = Sagemaker("ML2 — vision")
 
         with group("Live route"):
-            features = Lambda("Transformare")
-            vision = Lambda("Viziune")
+            features = Lambda("Feature engineering")
+            vision = Lambda("Vision QA")
 
         # Doar Lambda-urile scriu metrice, iar SNS notifică mai departe.
-        with group("Observabilitate"):
+        with group("Observability"):
             metrics = Cloudwatch("CloudWatch")
             notify = SNS("SNS")
 
         # Comanda pe un singur rând, cu utilizatorul în afara grupului, la capătul notificării
         # SNS.
-        with group("Comandă"):
+        with group("Command"):
             dispatcher = Lambda("Dispatcher")
-            cell_end = EC2("Isaac Sim")
-        user = User("Utilizator")
+        user = User("Operator")
 
         # ------------------------------------------------ fluxul, într-un singur sens
-        browser >> vpn >> cell
-
         # Firehose scrie brutul în S3 și invocă Lambda-ul de transformare.
         firehose >> lake
         firehose >> features
@@ -182,7 +174,7 @@ def build_data_loop(name: str) -> str:
         # SNS notifică utilizatorul, în afara grupurilor, și trimite comanda mai departe.
         notify >> user
         notify >> dispatcher
-        dispatcher >> Edge(color="firebrick", style="bold") >> cell_end
+        dispatcher >> Edge(color="firebrick", style="bold") >> cell
 
         # ------------------------------------------------ rândurile coloanei din mijloc
         # Ruta ML, ruta live și observabilitatea stau fiecare pe câte un rând, una sub alta,
@@ -202,51 +194,51 @@ def build_platform(name: str) -> str:
     altfel ar atârna fără legătură lângă flux. Întoarce sursa Graphviz.
     """
     with Diagram(
-        "CNC Digital Twin — platforma: modele, operare, guvernanță",
+        "CNC Digital Twin — platform: models, operations, governance",
         filename=str(HERE / stem_for(name)),
         outformat="png",
         show=False,
         direction="LR",
         graph_attr=graph_attr(),
     ) as diagram:
-        lake = S3("S3 data lake\nParquet partiționat pe oră")
-        athena = Athena("Athena\ninterogări ad-hoc")
-        studio = SagemakerNotebook("Studio + Data Wrangler\nrețetă generată din cod")
-        studio_home = EFS("EFS home Studio\npersistă la destroy")
-        settings_backup = Backup("AWS Backup\nplan zilnic EFS")
+        lake = S3("S3 data lake\nParquet partitioned by hour")
+        athena = Athena("Athena\nad-hoc queries")
+        studio = SagemakerNotebook("Studio + Data Wrangler\nrecipe generated from code")
+        studio_home = EFS("EFS Studio home\nsurvives destroy")
+        settings_backup = Backup("AWS Backup\ndaily EFS plan")
         training = SagemakerTrainingJob(
-            "Antrenare\nmetrice în Experiments\nML1 anomalii · ML2 viziune"
+            "Training\nmetrics in Experiments\nML1 anomalies · ML2 vision"
         )
-        model_store = S3("S3 modele\nmodels/<nume>/<versiune>/")
-        # Un singur endpoint deservesc ambele modele, deci și promovarea e o singură muchie.
-        endpoint = Sagemaker("SageMaker endpoint\nML1 anomalii + ML2 viziune\ncu data capture")
+        model_store = S3("S3 models\nmodels/<name>/<version>/")
+        # Un singur nod ține ambele endpoint-uri, ca promovarea să rămână o singură muchie.
+        endpoint = Sagemaker("SageMaker endpoints\nML1 anomalies + ML2 vision\nserverless")
 
-        with group("Operare (`observability`, ADR 0005 și ADR 0008)"):
-            metrics = Cloudwatch("CloudWatch\ndashboard infra + fabrică")
-            alarms = CloudwatchAlarm("Alarme\ndegradare · RUL · pipeline")
+        with group("Operations (`observability`, ADR 0005 and ADR 0008)"):
+            metrics = Cloudwatch("CloudWatch\ninfra + factory dashboards")
+            alarms = CloudwatchAlarm("Alarms\ndegradation · RUL · pipeline")
             notify = SNS("SNS\nemail + SMS")
 
-        with group("Guvernanță și identitate (ADR 0001 și ADR 0006)"):
-            operator = IAM("Rol de operator\nasumat din admin, fără chei statice")
-            terraform = Terraform("Terraform\nstacks: access · sim · platform")
+        with group("Governance and identity (ADR 0001 and ADR 0006)"):
+            operator = IAM("Operator role\nassumed from admin, no static keys")
+            terraform = Terraform("Terraform\nstacks: access · platform · training-data")
 
         # ------------------------------------------------ ciclul de viață al modelului
-        lake >> Edge(label="caracteristici offline") >> studio
-        lake >> Edge(label="interogări exploratorii") >> athena
-        studio >> Edge(label="ferestre glisante\n+ etichete") >> training
+        lake >> Edge(label="offline features") >> studio
+        lake >> Edge(label="exploratory queries") >> athena
+        studio >> Edge(label="sliding windows\n+ labels") >> training
         training >> Edge(label="model.tar.gz") >> model_store
-        model_store >> Edge(label="promovare\n(ambele modele)", style="dashed") >> endpoint
+        model_store >> Edge(label="promotion\n(both models)", style="dashed") >> endpoint
         studio >> studio_home
-        studio_home >> Edge(label="plan de backup") >> settings_backup
+        studio_home >> Edge(label="backup plan") >> settings_backup
 
         # ------------------------------------------------ operare
-        endpoint >> Edge(label="metrice de invocare") >> metrics
+        endpoint >> Edge(label="invocation metrics") >> metrics
         metrics >> alarms
-        alarms >> Edge(label="notificare") >> notify
+        alarms >> Edge(label="notification") >> notify
 
         # ------------------------------------------------ guvernanță și securitate
-        operator >> Edge(label="rulează") >> terraform
-        terraform >> Edge(style="dashed", label="provisionează") >> studio
+        operator >> Edge(label="runs") >> terraform
+        terraform >> Edge(style="dashed", label="provisions") >> studio
         source = diagram.dot.source
     return source
 

@@ -12,6 +12,11 @@ GitHub nu redă un tag `<video>` care trimite la un fișier din repository, deci
 o miniatură care deschide filmarea. Fișierul `.mp4` se redă în vizualizatorul GitHub când este
 deschis direct.
 
+Editorul web din GitHub acceptă lipirea filmării direct în README: fișierul ajunge găzduit de
+GitHub, iar linkul generat (`https://github.com/user-attachments/assets/...`) se redă inline.
+Copia din `docs/assets/` rămâne rezerva din repository, iar originalul din `~/Movies/` nu se
+urcă.
+
 ### Refacerea copiei comprimate
 
 Originalul rămâne în afara repository-ului (`~/Movies/cnc-mujoco.mov`). Copia se face cu
