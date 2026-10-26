@@ -12,8 +12,10 @@ locals {
 
   control_prefix = var.control_topic_prefix == "" ? "${var.project_name}/${var.environment}" : var.control_topic_prefix
 
-  # Prefixul S3 construit din cheile de partiționare emise de Lambda.
-  s3_prefix = "raw/telemetry/dt_year=!{partitionKeyFromQuery:dt_year}/dt_month=!{partitionKeyFromQuery:dt_month}/dt_day=!{partitionKeyFromQuery:dt_day}/dt_hour=!{partitionKeyFromQuery:dt_hour}/"
+  # Prefixul S3 construit din cheile de partiționare emise de Lambda. Lambda-ul întoarce
+  # `metadata.partitionKeys`, deci prefixul folosește `partitionKeyFromLambda`; varianta
+  # `partitionKeyFromQuery` ar cere în plus un procesor de extragere din JSON.
+  s3_prefix = "raw/telemetry/dt_year=!{partitionKeyFromLambda:dt_year}/dt_month=!{partitionKeyFromLambda:dt_month}/dt_day=!{partitionKeyFromLambda:dt_day}/dt_hour=!{partitionKeyFromLambda:dt_hour}/"
 
   firehose_stream_arn = "arn:aws:firehose:${var.region}:${var.account_id}:deliverystream/${local.name}"
 }
@@ -25,7 +27,8 @@ resource "aws_iot_thing_type" "cnc_cell" {
   name = "${var.project_name}-cnc-cell"
 
   properties {
-    description           = "Celulă CNC simulată (Isaac Sim) cu senzori și cameră de inspecție."
+    # IoT Core acceptă doar ASCII imprimabil în descriere; diacriticele sunt respinse.
+    description           = "Celula CNC simulata (Isaac Sim) cu senzori si camera de inspectie."
     searchable_attributes = ["cell_id", "site", "sim_version"]
   }
 
@@ -53,7 +56,8 @@ resource "aws_iot_thing_group" "cells" {
   parent_group_name = null
 
   properties {
-    description = "Grupul celulelor CNC simulate în ${var.environment}."
+    # Aceeași restricție ca la tipul de thing: numai ASCII imprimabil.
+    description = "Grupul celulelor CNC simulate in ${var.environment}."
     attribute_payload {
       attributes = {
         environment = var.environment

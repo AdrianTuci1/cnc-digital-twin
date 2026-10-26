@@ -683,8 +683,9 @@ Două precizări de onestitate, care se repetă și în `ml/models/`:
 Pentru AWS, `mujoco` se înlocuiește cu un export de ferestre în S3: aceleași coloane, același
 `$schema`. Antrenarea RCF scrie un artefact pe care containerul built-in `randomcutforest:1` îl
 citește direct; Lambda-ul trimite cele nouă valori din `MODEL_FEATURE_ORDER` ca
-`{"instances": [[...]]}` și citește `{"scores": [{"score": ...}]}`. Contractele ambelor modele
-sunt descrise în `ml/inference/README.md`.
+`{"instances": [{"data": {"features": {"values": [...]}}}]}` și citește
+`{"scores": [{"score": ...}]}`. Contractele ambelor modele sunt descrise în
+`ml/inference/README.md`.
 
 Simularea folosește modelele prin două endpoint-uri serverless, amândouă oprite în `dev` până
 există un artefact:

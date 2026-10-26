@@ -96,9 +96,10 @@ variable "buffering_interval_seconds" {
 }
 
 variable "buffering_size_mb" {
-  description = "Dimensiunea maximă a lotului Firehose, în MB."
+  # Cu conversia în Parquet pornită, Firehose cere cel puțin 64 MB pe lot.
+  description = "Dimensiunea maximă a lotului Firehose, în MB; conversia în Parquet cere minim 64."
   type        = number
-  default     = 5
+  default     = 64
 }
 
 variable "firehose_lambda_buffer_mb" {

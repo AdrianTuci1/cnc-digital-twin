@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import ssl
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -72,13 +73,14 @@ class IotPublisher:
         self.host = host
         self.sent = 0
         self.failed = 0
+        self.client_id = client_id or env.get("CNCDT_MQTT_CLIENT_ID", "cncdt-mujoco")
 
         import paho.mqtt.client as mqtt
 
         self._mqtt = mqtt
         self._client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
-            client_id=client_id or env.get("CNCDT_MQTT_CLIENT_ID", "cncdt-mujoco"),
+            client_id=self.client_id,
             protocol=mqtt.MQTTv311)
         self._client.tls_set(
             ca_certs=str(directory / CA_FILE),
@@ -88,6 +90,18 @@ class IotPublisher:
         self._client.reconnect_delay_set(min_delay=1, max_delay=30)
         self._client.connect(host, self.port, keepalive=30)
         self._client.loop_start()
+
+        # IoT Core acceptă TCP înainte să verifice politica, deci o conexiune refuzată apare ca
+        # deconectare imediată. Așteptăm CONNACK ca `--iot` să spună ce lipsește, în loc să
+        # numere eșecuri în timpul demonstrației.
+        deadline = time.monotonic() + 5.0
+        while not self._client.is_connected() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if not self._client.is_connected():
+            self.close()
+            raise RuntimeError(
+                f"conexiunea MQTT către {host} nu s-a stabilit; verifică certificatul și "
+                f"client id-ul ({self.client_id})")
 
     def publish(self, record: Mapping[str, Any]) -> None:
         """Trimite un eșantion; o eroare de rețea nu oprește simularea."""

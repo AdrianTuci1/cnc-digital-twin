@@ -18,7 +18,7 @@ firehose_enable_backup      = true
 # Hot path
 anomaly_threshold         = 3
 lambda_log_retention_days = 7
-alarm_email_endpoints     = []
+alarm_email_endpoints     = ["adrian.tucicovenco+cncalerts@gmail.com"]
 
 # Studio: pornit, dar cu instanțe mici și oprire automată agresivă.
 enable_sagemaker_studio           = true

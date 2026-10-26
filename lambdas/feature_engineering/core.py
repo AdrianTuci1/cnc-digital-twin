@@ -200,8 +200,17 @@ def feature_vector(record: Mapping[str, Any]) -> list[float]:
 
 
 def endpoint_body(records: Sequence[Mapping[str, Any]]) -> str:
-    """Corpul cererii către endpoint, în formatul containerului scikit-learn."""
-    return json.dumps({"instances": [feature_vector(record) for record in records]})
+    """Corpul cererii către containerul Random Cut Forest.
+
+    Containerul built-in nu primește listele plate: fiecare punct are forma
+    ``{"data": {"features": {"values": [...]}}}``. O listă plată, deși JSON valid, se
+    întoarce cu „unable to evaluate payload provided”.
+    """
+    instances = [
+        {"data": {"features": {"values": feature_vector(record)}}}
+        for record in records
+    ]
+    return json.dumps({"instances": instances})
 
 
 def parse_endpoint_response(body: str | bytes) -> list[dict[str, Any]]:

@@ -39,11 +39,16 @@ if [[ ! -f "${SECRETS_DIR}/AmazonRootCA1.pem" ]]; then
 fi
 
 IOT_ENDPOINT="$(cd "${STACK_DIR}" && terraform output -raw iot_endpoint)"
+IOT_THING="$(cd "${STACK_DIR}" && terraform output -raw iot_thing_name)"
+# Topicul de publicare, construit ca în `cncdt_mj/telemetry.py`; filtrul din Terraform are
+# wildcarduri (`cncdt/+/cnc/+/telemetry`), iar un client MQTT nu poate publica pe ele.
+CELL_ID="${CNCDT_CELL_ID:-cell-a}"
 cat > "${SECRETS_DIR}/iot-endpoint.env" <<EOF
 # Generat de simulation/scripts/gen-iot-certs.sh
 CNCDT_MQTT_HOST=${IOT_ENDPOINT}
 CNCDT_MQTT_PORT=8883
-CNCDT_TELEMETRY_TOPIC=$(cd "${STACK_DIR}" && terraform output -raw telemetry_topic_filter | sed 's/+/cell-a/')
+CNCDT_MQTT_CLIENT_ID=${IOT_THING}
+CNCDT_TELEMETRY_TOPIC=cncdt/${ENVIRONMENT}/cnc/${CELL_ID}/telemetry
 CNCDT_CERT_DIR=${SECRETS_DIR}
 EOF
 chmod 600 "${SECRETS_DIR}/iot-endpoint.env"

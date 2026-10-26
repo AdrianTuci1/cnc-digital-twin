@@ -221,7 +221,8 @@ def test_feature_vector_zero_fills_missing() -> None:
 
 def test_endpoint_body_and_response_roundtrip() -> None:
     body = core.endpoint_body([{name: 1.0 for name in core.MODEL_FEATURE_ORDER}])
-    assert json.loads(body)["instances"][0] == [1.0] * len(core.MODEL_FEATURE_ORDER)
+    instance = json.loads(body)["instances"][0]
+    assert instance["data"]["features"]["values"] == [1.0] * len(core.MODEL_FEATURE_ORDER)
 
     scores = core.parse_endpoint_response(json.dumps({"predictions": [0.1, 0.9]}))
     assert [item["anomaly_score"] for item in scores] == [0.1, 0.9]
