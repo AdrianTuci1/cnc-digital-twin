@@ -12,10 +12,11 @@ GitHub nu redă un tag `<video>` care trimite la un fișier din repository, deci
 o miniatură care deschide filmarea. Fișierul `.mp4` se redă în vizualizatorul GitHub când este
 deschis direct.
 
-Editorul web din GitHub acceptă lipirea filmării direct în README: fișierul ajunge găzduit de
-GitHub, iar linkul generat (`https://github.com/user-attachments/assets/...`) se redă inline.
-Copia din `docs/assets/` rămâne rezerva din repository, iar originalul din `~/Movies/` nu se
-urcă.
+README-ul folosește un link `https://github.com/user-attachments/assets/...`, găzduit de
+GitHub, care se redă ca player inline, fără descărcare. Fișierul a fost urcat cu
+`gh issue create --attach`, iar tichetul temporar a fost șters după ce linkul a fost copiat în
+README; asset-ul rămâne public. Copia din `docs/assets/` este rezerva din repository, iar
+originalul din `~/Movies/` nu se urcă.
 
 ### Refacerea copiei comprimate
 

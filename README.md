@@ -1,13 +1,11 @@
 # CNC Digital Twin — Enterprise Serverless
 
-<!-- GitHub does not render a <video> tag from a repository file; the thumbnail opens the MP4.
-     The GitHub web editor produces a `user-attachments` URL that plays inline — swap it in
-     here once the video is uploaded there. -->
-[![Demo video — the full CNC Digital Twin loop](docs/assets/cnc-mujoco-demo.jpg)](docs/assets/cnc-mujoco-demo.mp4)
+https://github.com/user-attachments/assets/3f3ad091-1ff2-4093-8480-c95788d2b55a
 
-**Demo video:** [the full loop, 2 min 30 s](docs/assets/cnc-mujoco-demo.mp4) — a compressed
-copy of the recording (1280×720, 6.3 MB). The original stays in `~/Movies/cnc-mujoco.mov`,
-untouched. Compression details: [`docs/assets/README.md`](docs/assets/README.md).
+**Demo video:** the full loop, 2 min 30 s, 1280×720, 6.3 MB. The repository copy lives in
+[`docs/assets/cnc-mujoco-demo.mp4`](docs/assets/cnc-mujoco-demo.mp4); the original recording
+stays in `~/Movies/cnc-mujoco.mov`, untouched. Compression details:
+[`docs/assets/README.md`](docs/assets/README.md).
 
 An industrial digital twin of a CNC machining and quality-inspection cell. The physics
 simulation runs locally in MuJoCo on the CPU: two Franka arms, a CNC machine, two conveyors,
