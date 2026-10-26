@@ -123,12 +123,12 @@ variable "degradation_elements" {
   }))
   default = {
     cnc = {
-      label            = "Mașina CNC (uzura sculei)"
+      label            = "CNC machine (tool wear)"
       warn_threshold   = 0.7
       warn_rul_minutes = 15
     }
     robot = {
-      label            = "Brațul robotic (frecarea articulațiilor)"
+      label            = "Robot arms (joint friction)"
       warn_threshold   = 0.7
       warn_rul_minutes = 15
     }

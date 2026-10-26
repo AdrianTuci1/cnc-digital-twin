@@ -74,7 +74,7 @@ resource "aws_cloudwatch_metric_alarm" "firehose_delivery_failures" {
   statistic           = "Maximum"
   threshold           = 300
   treat_missing_data  = "notBreaching"
-  alarm_description   = "Firehose nu a livrat date în S3 în ultimele 5 minute."
+  alarm_description   = "Firehose has not delivered data to S3 in the last 5 minutes."
 
   dimensions = {
     DeliveryStreamName = var.firehose_stream_name
@@ -96,7 +96,7 @@ resource "aws_cloudwatch_metric_alarm" "firehose_throttled" {
   statistic           = "Sum"
   threshold           = 0
   treat_missing_data  = "notBreaching"
-  alarm_description   = "Firehose a limitat înregistrări: verificați limita de debit sau de invocări Lambda."
+  alarm_description   = "Firehose throttled records: check the throughput limit or the Lambda invocation limit."
 
   dimensions = {
     DeliveryStreamName = var.firehose_stream_name
@@ -134,7 +134,7 @@ resource "aws_cloudwatch_metric_alarm" "process_anomaly" {
   statistic           = "Sum"
   threshold           = var.anomaly_alarm_threshold
   treat_missing_data  = "notBreaching"
-  alarm_description   = "Modelul de predictive maintenance a marcat ferestre anomale repetate: posibilă uzură de sculă sau defect mecanic."
+  alarm_description   = "The predictive-maintenance model flagged repeated anomalous windows: possible tool wear or mechanical fault."
 
   alarm_actions = local.sns_topic_arn == "" ? [] : [local.sns_topic_arn]
   ok_actions    = local.sns_topic_arn == "" ? [] : [local.sns_topic_arn]
@@ -154,7 +154,7 @@ resource "aws_cloudwatch_metric_alarm" "endpoint_latency" {
   extended_statistic  = "p95"
   threshold           = 800000 # microsecunde: 800 ms
   treat_missing_data  = "notBreaching"
-  alarm_description   = "Latența p95 a modelului ${each.value} depășește 800 ms: bucla de control devine prea lentă."
+  alarm_description   = "The ${each.value} model p95 latency exceeds 800 ms: the control loop becomes too slow."
 
   dimensions = {
     EndpointName = each.value
@@ -178,7 +178,7 @@ resource "aws_cloudwatch_metric_alarm" "endpoint_5xx" {
   statistic           = "Sum"
   threshold           = 0
   treat_missing_data  = "notBreaching"
-  alarm_description   = "Endpoint-ul ${each.value} returnează erori 5xx."
+  alarm_description   = "The ${each.value} endpoint returns 5xx errors."
 
   dimensions = {
     EndpointName = each.value
@@ -191,7 +191,7 @@ resource "aws_cloudwatch_metric_alarm" "endpoint_5xx" {
 }
 
 # ---------------------------------------------------------------- degradare
-# Alarma urmărește metrica, iar metrica o resetează reparația din panoul Isaac Sim
+# Alarma urmărește metrica, iar metrica o resetează reparația din panoul MuJoCo
 # (replace_tool / repair_joints / repair_all). De aceea alarma se stinge singură, în cel mult
 # o perioadă de evaluare după intervenție, și trimite și notificarea de revenire în OK.
 resource "aws_cloudwatch_metric_alarm" "degradation_index" {
@@ -206,7 +206,7 @@ resource "aws_cloudwatch_metric_alarm" "degradation_index" {
   evaluation_periods  = 1
   threshold           = each.value.warn_threshold
   treat_missing_data  = "notBreaching"
-  alarm_description   = "${each.value.label}: indicele de degradare a depășit ${each.value.warn_threshold}. După intervenție, rulați „Repară tot” în panoul Isaac Sim; alarma se stinge când indicele scade sub prag."
+  alarm_description   = "${each.value.label}: degradation index exceeded ${each.value.warn_threshold}. After service, choose 'Repair all' in the MuJoCo viewer; the alarm clears when the index drops below the threshold."
 
   dimensions = {
     Element = each.key
@@ -233,7 +233,7 @@ resource "aws_cloudwatch_metric_alarm" "degradation_rul" {
   evaluation_periods  = 1
   threshold           = each.value.warn_rul_minutes
   treat_missing_data  = "notBreaching"
-  alarm_description   = "${each.value.label}: mai puțin de ${each.value.warn_rul_minutes} minute de operare până la pragul de avarie. Programați intervenția."
+  alarm_description   = "${each.value.label}: less than ${each.value.warn_rul_minutes} operating minutes until the failure threshold. Schedule service."
 
   dimensions = {
     Element = each.key
@@ -265,7 +265,7 @@ resource "aws_cloudwatch_metric_alarm" "backup_jobs_failed" {
     BackupVaultName = var.backup_vault_name
   }
 
-  alarm_description = "Un job de backup AWS a eșuat în ultimele 24 de ore."
+  alarm_description = "An AWS Backup job failed in the last 24 hours."
   alarm_actions     = local.sns_topic_arn == "" ? [] : [local.sns_topic_arn]
 
   tags = local.tags
@@ -290,7 +290,7 @@ resource "aws_cloudwatch_dashboard" "infra" {
           width  = 24
           height = 4
           properties = {
-            title = "Starea infrastructurii"
+            title = "Infrastructure health"
             alarms = compact([
               "${local.alarm_arn_prefix}${local.name}-firehose-delivery-failures",
               "${local.alarm_arn_prefix}${local.name}-firehose-throttled",
@@ -310,7 +310,7 @@ resource "aws_cloudwatch_dashboard" "infra" {
           width  = 12
           height = 6
           properties = {
-            title  = "Ingestie IoT și micro-batching Firehose"
+            title  = "IoT ingestion and Firehose micro-batching"
             region = var.region
             view   = "timeSeries"
             stat   = "Sum"
@@ -320,7 +320,7 @@ resource "aws_cloudwatch_dashboard" "infra" {
               ["AWS/Firehose", "IncomingBytes", "DeliveryStreamName", var.firehose_stream_name],
               ["AWS/Firehose", "DeliveryToS3.Records", "DeliveryStreamName", var.firehose_stream_name],
             ]
-            yAxis = { left = { label = "înregistrări", showUnits = false } }
+            yAxis = { left = { label = "records", showUnits = false } }
           }
         },
         {
@@ -330,7 +330,7 @@ resource "aws_cloudwatch_dashboard" "infra" {
           width  = 12
           height = 6
           properties = {
-            title  = "Lambda de feature engineering"
+            title  = "Feature engineering Lambda"
             region = var.region
             view   = "timeSeries"
             period = 60
@@ -352,7 +352,7 @@ resource "aws_cloudwatch_dashboard" "infra" {
           width  = 12
           height = 6
           properties = {
-            title  = "Endpoint-uri SageMaker"
+            title  = "SageMaker endpoints"
             region = var.region
             view   = "timeSeries"
             period = 60
@@ -362,8 +362,8 @@ resource "aws_cloudwatch_dashboard" "infra" {
               [for ep in var.sagemaker_endpoint_names : ["AWS/SageMaker", "Invocation5XXErrors", "EndpointName", ep, "VariantName", "AllTraffic", { stat = "Sum", color = "#d62728" }]],
             )
             yAxis = {
-              left  = { label = "invocări", showUnits = false }
-              right = { label = "latență (µs)", showUnits = false }
+              left  = { label = "invocations", showUnits = false }
+              right = { label = "latency (µs)", showUnits = false }
             }
           }
         },
@@ -374,7 +374,7 @@ resource "aws_cloudwatch_dashboard" "infra" {
           width  = 12
           height = 6
           properties = {
-            title  = "Sănătatea pipeline-ului de date"
+            title  = "Data pipeline health"
             region = var.region
             view   = "timeSeries"
             period = 60
@@ -387,7 +387,7 @@ resource "aws_cloudwatch_dashboard" "infra" {
               # local, deci lipsa modelului trebuie să fie vizibilă, nu tăcută.
               [local.telemetry_namespace, "QaModelMissing", { stat = "Sum", color = "#9467bd" }],
             ]
-            yAxis = { left = { label = "pe minut", showUnits = false } }
+            yAxis = { left = { label = "per minute", showUnits = false } }
           }
         },
       ],
@@ -401,7 +401,7 @@ resource "aws_cloudwatch_dashboard" "infra" {
           width  = 12
           height = 6
           properties = {
-            title  = "Instanța de simulare (GPU)"
+            title  = "Simulation instance (GPU)"
             region = var.region
             view   = "timeSeries"
             period = 60
@@ -424,7 +424,7 @@ resource "aws_cloudwatch_dashboard" "infra" {
           width  = 12
           height = 6
           properties = {
-            title  = "Erori recente în pipeline"
+            title  = "Recent pipeline errors"
             region = var.region
             view   = "table"
             query  = "SOURCE '/aws/lambda/${var.project_name}-${var.environment}-feature-engineering' | fields @timestamp, level, message, cycle_id\n| filter level = \"ERROR\" or level = \"WARNING\"\n| sort @timestamp desc\n| limit 25"
@@ -442,7 +442,7 @@ resource "aws_cloudwatch_dashboard" "infra" {
           width  = 24
           height = 2
           properties = {
-            markdown = "### Analiză\n[Deschide notebook-ul de analiză](${var.dashboard_anomaly_widget_link})"
+            markdown = "### Analysis\n[Open the analysis notebook](${var.dashboard_anomaly_widget_link})"
           }
         },
       ],
@@ -468,7 +468,7 @@ resource "aws_cloudwatch_dashboard" "factory" {
           width  = 24
           height = 4
           properties = {
-            title = "Sănătatea celulei"
+            title = "Cell health"
             alarms = compact(concat(
               [for key, element in var.degradation_elements : "${local.alarm_arn_prefix}${local.name}-${key}-degradation"],
               [for key, element in var.degradation_elements : element.warn_rul_minutes > 0 ? "${local.alarm_arn_prefix}${local.name}-${key}-rul-low" : ""],
@@ -487,17 +487,17 @@ resource "aws_cloudwatch_dashboard" "factory" {
           width  = 12
           height = 6
           properties = {
-            title   = "Producție pe oră: piese bune și rebut"
+            title   = "Hourly production: good parts and scrap"
             region  = var.region
             view    = "timeSeries"
             period  = 3600
             stat    = "Sum"
             stacked = true
             metrics = [
-              [local.telemetry_namespace, "PartsGood", { label = "piese bune", color = "#2ca02c" }],
-              [local.telemetry_namespace, "PartsScrap", { label = "rebut", color = "#d62728" }],
+              [local.telemetry_namespace, "PartsGood", { label = "good parts", color = "#2ca02c" }],
+              [local.telemetry_namespace, "PartsScrap", { label = "scrap", color = "#d62728" }],
             ]
-            yAxis = { left = { label = "piese pe oră", showUnits = false } }
+            yAxis = { left = { label = "parts per hour", showUnits = false } }
           }
         },
         {
@@ -507,12 +507,12 @@ resource "aws_cloudwatch_dashboard" "factory" {
           width  = 12
           height = 6
           properties = {
-            title  = "Rata de rebut"
+            title  = "Scrap rate"
             region = var.region
             view   = "timeSeries"
             period = 3600
             metrics = [
-              [{ expression = "100 * scrap / (good + scrap)", label = "rebut (%)", id = "rate" }],
+              [{ expression = "100 * scrap / (good + scrap)", label = "scrap (%)", id = "rate" }],
               [local.telemetry_namespace, "PartsGood", { id = "good", stat = "Sum", visible = false }],
               [local.telemetry_namespace, "PartsScrap", { id = "scrap", stat = "Sum", visible = false }],
             ]
@@ -529,7 +529,7 @@ resource "aws_cloudwatch_dashboard" "factory" {
         width  = 8
         height = 6
         properties = {
-          title  = "Degradare: ${var.degradation_elements[key].label}"
+          title  = "Degradation: ${var.degradation_elements[key].label}"
           region = var.region
           view   = "gauge"
           period = 60
@@ -537,10 +537,10 @@ resource "aws_cloudwatch_dashboard" "factory" {
           metrics = [
             [local.telemetry_namespace, "DegradationIndex", "Element", key, { label = key }],
           ]
-          yAxis = { left = { min = 0, max = 1, label = "indice", showUnits = false } }
+          yAxis = { left = { min = 0, max = 1, label = "index", showUnits = false } }
           annotations = {
             horizontal = [
-              { label = "prag de alarmă", value = var.degradation_elements[key].warn_threshold, fill = "above" },
+              { label = "alarm threshold", value = var.degradation_elements[key].warn_threshold, fill = "above" },
             ]
           }
         }
@@ -556,7 +556,7 @@ resource "aws_cloudwatch_dashboard" "factory" {
           width  = 12
           height = 6
           properties = {
-            title  = "Timp până la pragul de avarie (minute de operare)"
+            title  = "Time to failure threshold (operating minutes)"
             region = var.region
             view   = "timeSeries"
             period = 60
@@ -565,11 +565,11 @@ resource "aws_cloudwatch_dashboard" "factory" {
               for key in local.factory_elements :
               [local.telemetry_namespace, "RULMinutes", "Element", key, { label = key }]
             ]
-            yAxis = { left = { label = "minute", min = 0, showUnits = false } }
+            yAxis = { left = { label = "minutes", min = 0, showUnits = false } }
             annotations = length(var.degradation_elements) == 0 ? {} : {
               horizontal = [
                 {
-                  label = "prag de intervenție"
+                  label = "service threshold"
                   value = min([for element in values(var.degradation_elements) : element.warn_rul_minutes]...)
                   fill  = "below"
                 },
@@ -584,17 +584,17 @@ resource "aws_cloudwatch_dashboard" "factory" {
           width  = 12
           height = 6
           properties = {
-            title  = "Anomalii detectate de model"
+            title  = "Model-detected anomalies"
             region = var.region
             view   = "timeSeries"
             period = 60
             metrics = [
-              [local.telemetry_namespace, "AnomalyDetectedWindows", { stat = "Sum", label = "ferestre anomale" }],
-              [local.telemetry_namespace, "AnomalyScore", { stat = "Average", label = "scor", yAxis = "right" }],
+              [local.telemetry_namespace, "AnomalyDetectedWindows", { stat = "Sum", label = "anomalous windows" }],
+              [local.telemetry_namespace, "AnomalyScore", { stat = "Average", label = "score", yAxis = "right" }],
             ]
             annotations = {
               horizontal = [
-                { label = "prag alarmă", value = var.anomaly_alarm_threshold },
+                { label = "alarm threshold", value = var.anomaly_alarm_threshold },
               ]
             }
           }
@@ -610,10 +610,10 @@ resource "aws_cloudwatch_dashboard" "factory" {
           height = 2
           properties = {
             markdown = join("\n", [
-              "### Cum se citesc panourile",
-              "**Producție pe oră** — `PartsGood` și `PartsScrap`, însumate pe o oră de ceas.",
-              "**Degradare** — indice de la 0 la 1, cu pragul de alarmă marcat; reparația din panoul Isaac Sim îl readuce la 0, iar alarma se stinge singură.",
-              "**Timp până la pragul de avarie** — minute de operare continuă, calculate din panta degradării; cât timp celula stă, estimarea nu scade.",
+              "### How to read the panels",
+              "**Hourly production** — `PartsGood` and `PartsScrap`, summed over a clock hour.",
+              "**Degradation** — index from 0 to 1, with the alarm threshold drawn; repair from the MuJoCo viewer brings it down and the alarm clears by itself.",
+              "**Time to failure threshold** — continuous operating minutes, derived from the degradation slope; while the cell is idle, the estimate does not drop.",
             ])
           }
         },
@@ -626,7 +626,7 @@ resource "aws_cloudwatch_dashboard" "factory" {
 # Un singur semnal de „pipeline degradat”, folosit în demo și în notificări.
 resource "aws_cloudwatch_composite_alarm" "pipeline_degraded" {
   alarm_name        = "${local.name}-pipeline-degraded"
-  alarm_description = "Cel puțin o componentă critică a pipeline-ului este în stare de alarmă."
+  alarm_description = "At least one critical pipeline component is in alarm."
 
   alarm_rule = join(" OR ", concat(
     ["ALARM(\"${aws_cloudwatch_metric_alarm.firehose_delivery_failures.alarm_name}\")"],
