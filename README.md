@@ -1,10 +1,11 @@
 # CNC Digital Twin — Enterprise Serverless
 
-<!-- Video demonstrativ: înlocuiți linkul de mai jos. Detalii în docs/assets/README.md -->
-[![Video demonstrativ — bucla completă CNC Digital Twin](docs/assets/demo-thumbnail.svg)](https://REPLACE-CU-LINK-VIDEO)
+<!-- GitHub nu redă <video> dintr-un fișier din repo; miniatura deschide filmarea. -->
+[![Video demonstrativ — bucla completă CNC Digital Twin](docs/assets/cnc-mujoco-demo.jpg)](docs/assets/cnc-mujoco-demo.mp4)
 
-**Video demonstrativ:** înlocuiți `https://REPLACE-CU-LINK-VIDEO` cu înregistrarea buclei
-complete. Miniatura și instrucțiunile: [`docs/assets/README.md`](docs/assets/README.md).
+**Video demonstrativ:** [bucla completă, 2 min 30 s](docs/assets/cnc-mujoco-demo.mp4) — copie
+comprimată a înregistrării (1280×720, 6,3 MB). Originalul rămâne în `~/Movies/cnc-mujoco.mov`,
+neatins. Detalii despre compresie: [`docs/assets/README.md`](docs/assets/README.md).
 
 Geamăn digital industrial pentru o celulă de prelucrare CNC și inspecție de calitate:
 simularea fizică rulează în NVIDIA Isaac Sim, telemetria și cadrele de inspecție ajung în AWS,

@@ -4,17 +4,34 @@ Aici stau fișierele media folosite în documentație.
 
 ## Video demonstrativ
 
-README-ul are, în partea de sus, un slot de video care trimite la o înregistrare externă.
-Ca să îl activați:
+`cnc-mujoco-demo.mp4` este copia comprimată a înregistrării buclei complete: 2 min 30 s,
+1280×720, 30 fps, H.264 fără audio, 6,3 MB. Miniatura `cnc-mujoco-demo.jpg` este un cadru din
+filmare, la secunda 30, când se văd simultan brațele, gauge-urile per braț și dashboard-ul.
 
-1. Urcați înregistrarea (YouTube, Loom, S3 cu link public sau orice URL stabil) și copiați linkul.
-2. În `README.md`, înlocuiți `https://REPLACE-CU-LINK-VIDEO` cu linkul.
-3. Opțional, înlocuiți miniatura `docs/assets/demo-thumbnail.svg` cu un cadru din video
-   (`.png` sau `.jpg`, ~1280×720). Dacă schimbați numele fișierului, actualizați calea din README.
+GitHub nu redă un tag `<video>` care trimite la un fișier din repository, deci README-ul folosește
+o miniatură care deschide filmarea. Fișierul `.mp4` se redă în vizualizatorul GitHub când este
+deschis direct.
 
-Miniatura actuală este un `svg` scris de mână, ca slot-ul să arate intenționat până există filmarea.
+### Refacerea copiei comprimate
+
+Originalul rămâne în afara repository-ului (`~/Movies/cnc-mujoco.mov`). Copia se face cu
+`ffmpeg`, păstrând rezoluția și fără audio:
+
+```bash
+ffmpeg -i ~/Movies/cnc-mujoco.mov -an -c:v libx264 -preset slow -crf 22 \
+  -pix_fmt yuv420p -movflags +faststart -map_metadata -1 \
+  docs/assets/cnc-mujoco-demo.mp4
+```
+
+Un cadru pentru miniatură:
+
+```bash
+ffmpeg -ss 30 -i docs/assets/cnc-mujoco-demo.mp4 -frames:v 1 -q:v 2 \
+  docs/assets/cnc-mujoco-demo.jpg
+```
 
 ## Reguli
 
 - Fără capturi cu date reale de client sau credențiale în imagini.
-- Fișierele mari (peste ~10 MB) se pun în S3, nu în git; în README se pune linkul.
+- Fișierele peste ~10 MB se pun în S3, nu în git; în README se pune linkul. Copia comprimată
+  de aici stă sub acest prag.
